@@ -46,7 +46,7 @@ jobs:
           path: ~/.cache/huggingface
           key: micc-models-tr-v2
       - name: Cài Whisper + Qwen
-        run: pip install -q faster-whisper huggingface_hub llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+        run: pip install -q faster-whisper 'av<14' huggingface_hub llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
       - name: Chép lời + tóm tắt các bản ghi âm
         env:
           MICC_API: ${{ secrets.MICC_API }}
