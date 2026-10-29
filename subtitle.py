@@ -71,7 +71,12 @@ def do_job(job, token):
     wav = os.path.join(TMP, job['id'] + '.wav')
     try:
         url = '%s/drive/v3/files/%s?alt=media&supportsAllDrives=true' % (G, job['id'])
-        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-headers', 'Authorization: Bearer %s\r\n' % token, '-i', url, '-vn', '-ac', '1', '-ar', '16000', wav], check=True, timeout=3600)
+        pr = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-headers', 'Authorization: Bearer %s\r\n' % token, '-i', url, '-vn', '-ac', '1', '-ar', '16000', wav], capture_output=True, text=True, timeout=3600)
+        if pr.returncode != 0:
+            err = (pr.stderr or '').strip()[-300:]
+            if re.search(r'does not contain any stream|matches no streams|no audio', err, re.I):
+                api('subSave', id=job['id'], lang='und', orig='WEBVTT\n\n', vi='WEBVTT\n\n'); log('  ∅', job['name'], '(video không có tiếng)'); return True
+            raise RuntimeError('ffmpeg: ' + err)
         segs, info = model().transcribe(wav, language=None, vad_filter=True, beam_size=5, condition_on_previous_text=False, temperature=0)
         segs = [{'s': s.start, 'e': s.end, 't': s.text} for s in segs]
         lang = info.language or 'und'
@@ -94,9 +99,7 @@ def do_job(job, token):
         log('  ✓', job['name'], '·', lang, '·', len(cs), 'câu'); return True
     except Exception as e:
         log('  ✗', job['name'], e)
-        try: api('ghLog', m='Phụ đề lỗi “' + job['name'] + '”: ' + str(e)[:160], lvl='err')
-        except Exception: pass
-        try: api('subSave', id=job['id'], fail=str(e)[:200])
+        try: api('subSave', id=job['id'], fail=str(e)[:200], dead=1 if re.search(r'Invalid data found|moov atom|could not find codec|End of file', str(e), re.I) else 0)
         except Exception: pass
         return False
     finally:
