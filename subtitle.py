@@ -59,50 +59,65 @@ def translate(llm, cs, lang):
                 except Exception: t = c['t']
             out.append({'s': c['s'], 'e': c['e'], 't': t or c['t']})
     return out
+ST = {'asr': None, 'llm': None}
+def model():
+    if ST['asr'] is None:
+        try: api('ghLog', m='Phụ đề: đang tải mô hình chép lời')
+        except Exception: pass
+        from faster_whisper import WhisperModel
+        ST['asr'] = WhisperModel(WHISPER, device='cpu', compute_type='int8', cpu_threads=os.cpu_count() or 4)
+    return ST['asr']
+def do_job(job, token):
+    wav = os.path.join(TMP, job['id'] + '.wav')
+    try:
+        url = '%s/drive/v3/files/%s?alt=media&supportsAllDrives=true' % (G, job['id'])
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-headers', 'Authorization: Bearer %s\r\n' % token, '-i', url, '-vn', '-ac', '1', '-ar', '16000', wav], check=True, timeout=3600)
+        segs, info = model().transcribe(wav, language=None, vad_filter=True, beam_size=5, condition_on_previous_text=False, temperature=0)
+        segs = [{'s': s.start, 'e': s.end, 't': s.text} for s in segs]
+        lang = info.language or 'und'
+        if not segs: api('subSave', id=job['id'], lang=lang, orig='WEBVTT\n\n', vi='WEBVTT\n\n'); log('  ∅', job['name'], '(không có lời thoại)'); return True
+        cs = cues(segs); vi = ''
+        if lang != 'vi':
+            try:
+                if ST['llm'] is None:
+                    from llama_cpp import Llama
+                    from huggingface_hub import hf_hub_download
+                    ST['llm'] = Llama(model_path=hf_hub_download(LLM_REPO, LLM_FILE), n_ctx=8192, n_threads=os.cpu_count() or 4, verbose=False)
+                vi = vtt(cues(translate(ST['llm'], [x for x in segs if x['t'].strip()], LANGS.get(lang, lang))))
+            except Exception as e:
+                vi = ''; log('  ! dịch lỗi, lưu bản gốc:', e)
+                try: api('ghLog', m='Phụ đề: dịch lỗi, vẫn lưu bản gốc – ' + str(e)[:120], lvl='err')
+                except Exception: pass
+        api('subSave', id=job['id'], lang=lang, orig=vtt(cs), vi=vi)
+        try: api('ghLog', m='✓ Phụ đề xong: ' + job['name'])
+        except Exception: pass
+        log('  ✓', job['name'], '·', lang, '·', len(cs), 'câu'); return True
+    except Exception as e:
+        log('  ✗', job['name'], e)
+        try: api('ghLog', m='Phụ đề lỗi “' + job['name'] + '”: ' + str(e)[:160], lvl='err')
+        except Exception: pass
+        try: api('subSave', id=job['id'], fail=str(e)[:200])
+        except Exception: pass
+        return False
+    finally:
+        try: os.remove(wav)
+        except Exception: pass
+def daemon():
+    for line in sys.stdin:
+        line = line.rstrip('\n')
+        if not line: continue
+        jid, _, name = line.partition('\t')
+        ok = False
+        try: ok = do_job({'id': jid, 'name': name or jid}, api('pxToken')['token'])
+        except Exception as e: log('  ✗', name, e)
+        print(('DONE ' if ok else 'FAIL ') + jid, flush=True)
 def main():
     if not API or not S: sys.exit('Thiếu MICC_API hoặc MICC_SECRET')
+    if os.environ.get('SUB_DAEMON'): return daemon()
     j = api('subJobs', n=2); jobs = j.get('jobs') or []
     if not jobs: log('Không có video nào cần phụ đề ✓'); return
-    try: api('ghLog', m='Phụ đề: đang tải mô hình chép lời')
-    except Exception: pass
-    from faster_whisper import WhisperModel
-    asr = WhisperModel(WHISPER, device='cpu', compute_type='int8', cpu_threads=os.cpu_count() or 4)
-    llm = None
     while jobs and time.time() < BUDGET:
-        for job in jobs:
-            wav = os.path.join(TMP, job['id'] + '.wav')
-            try:
-                url = '%s/drive/v3/files/%s?alt=media&supportsAllDrives=true' % (G, job['id'])
-                subprocess.run(['ffmpeg', '-v', 'error', '-y', '-headers', 'Authorization: Bearer %s\r\n' % j['token'], '-i', url, '-vn', '-ac', '1', '-ar', '16000', wav], check=True, timeout=3600)
-                segs, info = asr.transcribe(wav, language=None, vad_filter=True, beam_size=5, condition_on_previous_text=False, temperature=0)
-                segs = [{'s': s.start, 'e': s.end, 't': s.text} for s in segs]
-                lang = info.language or 'und'
-                if not segs: api('subSave', id=job['id'], lang=lang, orig='WEBVTT\n\n', vi='WEBVTT\n\n'); log('  ∅', job['name'], '(không có lời thoại)'); continue
-                cs = cues(segs); vi = ''
-                if lang != 'vi':
-                    try:
-                        if llm is None:
-                            from llama_cpp import Llama
-                            from huggingface_hub import hf_hub_download
-                            llm = Llama(model_path=hf_hub_download(LLM_REPO, LLM_FILE), n_ctx=8192, n_threads=os.cpu_count() or 4, verbose=False)
-                        vi = vtt(cues(translate(llm, [x for x in segs if x['t'].strip()], LANGS.get(lang, lang))))
-                    except Exception as e:
-                        vi = ''; log('  ! dịch lỗi, lưu bản gốc:', e)
-                        try: api('ghLog', m='Phụ đề: dịch lỗi, vẫn lưu bản gốc – ' + str(e)[:120], lvl='err')
-                        except Exception: pass
-                api('subSave', id=job['id'], lang=lang, orig=vtt(cs), vi=vi)
-                try: api('ghLog', m='✓ Phụ đề xong: ' + job['name'])
-                except Exception: pass
-                log('  ✓', job['name'], '·', lang, '·', len(cs), 'câu')
-            except Exception as e:
-                log('  ✗', job['name'], e)
-                try: api('ghLog', m='Phụ đề lỗi “' + job['name'] + '”: ' + str(e)[:160], lvl='err')
-                except Exception: pass
-                try: api('subSave', id=job['id'], fail=str(e)[:200])
-                except Exception: pass
-            finally:
-                try: os.remove(wav)
-                except Exception: pass
+        for job in jobs: do_job(job, j['token'])
         j = api('subJobs', n=2); jobs = j.get('jobs') or []
 if __name__ == '__main__':
     main()
