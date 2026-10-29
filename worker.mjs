@@ -13,6 +13,7 @@ async function api(action, b = {}) {
 }
 const token = async () => (await api('pxToken')).token;
 class Preempt extends Error {}
+const DEAD = /Invalid data found|moov atom not found|could not find codec|does not contain any stream/i;
 const SKIP = [];
 let CTX = null;
 function run(cmd, args) { return new Promise((ok, no) => { const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] }), ctx = CTX; if (ctx) ctx.kids.add(p); let out = '', err = ''; p.stdout.on('data', d => out += d); p.stderr.on('data', d => err += d); p.on('close', c => { if (ctx) ctx.kids.delete(p); if (ctx && ctx.pre) return no(new Preempt()); c === 0 ? ok(out) : no(new Error(cmd + ' lỗi: ' + err.slice(-400))); }); }); }
@@ -83,7 +84,7 @@ function subTools() {
   if (process.env.NO_SUB) return Promise.resolve(false);
   return toolsP = toolsP || (async () => {
     try {
-      if (!fs.existsSync(SV + '/bin/python')) { await runP('python3', ['-m', 'venv', SV]); try { await runP(SV + '/bin/pip', ['install', '-q', '--prefer-binary', 'faster-whisper', 'huggingface_hub', 'llama-cpp-python', '--extra-index-url', 'https://abetlen.github.io/llama-cpp-python/whl/cpu']); } catch (e) { await rlog('Phụ đề: cài Qwen lỗi (' + e.message + ') → chỉ chép lời, không dịch', 'err'); await runP(SV + '/bin/pip', ['install', '-q', '--prefer-binary', 'faster-whisper', 'huggingface_hub']); } }
+      if (!fs.existsSync(SV + '/bin/python')) { await runP('python3', ['-m', 'venv', SV]); try { await runP(SV + '/bin/pip', ['install', '-q', '--prefer-binary', 'faster-whisper', 'av<14', 'huggingface_hub', 'llama-cpp-python', '--extra-index-url', 'https://abetlen.github.io/llama-cpp-python/whl/cpu']); } catch (e) { await rlog('Phụ đề: cài Qwen lỗi (' + e.message + ') → chỉ chép lời, không dịch', 'err'); await runP(SV + '/bin/pip', ['install', '-q', '--prefer-binary', 'faster-whisper', 'av<14', 'huggingface_hub']); } }
       return true;
     } catch (e) { log('Cài công cụ phụ đề lỗi:', e.message); await rlog('Phụ đề: cài công cụ lỗi ' + e.message, 'err'); return false; }
   })();
@@ -127,7 +128,7 @@ async function main() {
     const job = j.job, fk = job.id + (job.need.length ? 'px' : 'sub'); 
     log('▶', job.name, '· còn', j.left, 'video chờ');
     try { const r = await pipeline(job, j.folder); if (r === 'pre') { pre++; await rlog('⏸ Tạm dừng “' + job.name + '” để làm file mới hơn'); } else { done++; SKIP.push(job.id); await rlog('✓ Xong hết: ' + job.name); } }
-    catch (e) { fails[fk] = (fails[fk] || 0) + 1; if (fails[fk] >= 2) SKIP.push(job.id); log('  ✗ lỗi:', e.message); await rlog('Lỗi “' + job.name + '”: ' + e.message.slice(0, 160), 'err'); try { if (job.need.length) await api('pxReport', { id: job.id, fail: e.message.slice(0, 300) }); else await api('subSave', { id: job.id, fail: e.message.slice(0, 200) }); } catch (x) {} }
+    catch (e) { fails[fk] = (fails[fk] || 0) + 1; const dead = DEAD.test(e.message) ? 1 : 0; if (dead || fails[fk] >= 2) SKIP.push(job.id); log('  ✗ lỗi:', e.message); try { if (job.need.length) await api('pxReport', { id: job.id, fail: e.message.slice(0, 300), dead }); if (job.sub && (dead || !job.need.length)) await api('subSave', { id: job.id, fail: e.message.slice(0, 200), dead }); } catch (x) {} }
   }
   if (SUB && !SUB.dead) try { SUB.p.stdin.end(); } catch (e) {}
   if (Date.now() >= DEADLINE - 12 * 60e3) log('Gần hết giờ chạy, lượt sau làm tiếp. Đã xong', done, 'video');
