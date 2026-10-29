@@ -1,0 +1,54 @@
+name: MICC media - bản nhẹ 480p-720p, phụ đề video, chép lời ghi âm
+on:
+  repository_dispatch:
+    types: [transcode, subtitle, transcribe]
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch: {}
+concurrency:
+  group: micc-${{ github.event.action == 'transcribe' && 'tr' || 'main' }}
+  cancel-in-progress: false
+jobs:
+  main:
+    if: github.event_name != 'repository_dispatch' || github.event.action != 'transcribe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Lưu đệm mô hình AI (chỉ tải lần đầu)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: micc-models-v2
+      - name: Cài ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Làm bản 480p / 720p, sau đó tạo phụ đề
+        env:
+          MICC_API: ${{ secrets.MICC_API }}
+          MICC_SECRET: ${{ secrets.MICC_SECRET }}
+          MAX_MIN: '90'
+        run: node worker.mjs
+  transcribe:
+    if: github.event_name != 'repository_dispatch' || github.event.action == 'transcribe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Lưu đệm mô hình AI
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: micc-models-tr-v2
+      - name: Cài Whisper + Qwen
+        run: pip install -q faster-whisper huggingface_hub llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+      - name: Chép lời + tóm tắt các bản ghi âm
+        env:
+          MICC_API: ${{ secrets.MICC_API }}
+          MICC_SECRET: ${{ secrets.MICC_SECRET }}
+        run: python transcribe.py
