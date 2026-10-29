@@ -104,7 +104,8 @@ async function sub(job) {
   CTX.subKill = null;
   if (CTX.pre) throw new Preempt();
   if (r === 'DEAD') throw new Error('trình phụ đề dừng bất ngờ');
-  log('  ' + (r.startsWith('DONE') ? '✓ phụ đề xong' : '✗ phụ đề lỗi'));
+  if (!r.startsWith('DONE')) { const e = new Error('phụ đề lỗi'); e.rep = 1; throw e; }
+  log('  ✓ phụ đề xong');
 }
 async function pipeline(job, folder) {
   CTX = { pre: false, kids: new Set(), ac: new AbortController(), subKill: null };
@@ -121,14 +122,14 @@ async function pipeline(job, folder) {
 async function main() {
   if (!API || !S) throw new Error('Thiếu MICC_API hoặc MICC_SECRET');
   await rlog('Bắt đầu lượt chạy (' + (process.env.GITHUB_EVENT_NAME || '?') + ')');
-  subTools(); let done = 0, pre = 0; const fails = {};
+  subTools(); let done = 0, pre = 0, pass2 = false; const fails = {}, FAILED = new Set();
   while (Date.now() < DEADLINE - 12 * 60e3) {
     const j = await api('nextJob', { skip: SKIP.slice(-50) });
-    if (!j.job) { log('Hết việc ✓ (đã làm xong ' + done + ' video)'); break; }
+    if (!j.job) { if (FAILED.size && !pass2) { pass2 = true; FAILED.forEach(id => { const k = SKIP.indexOf(id); if (k >= 0) SKIP.splice(k, 1); }); FAILED.clear(); log('↻ Đã chạy hết vòng – quay lại thử các file lỗi'); continue; } log('Hết việc ✓ (đã làm xong ' + done + ' video)'); break; }
     const job = j.job, fk = job.id + (job.need.length ? 'px' : 'sub'); 
     log('▶', job.name, '· còn', j.left, 'video chờ');
     try { const r = await pipeline(job, j.folder); if (r === 'pre') { pre++; await rlog('⏸ Tạm dừng “' + job.name + '” để làm file mới hơn'); } else { done++; SKIP.push(job.id); await rlog('✓ Xong hết: ' + job.name); } }
-    catch (e) { fails[fk] = (fails[fk] || 0) + 1; const dead = DEAD.test(e.message) ? 1 : 0; if (dead || fails[fk] >= 2) SKIP.push(job.id); log('  ✗ lỗi:', e.message); try { if (job.need.length) await api('pxReport', { id: job.id, fail: e.message.slice(0, 300), dead }); if (job.sub && (dead || !job.need.length)) await api('subSave', { id: job.id, fail: e.message.slice(0, 200), dead }); } catch (x) {} }
+    catch (e) { fails[fk] = (fails[fk] || 0) + 1; const dead = DEAD.test(e.message) ? 1 : 0; SKIP.push(job.id); FAILED.add(job.id); log('  ✗ lỗi:', e.message); if (!e.rep) try { if (job.need.length) await api('pxReport', { id: job.id, fail: e.message.slice(0, 300), dead }); if (job.sub && (dead || !job.need.length)) await api('subSave', { id: job.id, fail: e.message.slice(0, 200), dead }); } catch (x) {} }
   }
   if (SUB && !SUB.dead) try { SUB.p.stdin.end(); } catch (e) {}
   if (Date.now() >= DEADLINE - 12 * 60e3) log('Gần hết giờ chạy, lượt sau làm tiếp. Đã xong', done, 'video');
