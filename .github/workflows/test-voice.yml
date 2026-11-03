@@ -1,0 +1,26 @@
+name: test-voice (tạm, sẽ xóa)
+on:
+  push:
+    branches: [test-voice]
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg espeak-ng
+      - name: Cài
+        run: |
+          python3 -m venv /tmp/vv
+          /tmp/vv/bin/pip install -q --prefer-binary torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          /tmp/vv/bin/pip install -q --prefer-binary demucs==4.0.1 soundfile 'numpy<2.3'
+      - name: Thử tách giọng
+        run: |
+          espeak-ng -v vi -w /tmp/sp.wav "Xin chào, đây là bản thử lồng tiếng cho video dự án mới của MICC Group"
+          ffmpeg -v error -y -i /tmp/sp.wav -f lavfi -i "sine=f=220:d=8" -f lavfi -i "anoisesrc=d=8:a=0.05" -filter_complex "[0:a]aresample=44100,apad=whole_dur=8[s];[s][1:a][2:a]amix=inputs=3:normalize=0" -t 8 /tmp/mix.m4a
+          time (echo '{"src":"/tmp/mix.m4a","voc":"/tmp/voc.wav","rest":"/tmp/rest.wav"}' | /tmp/vv/bin/python voice.py)
+          for f in /tmp/mix.m4a /tmp/voc.wav /tmp/rest.wav; do ffprobe -v error -show_entries format=duration -of csv=p=0 $f; ffmpeg -i $f -af volumedetect -f null - 2>&1 | grep mean_volume; done
+          ffmpeg -v error -y -i /tmp/voc.wav -af 'highpass=f=80,lowpass=f=15000,afftdn=nr=12:nf=-42:tn=1,acompressor=threshold=-21dB:ratio=3:attack=8:release=140:makeup=2,loudnorm=I=-16:TP=-1.5:LRA=9,aresample=48000' -ac 1 -c:a aac -b:a 128k /tmp/c.m4a && ffprobe -v error -show_entries format=duration -of csv=p=0 /tmp/c.m4a
