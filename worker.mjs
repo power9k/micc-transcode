@@ -119,7 +119,7 @@ async function pipeline(job, folder) {
     throw e;
   } finally { clearInterval(watch); CTX = null; }
 }
-// ===== Lồng tiếng: lọc tạp âm từng đoạn ghi, ghép sẵn WAV đúng timeline, tách giọng người khỏi video =====
+// ===== Lồng tiếng: tách giọng khỏi tiếng môi trường + lọc tạp âm, EQ từng đoạn ghi (không AI tái tạo giọng), ghép sẵn WAV đúng timeline, tách giọng người khỏi video =====
 const VV = process.env.VV_DIR || '/tmp/vv'; let vTools = null, VOX = null;
 function voTools() {
   return vTools = vTools || (async () => {
@@ -150,11 +150,12 @@ async function upFile(file, name, folder, mime) {
   throw new Error('tải lên chưa xong');
 }
 const rmf = (...a) => a.forEach(f => { try { fs.unlinkSync(f); } catch (e) {} });
-const VOICE_FX = 'highpass=f=80,lowpass=f=15000,afftdn=nr=12:nf=-42:tn=1,acompressor=threshold=-21dB:ratio=3:attack=8:release=140:makeup=2,loudnorm=I=-16:TP=-1.5:LRA=9';
+// Sau khi tách giọng khỏi tiếng môi trường: chỉ lọc + EQ thường (không AI tái tạo / nâng cấp giọng → giữ đúng giọng, đúng lời): bỏ ù, giảm ồn nhẹ, ấm – trong – có lực, nén, chuẩn âm lượng podcast
+const VOICE_FX = 'highpass=f=75,afftdn=nr=10:nf=-50:tn=1,lowshelf=f=150:g=2,equalizer=f=350:t=q:w=1.2:g=-2.5,equalizer=f=3500:t=q:w=1:g=2.5,highshelf=f=10000:g=2,deesser=i=0.4,acompressor=threshold=-20dB:ratio=2.5:attack=10:release=150:makeup=2,loudnorm=I=-16:TP=-1.5:LRA=9';
 async function voClean(x, folder) {
   const src = TMP + '/vo_' + x.aid, voc = src + '_v.wav', out = src + '_c.m4a'; log('  ▶ lọc tạp âm lồng tiếng', x.name || x.aid);
-  try { await dlFile(x.aid, src); let inp = src; try { if (await vox({ src, voc })) inp = voc; } catch (e) { log('  (tách giọng lỗi, chỉ lọc cơ bản)', e.message); }
-    await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', inp, '-af', VOICE_FX + ',aresample=48000', '-ac', '1', '-c:a', 'aac', '-b:a', '128k', out]);
+  try { await dlFile(x.aid, src); let inp = src; try { if (await vox({ src, voc, ft: 1 })) inp = voc; } catch (e) { log('  (tách giọng lỗi, chỉ lọc cơ bản)', e.message); }
+    await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', inp, '-af', VOICE_FX + ',aresample=48000', '-ac', '1', '-c:a', 'aac', '-b:a', '160k', out]);
     const id = await upFile(out, 'Lọc ' + (x.name || x.aid).replace(/\.[^.]+$/, '') + '.m4a', folder, 'audio/mp4'); await api('voDone', { kind: 'clean', aid: x.aid, out: id }); log('  ✓ lọc xong');
   } finally { rmf(src, voc, out); }
 }
