@@ -119,9 +119,80 @@ async function pipeline(job, folder) {
     throw e;
   } finally { clearInterval(watch); CTX = null; }
 }
+// ===== Lồng tiếng: lọc tạp âm từng đoạn ghi, ghép sẵn WAV đúng timeline, tách giọng người khỏi video =====
+const VV = process.env.VV_DIR || '/tmp/vv'; let vTools = null, VOX = null;
+function voTools() {
+  return vTools = vTools || (async () => {
+    try { if (!fs.existsSync(VV + '/bin/python')) { await runP('python3', ['-m', 'venv', VV]); await runP(VV + '/bin/pip', ['install', '-q', '--prefer-binary', 'torch==2.5.1', 'torchaudio==2.5.1', '--index-url', 'https://download.pytorch.org/whl/cpu']); await runP(VV + '/bin/pip', ['install', '-q', '--prefer-binary', 'demucs==4.0.1', 'soundfile', 'numpy<2.3']); } return true; }
+    catch (e) { await rlog('Lồng tiếng: cài công cụ tách giọng lỗi (' + e.message + ') → chỉ lọc tạp âm cơ bản', 'err'); return false; }
+  })();
+}
+function voxProc() {
+  if (VOX && !VOX.dead) return VOX;
+  const p = spawn(VV + '/bin/python', ['voice.py'], { stdio: ['pipe', 'pipe', 'inherit'] }); VOX = { p, dead: false, wait: null, buf: '' };
+  p.stdout.on('data', d => { VOX.buf += d; let k; while ((k = VOX.buf.indexOf('\n')) >= 0) { const line = VOX.buf.slice(0, k).trim(); VOX.buf = VOX.buf.slice(k + 1); if (/^(DONE|FAIL) /.test(line) && VOX.wait) { const w = VOX.wait; VOX.wait = null; w(line); } else if (line) console.log(line); } });
+  p.on('close', () => { VOX.dead = true; if (VOX.wait) { const w = VOX.wait; VOX.wait = null; w('FAIL trình tách giọng dừng bất ngờ'); } });
+  return VOX;
+}
+async function vox(job) { if (!await voTools()) return false; const v = voxProc(), r = await new Promise(ok => { v.wait = ok; v.p.stdin.write(JSON.stringify(job) + '\n'); }); if (!r.startsWith('DONE')) throw new Error(r.slice(5) || 'tách giọng lỗi'); return true; }
+async function dlFile(id, dst) {
+  for (let t = 0; t < 4; t++) { try { const r = await fetch(G + '/drive/v3/files/' + id + '?alt=media&supportsAllDrives=true', { headers: { Authorization: 'Bearer ' + await token() } }); if (!r.ok) throw new Error('Drive ' + r.status); fs.writeFileSync(dst, Buffer.from(await r.arrayBuffer())); return; } catch (e) { if (t === 3) throw e; await sleep(2000 * (t + 1)); } }
+}
+async function upFile(file, name, folder, mime) {
+  const size = fs.statSync(file).size, init = await fetch(G + '/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id', { method: 'POST',
+    headers: { Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(size) }, body: JSON.stringify({ name, parents: [folder], mimeType: mime }) });
+  if (!init.ok) throw new Error('mở phiên tải lên lỗi ' + init.status);
+  const url = init.headers.get('location'), CH = 32 << 20, fd = fs.openSync(file, 'r');
+  try { let pos = 0; while (pos < size || !size) { const n = Math.min(CH, size - pos), buf = Buffer.alloc(n); fs.readSync(fd, buf, 0, n, pos);
+      let r; for (let t = 0; t < 5; t++) { try { r = await fetch(url, { method: 'PUT', headers: { 'Content-Range': size ? `bytes ${pos}-${pos + n - 1}/${size}` : 'bytes */0' }, body: buf }); if (r.status < 500) break; } catch (e) {} await sleep(2000 * (t + 1)); }
+      if (r.status === 200 || r.status === 201) return (await r.json()).id; if (r.status !== 308) throw new Error('tải lên lỗi ' + r.status);
+      const rg = r.headers.get('range'); pos = rg ? Number(rg.split('-')[1]) + 1 : pos + n; } } finally { fs.closeSync(fd); }
+  throw new Error('tải lên chưa xong');
+}
+const rmf = (...a) => a.forEach(f => { try { fs.unlinkSync(f); } catch (e) {} });
+const VOICE_FX = 'highpass=f=80,lowpass=f=15000,afftdn=nr=12:nf=-42:tn=1,acompressor=threshold=-21dB:ratio=3:attack=8:release=140:makeup=2,loudnorm=I=-16:TP=-1.5:LRA=9';
+async function voClean(x, folder) {
+  const src = TMP + '/vo_' + x.aid, voc = src + '_v.wav', out = src + '_c.m4a'; log('  ▶ lọc tạp âm lồng tiếng', x.name || x.aid);
+  try { await dlFile(x.aid, src); let inp = src; try { if (await vox({ src, voc })) inp = voc; } catch (e) { log('  (tách giọng lỗi, chỉ lọc cơ bản)', e.message); }
+    await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', inp, '-af', VOICE_FX + ',aresample=48000', '-ac', '1', '-c:a', 'aac', '-b:a', '128k', out]);
+    const id = await upFile(out, 'Lọc ' + (x.name || x.aid).replace(/\.[^.]+$/, '') + '.m4a', folder, 'audio/mp4'); await api('voDone', { kind: 'clean', aid: x.aid, out: id }); log('  ✓ lọc xong');
+  } finally { rmf(src, voc, out); }
+}
+async function voMix(x, folder) {
+  log('  ▶ ghép lồng tiếng theo timeline', x.fid, x.items.length + ' đoạn'); const files = {}, made = [];
+  try { for (const v of x.items) if (!files[v.aid]) { files[v.aid] = TMP + '/mx_' + v.aid; await dlFile(v.aid, files[v.aid]); }
+    const dur = Math.max(x.dur || 0, ...x.items.map(v => v.t + v.d)) + .05, who = [...new Set(x.items.map(v => v.who))];
+    const one = async (L, name) => { const out = TMP + '/mix_' + x.fid + '_' + made.length + '.wav', args = ['-y', '-hide_banner', '-loglevel', 'error'], fl = [];
+      L.forEach((v, i) => { args.push('-i', files[v.aid]); const T = Math.max(0, Math.round(v.t * 1000)); fl.push(`[${i}:a]atrim=start=${v.o}:duration=${v.d},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=mono,adelay=delays=${T}:all=1[a${i}]`); });
+      fl.push((L.length > 1 ? L.map((_, i) => `[a${i}]`).join('') + `amix=inputs=${L.length}:normalize=0:dropout_transition=0,` : '[a0]') + `apad=whole_dur=${dur.toFixed(3)},alimiter=limit=0.95[o]`);
+      args.push('-filter_complex', fl.join(';'), '-map', '[o]', '-t', dur.toFixed(3), '-ac', '1', '-ar', '48000', '-c:a', 'pcm_s16le', out); await run('ffmpeg', args); made.push(out);
+      return upFile(out, name, folder, 'audio/wav'); };
+    const all = await one(x.items, x.fid + ' · Lồng tiếng tổng hợp.wav'), p = {};
+    for (const w of who) p[w] = await one(x.items.filter(v => v.who === w), x.fid + ' · Lồng tiếng ' + w + '.wav');
+    await api('voDone', { kind: 'mix', fid: x.fid, sig: x.sig, all, p }); log('  ✓ ghép xong', who.length + ' người');
+  } finally { rmf(...Object.values(files), ...made); }
+}
+async function voSep(x, folder) {
+  const src = TMP + '/sp_' + x.fid, rest = src + '_r.wav', out = src + '_i.m4a'; log('  ▶ tách giọng người', x.name, Math.round(x.dur) + 's');
+  try { await download(x.fid, x.size, src); if (!await vox({ src, rest })) throw new Error('chưa có công cụ tách giọng');
+    await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', rest, '-c:a', 'aac', '-b:a', '128k', '-ac', '2', out]);
+    const id = await upFile(out, x.name.replace(/\.[^.]+$/, '') + ' · không giọng người.m4a', folder, 'audio/mp4'); await api('voDone', { kind: 'sep', fid: x.fid, ins: id }); log('  ✓ tách giọng xong');
+  } finally { rmf(src, rest, out); }
+}
+async function voLoop(withSep) {
+  const skip = [];
+  for (let round = 0; round < 40 && Date.now() < DEADLINE - 10 * 60e3; round++) {
+    let j; try { j = await api('voJobs', { skip, sep: withSep && Date.now() < DEADLINE - 25 * 60e3 ? 1 : 0 }); } catch (e) { log('voJobs lỗi:', e.message); return; }
+    const work = [...(j.clean || []).map(x => ['clean', x]), ...(j.mix || []).map(x => ['mix', x]), ...(j.sep || []).map(x => ['sep', x])]; if (!work.length) return;
+    for (const [k, x] of work) { if (Date.now() > DEADLINE - 10 * 60e3) return; const key = k === 'clean' ? x.aid : (k === 'mix' ? 'm' : 's') + x.fid; skip.push(key);
+      try { if (k === 'clean') await voClean(x, j.folder); else if (k === 'mix') await voMix(x, j.folder); else await voSep(x, j.folder); }
+      catch (e) { log('  ✗ lồng tiếng', k, e.message); await api('voDone', { fail: k + ': ' + String(e.message).slice(0, 200), key }).catch(() => {}); } }
+  }
+}
 async function main() {
   if (!API || !S) throw new Error('Thiếu MICC_API hoặc MICC_SECRET');
   await rlog('Bắt đầu lượt chạy (' + (process.env.GITHUB_EVENT_NAME || '?') + ')');
+  await voLoop(false).catch(e => log('lồng tiếng lỗi:', e.message)); voTools();
   subTools(); let done = 0, pre = 0, pass2 = false; const fails = {}, FAILED = new Set();
   while (Date.now() < DEADLINE - 12 * 60e3) {
     const j = await api('nextJob', { skip: SKIP.slice(-50) });
@@ -131,6 +202,7 @@ async function main() {
     try { const r = await pipeline(job, j.folder); if (r === 'pre') { pre++; await rlog('⏸ Tạm dừng “' + job.name + '” để làm file mới hơn'); } else { done++; SKIP.push(job.id); await rlog('✓ Xong hết: ' + job.name); } }
     catch (e) { fails[fk] = (fails[fk] || 0) + 1; const dead = DEAD.test(e.message) ? 1 : 0; SKIP.push(job.id); FAILED.add(job.id); log('  ✗ lỗi:', e.message); if (!e.rep) try { if (job.need.length) await api('pxReport', { id: job.id, fail: e.message.slice(0, 300), dead }); if (job.sub && (dead || !job.need.length)) await api('subSave', { id: job.id, fail: e.message.slice(0, 200), dead }); } catch (x) {} }
   }
+  await voLoop(true).catch(e => log('lồng tiếng lỗi:', e.message)); if (VOX && !VOX.dead) try { VOX.p.stdin.end(); } catch (e) {}
   if (SUB && !SUB.dead) try { SUB.p.stdin.end(); } catch (e) {}
   if (Date.now() >= DEADLINE - 12 * 60e3) log('Gần hết giờ chạy, lượt sau làm tiếp. Đã xong', done, 'video');
 }

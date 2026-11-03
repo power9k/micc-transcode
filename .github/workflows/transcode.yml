@@ -26,6 +26,11 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: micc-models-v2
+      - name: Lưu đệm mô hình tách giọng
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/torch
+          key: micc-demucs-v1
       - name: Cài ffmpeg
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Làm bản 480p / 720p, sau đó tạo phụ đề
