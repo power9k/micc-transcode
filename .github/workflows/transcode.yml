@@ -1,16 +1,16 @@
-name: MICC media - bản nhẹ 480p-720p, phụ đề video, chép lời ghi âm, AI lọc source
+name: MICC media - bản nhẹ 480p-720p, phụ đề video, chép lời ghi âm
 on:
   repository_dispatch:
-    types: [transcode, subtitle, transcribe, loc]
+    types: [transcode, subtitle, transcribe]
   schedule:
     - cron: '17 */6 * * *'
   workflow_dispatch: {}
 concurrency:
-  group: micc-${{ github.event.action == 'transcribe' && 'tr' || github.event.action == 'loc' && 'loc' || 'main' }}
+  group: micc-${{ github.event.action == 'transcribe' && 'tr' || 'main' }}
   cancel-in-progress: false
 jobs:
   main:
-    if: github.event_name != 'repository_dispatch' || (github.event.action != 'transcribe' && github.event.action != 'loc')
+    if: github.event_name != 'repository_dispatch' || github.event.action != 'transcribe'
     runs-on: ubuntu-latest
     timeout-minutes: 110
     steps:
@@ -60,29 +60,3 @@ jobs:
           MICC_API: ${{ secrets.MICC_API }}
           MICC_SECRET: ${{ secrets.MICC_SECRET }}
         run: python transcribe.py
-  loc:
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'loc'
-    runs-on: ubuntu-latest
-    timeout-minutes: 330
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Lưu đệm mô hình nghe lời thoại
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/huggingface
-          key: micc-models-loc-v1
-      - name: Dọn chỗ trống ổ đĩa (video 4K)
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
-      - name: Cài ffmpeg + Whisper
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-          pip install -q faster-whisper 'av<14' numpy pillow
-      - name: AI lọc source (xem, nghe, chọn bản tốt nhất, cắt ghép → thư mục Lọc)
-        env:
-          MICC_API: ${{ secrets.MICC_API }}
-          MICC_SECRET: ${{ secrets.MICC_SECRET }}
-          MAX_MIN: '320'
-        run: python loc.py

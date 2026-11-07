@@ -1,0 +1,45 @@
+name: MICC media - AI lọc source (chạy độc lập, 10 phút / lần)
+on:
+  repository_dispatch:
+    types: [loc]
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+concurrency:
+  group: micc-loc
+  cancel-in-progress: false
+jobs:
+  loc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: Kiểm tra nhanh Drive – có buổi quay nào cần lọc?
+        id: chk
+        env:
+          MICC_API: ${{ secrets.MICC_API }}
+          MICC_SECRET: ${{ secrets.MICC_SECRET }}
+        run: python3 loc.py --check
+      - if: steps.chk.outputs.todo == '1'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - if: steps.chk.outputs.todo == '1'
+        name: Lưu đệm mô hình nghe lời thoại
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: micc-models-loc-v1
+      - if: steps.chk.outputs.todo == '1'
+        name: Dọn chỗ trống ổ đĩa (video 4K) + cài ffmpeg, Whisper
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q faster-whisper 'av<14' numpy pillow
+      - if: steps.chk.outputs.todo == '1'
+        name: AI lọc source (xem, nghe, chọn bản tốt nhất, cắt ghép → thư mục Lọc)
+        env:
+          MICC_API: ${{ secrets.MICC_API }}
+          MICC_SECRET: ${{ secrets.MICC_SECRET }}
+          MAX_MIN: '330'
+        run: python loc.py

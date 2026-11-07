@@ -1,20 +1,29 @@
-# AI lọc source (bản 242): mỗi thư mục con của thư mục “Source” (1 buổi quay) → thư mục “Lọc”
-# 1) Đọc từng video thẳng từ Drive (không lưu cả kho): âm thanh 16 kHz + ảnh khung chính (keyframe) → độ nét, sáng, rung
+# AI lọc source (bản 244): mỗi thư mục con của thư mục “Source” (1 buổi quay) → thư mục “Lọc”
+# CHẠY ĐỘC LẬP với máy chủ Apps Script (không dính hạn mức gọi mạng của Google Apps Script):
+#  - tự quét Drive (GitHub chạy 10 phút / lần), trạng thái ghi ngay trên Drive (appProperties của thư mục buổi quay)
+#  - khóa Gemini + Zalo lấy từ gói máy chủ mã hóa trên web (cg.bin, giải bằng MICC_SECRET); máy chủ chỉ dùng để xin mã Drive (pxToken)
+#  - tự gửi tin Zalo vào nhóm test (mã nhóm lấy từ máy chủ khi máy chủ khỏe, lưu trên thư mục kho để dùng cả khi máy chủ hết hạn mức)
+# 1) Đọc từng video thẳng từ Drive: âm thanh 16 kHz + ảnh khung chính (keyframe) → độ nét, sáng, rung
 # 2) Chép lời có mốc từng chữ (faster-whisper)  3) Gemini xem ảnh + lời → hiểu kịch bản, chọn bản tốt nhất, đoạn giữ lại
 # 4) A-roll (có thoại): cắt bỏ ngắt nghỉ, ầm à, nối liền 1 video, giữ độ phân giải gốc  5) B-roll: cắt không nén lại (giữ nguyên chất lượng)
-import os, sys, json, time, re, subprocess, base64, glob, shutil, random, urllib.request, urllib.error, unicodedata
+import os, sys, json, time, re, subprocess, base64, glob, shutil, hashlib, urllib.request, urllib.error, urllib.parse, unicodedata, datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import numpy as np
-from PIL import Image
 
 API, SEC = os.environ['MICC_API'], os.environ['MICC_SECRET']
-T0, MAXMIN = time.time(), float(os.environ.get('MAX_MIN', '320'))
+SITE = os.environ.get('MICC_SITE', 'https://miccmedia.edgeone.dev').rstrip('/')
+ROOT = os.environ.get('MICC_ROOT', '1-26OvV9W2MuApRRgK43URqgiC-b07MfV')
+T0, MAXMIN = time.time(), float(os.environ.get('MAX_MIN', '330'))
 TMP = os.environ.get('LOC_TMP', '/tmp/loc')
 WM = os.environ.get('LOC_WHISPER', 'small')
+SETTLE, LOCK_MAX, FAIL_WAIT, FAIL_MAX = 8 * 60, 3 * 3600, 20 * 60, 3
+TMPNAME = '_AI đang lọc…'
+FOLDER = 'application/vnd.google-apps.folder'
 G = 'https://www.googleapis.com'
 GEM = 'https://generativelanguage.googleapis.com/v1beta/'
+ZALO = 'https://bot-api.zaloplatforms.com/bot'
 AP = {'by': 'ai-loc', 'byName': 'AI lọc source', 'via': 'loc'}
 FILL = {'ừ', 'ừm', 'ờ', 'ờm', 'ơ', 'à', 'ầm', 'ậm', 'hừm', 'ừa', 'um', 'uhm', 'uh', 'ah', 'eh', 'hmm', 'ưm', 'ừ ừ', 'ơ ơ'}
+VN = datetime.timezone(datetime.timedelta(hours=7))
 
 def log(*a): print(time.strftime('%H:%M:%S'), *a, flush=True)
 
@@ -34,7 +43,7 @@ def api(action, **b):
             if j.get('ok') is False: raise RuntimeError(j.get('error') or 'lỗi máy chủ')
             return j
         except Exception as e:
-            if i == 3: raise
+            if i == 3 or 'AUTH' in str(e): raise
             log('  máy chủ lỗi, thử lại:', e); time.sleep(3 * (i + 1))
 
 TK = {'v': None, 't': 0}
@@ -42,6 +51,7 @@ def tok():
     if time.time() - TK['t'] > 1500: TK['v'] = api('pxToken')['token']; TK['t'] = time.time()
     return TK['v']
 def drive(path, data=None, method=None, params='supportsAllDrives=true'):
+    if isinstance(params, dict): params = urllib.parse.urlencode(dict({'supportsAllDrives': 'true'}, **params))
     for i in range(5):
         try: return http(G + '/drive/v3/' + path + ('?' + params if params else ''), data, {'Authorization': 'Bearer ' + tok()}, method)
         except urllib.error.HTTPError as e:
@@ -78,15 +88,20 @@ def download(fid, size, dst):
 
 # ---------- 1) xem + nghe từng video ----------
 def gray(path):
+    import numpy as np; from PIL import Image
     im = Image.open(path).convert('L'); im.thumbnail((256, 256)); return np.asarray(im, dtype=np.float32)
-def lap(a): return float(np.var(4 * a[1:-1, 1:-1] - a[:-2, 1:-1] - a[2:, 1:-1] - a[1:-1, :-2] - a[1:-1, 2:]))
+def lap(a):
+    import numpy as np
+    return float(np.var(4 * a[1:-1, 1:-1] - a[:-2, 1:-1] - a[2:, 1:-1] - a[1:-1, :-2] - a[1:-1, 2:]))
 def shift(a, b):
+    import numpy as np
     if a.shape != b.shape: return 0.0
     F = np.fft.fft2(a - a.mean()) * np.conj(np.fft.fft2(b - b.mean())); F /= np.abs(F) + 1e-6
     c = np.abs(np.fft.ifft2(F)); y, x = np.unravel_index(np.argmax(c), c.shape); h, w = a.shape
     y = y - h if y > h // 2 else y; x = x - w if x > w // 2 else x
     return float(np.hypot(x, y)) / w
 def analyze(i, v):
+    from PIL import Image
     d = os.path.join(TMP, 'a%03d' % i); shutil.rmtree(d, ignore_errors=True); os.makedirs(d)
     pr = json.loads(run(['ffprobe', '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams'] + fin(v['id'])[-4:], timeout=120).stdout or '{}')
     vs = next((s for s in pr.get('streams', []) if s.get('codec_type') == 'video'), {})
@@ -125,6 +140,7 @@ def transcribe(wav):
     return out
 
 def summary(a):
+    import numpy as np
     sh = np.array(a['sharp'] or [0]); ref = float(np.median(sh)) or 1
     bad = []
     for k, t in enumerate(a['kt']):
@@ -243,91 +259,231 @@ def upload(path, name, parent):
             log('  tải lên lỗi, thử lại:', e); time.sleep(4 * (i + 1))
     raise RuntimeError('không tải được “%s” lên Drive' % name)
 
-# ---------- 1 buổi quay ----------
-def job(j, key, models):
-    t0 = time.time(); jb = j['job']; vids = jb['videos']; title = (jb.get('src') or '') + ' › ' + jb['name']
-    log('▶ Lọc', title, '·', len(vids), 'video')
-    shutil.rmtree(TMP, ignore_errors=True); os.makedirs(TMP)
-    res = {}
-    with ThreadPoolExecutor(4) as ex:
-        fs = {ex.submit(analyze, i + 1, v): i + 1 for i, v in enumerate(vids)}
-        for f in as_completed(fs):
-            try: a = f.result()
-            except Exception as e: log('  bỏ qua video #%d: %s' % (fs[f], e)); continue
-            a['segs'] = transcribe(a['wav']); res[a['i']] = a
-            log('  ✓ đã xem + nghe #%d %s (%.0fs, %d câu)' % (a['i'], a['name'], a['dur'], len(a['segs'])))
-    A = [res[k] for k in sorted(res)]
-    if not A: raise RuntimeError('không đọc được video nào')
-    log('  xem + nghe xong sau %.1f phút' % ((time.time() - t0) / 60))
-    try: plan = gemini(key, models, {'title': title, 'vids': A})
-    except Exception as e: log('  ', e, '→ dùng cách lọc đơn giản'); plan = fallback(A)
-    by = {a['i']: a for a in A}; seen = set(); clips = []
-    for c in plan.get('clips') or []:
-        try: vi = int(c.get('video'))
-        except Exception: continue
-        if vi not in by or vi in seen: continue
-        a = by[vi]; keep = []
-        for r in c.get('giu') or [[0, a['dur']]]:
-            try: s, e = max(0.0, float(r[0])), min(a['dur'], float(r[1]))
-            except Exception: continue
-            if e - s >= .8: keep.append([s, e])
-        if not keep: continue
-        seen.add(vi); clips.append(dict(t='A' if str(c.get('loai', 'B')).upper().startswith('A') else 'B', a=a, keep=sorted(keep), name=safe(str(c.get('ten') or os.path.splitext(a['name'])[0]))))
-    if not clips: raise RuntimeError('kế hoạch lọc không có file nào')
-    loc = drive('files', {'name': '_AI đang lọc…', 'mimeType': 'application/vnd.google-apps.folder', 'parents': [jb['fid']], 'appProperties': AP}, params='supportsAllDrives=true&fields=id')['id']
+# ---------- cấu hình: khóa Gemini / Zalo từ gói máy chủ mã hóa trên web ----------
+CFG = {}
+def cfg():
+    if CFG: return CFG
+    enc = urllib.request.urlopen(SITE + '/cg.bin?t=%d' % time.time(), timeout=120).read()
+    k = hashlib.sha256(('micc-cg|' + SEC).encode()).digest(); out = bytearray(len(enc))
+    for b in range((len(enc) + 31) // 32):
+        ks = hashlib.sha256(k + b.to_bytes(4, 'big')).digest()
+        for i in range(32):
+            p = b * 32 + i
+            if p < len(enc): out[p] = enc[p] ^ ks[i]
+    src = out.decode('utf-8', 'replace')
+    g = lambda n: (re.search(n + r"\s*=\s*'([^']+)'", src) or [None, ''])[1]
+    CFG.update(gem=g('GEMINI_API_KEY'), zalo=g('ZALO_BOT_TOKEN'), ver=(re.search(r"BOT_VER\s*=\s*'([^']+)'", src) or [None, ''])[1])
+    if not CFG['gem']: log('  (không đọc được khóa Gemini từ web)')
+    return CFG
+
+def gem_models(key):
     try:
+        j = http(GEM + 'models?pageSize=200', headers={'x-goog-api-key': key}, timeout=60)
+        L = [m['name'].split('/')[-1] for m in j.get('models', []) if 'generateContent' in (m.get('supportedGenerationMethods') or [])]
+        L = [n for n in L if re.match(r'^gemini-[\d.]+-flash(-lite)?$|^gemini-flash(-lite)?-latest$', n)]
+        ver = lambda n: float((re.search(r'gemini-(\d+(?:\.\d+)?)', n) or [0, 0])[1] or 0)
+        L.sort(key=lambda n: (-('latest' in n), -ver(n), 'lite' in n))
+        if L: return L[:5]
+    except Exception as e: log('  không lấy được danh sách mô hình Gemini:', e)
+    return ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest']
+
+def norm1(x):
+    x = unicodedata.normalize('NFD', str(x or '').replace('đ', 'd').replace('Đ', 'd'))
+    x = ''.join(c for c in x if not unicodedata.combining(c)).lower()
+    return ' '.join(re.sub(r'[^a-z0-9\s]', ' ', x).split())
+def ts(x):
+    try: return datetime.datetime.fromisoformat(str(x).replace('Z', '+00:00')).timestamp()
+    except Exception: return 0
+VEXT = ('.mp4', '.mov', '.m4v', '.mxf', '.mts', '.m2ts', '.avi', '.mkv', '.mpg', '.mpeg', '.webm', '.3gp')
+def is_video(f):
+    mt = f.get('mimeType') or ''
+    if mt == 'application/vnd.google-apps.shortcut': mt = (f.get('shortcutDetails') or {}).get('targetMimeType') or ''
+    return mt.startswith('video/') or (not mt.startswith('application/vnd.google-apps') and f.get('name', '').lower().endswith(VEXT))
+
+def listq(q, fields, extra=None):
+    out, pt = [], None
+    while True:
+        prm = dict({'q': q, 'fields': 'nextPageToken,files(%s)' % fields, 'pageSize': 1000, 'includeItemsFromAllDrives': 'true'}, **(extra or {}))
+        if pt: prm['pageToken'] = pt
+        j = drive('files', params=prm); out += j.get('files', []); pt = j.get('nextPageToken')
+        if not pt: return out
+
+ROOTI = {}
+def root_info():
+    if not ROOTI: ROOTI.update(drive('files/' + ROOT, params={'fields': 'id,name,driveId,appProperties'}))
+    return ROOTI
+def corpora():
+    d = root_info().get('driveId'); return {'corpora': 'drive', 'driveId': d} if d else {}
+
+# ---------- tìm buổi quay cần lọc (đọc thẳng Drive, không cần máy chủ) ----------
+def scan():
+    now = time.time()
+    fol = listq("mimeType='%s' and trashed=false" % FOLDER, 'id,name,parents,appProperties', corpora())
+    by = {f['id']: f for f in fol}; memo = {ROOT: True}
+    def under(fid, d=0):
+        if fid in memo: return memo[fid]
+        f = by.get(fid); r = bool(f and d < 40 and any(under(p, d + 1) for p in f.get('parents') or []))
+        memo[fid] = r; return r
+    srcs = {f['id']: f for f in fol if 'source' in norm1(f['name']) and under(f['id'])}
+    jobs = []
+    for f in fol:
+        par = [p for p in f.get('parents') or [] if p in srcs]
+        if not par or 'source' in norm1(f['name']): continue
+        ap = f.get('appProperties') or {}
+        if ap.get('locDone'): continue
+        nf = int(ap.get('locFail') or 0)
+        if nf >= FAIL_MAX or (nf and now - float(ap.get('locFailT') or 0) < FAIL_WAIT): continue
+        jobs.append({'fid': f['id'], 'name': f['name'], 'src': srcs[par[0]]['name'], 'nfail': nf})
+    ready = []
+    for jb in jobs:
+        ch = listq("'%s' in parents and trashed=false" % jb['fid'], 'id,name,mimeType,size,createdTime,modifiedTime,appProperties,shortcutDetails,videoMediaMetadata', corpora())
+        dirs = [c for c in ch if c['mimeType'] == FOLDER]
+        if any(re.match(r'^loc\b', norm1(c['name'])) for c in dirs):  # đã có thư mục Lọc (editor hay AI làm rồi)
+            continue
+        lk = [c for c in dirs if c['name'] == TMPNAME]
+        if any(now - ts(c['createdTime']) < LOCK_MAX for c in lk): continue  # đang có lượt khác lọc
+        vids = [c for c in ch if is_video(c)]
+        if not vids: continue
+        last = max(max(ts(c.get('createdTime')), ts(c.get('modifiedTime'))) for c in vids)
+        if now - last < SETTLE: continue  # còn đang tải lên
+        def vrow(c):
+            sd = c.get('shortcutDetails') or {}; vm = c.get('videoMediaMetadata') or {}
+            return {'id': sd.get('targetId') or c['id'], 'name': c['name'], 'size': int(c.get('size') or 0), 'dur': (int(vm.get('durationMillis') or 0)) / 1000, 'w': vm.get('width'), 'h': vm.get('height')}
+        nk = lambda c: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', c['name'])]
+        jb.update(last=last, stale=[c['id'] for c in lk], videos=[vrow(c) for c in sorted(vids, key=nk)]); ready.append(jb)
+    ready.sort(key=lambda j: -j['last'])  # buổi quay vừa tải lên làm trước
+    return ready
+
+def mark(fid, **kv): drive('files/' + fid, {'appProperties': {k: (None if v is None else str(v)[:100]) for k, v in kv.items()}}, method='PATCH')
+
+# ---------- báo nhóm test Zalo (tự gửi, không qua máy chủ) ----------
+def groups():
+    ap = root_info().get('appProperties') or {}; zt = []
+    try:
+        j = api('locCfg')
+        zt = [str(x) for x in (j.get('zt') or [])]
+        if zt and ','.join(zt)[:100] != (ap.get('locZT') or ''): mark(ROOT, locZT=','.join(zt)[:100])
+    except Exception as e: log('  (máy chủ chưa trả mã nhóm test: %s)' % str(e)[:80])
+    return zt or [x for x in (ap.get('locZT') or '').split(',') if x]
+def zsend(chat, text):
+    tk = cfg()['zalo']
+    for i in range(3):
+        try:
+            j = http(ZALO + tk + '/sendMessage', {'chat_id': chat, 'text': text[:1900]}, timeout=60)
+            if j.get('ok') is not False: return True
+        except Exception as e: log('  Zalo lỗi:', str(e).replace(tk, '***')[:160])
+        time.sleep(3)
+    return False
+def flush_reports():  # báo các thư mục Lọc đã xong mà chưa báo được (vd. lúc chưa có mã nhóm)
+    try: pend = listq("mimeType='%s' and trashed=false and appProperties has { key='locRep' and value='0' }" % FOLDER, 'id,name,description', corpora())
+    except Exception as e: log('  không đọc được tin chờ gửi:', e); return 0
+    if not pend: return 0
+    zt = groups()
+    if not zt: log('  %d tin chờ gửi – chưa có mã nhóm test, gửi sau' % len(pend)); return len(pend)
+    for f in pend:
+        txt = f.get('description') or ''
+        if txt and all(zsend(g, txt) for g in zt): mark(f['id'], locRep='1'); log('  ✓ đã báo nhóm test:', txt.split('\n')[1][:80] if '\n' in txt else '')
+    return 0
+
+def hm(t): return datetime.datetime.fromtimestamp(t, VN).strftime('%H:%M %d/%m')
+
+# ---------- 1 buổi quay ----------
+def job(jb, key, models):
+    t0 = time.time(); vids = jb['videos']; title = (jb.get('src') or '') + ' › ' + jb['name']
+    log('▶ Lọc', title, '·', len(vids), 'video · tải xong lúc', hm(jb['last']))
+    for x in jb.get('stale') or []:
+        try: drive('files/' + x, method='DELETE')
+        except Exception: pass
+    loc = drive('files', {'name': TMPNAME, 'mimeType': FOLDER, 'parents': [jb['fid']], 'appProperties': AP}, params={'fields': 'id'})['id']
+    try:
+        shutil.rmtree(TMP, ignore_errors=True); os.makedirs(TMP)
+        res = {}
+        with ThreadPoolExecutor(4) as ex:
+            fs = {ex.submit(analyze, i + 1, v): i + 1 for i, v in enumerate(vids)}
+            for f in as_completed(fs):
+                try: a = f.result()
+                except Exception as e: log('  bỏ qua video #%d: %s' % (fs[f], e)); continue
+                a['segs'] = transcribe(a['wav']); res[a['i']] = a
+                log('  ✓ đã xem + nghe #%d %s (%.0fs, %d câu)' % (a['i'], a['name'], a['dur'], len(a['segs'])))
+        A = [res[k] for k in sorted(res)]
+        if not A: raise RuntimeError('không đọc được video nào')
+        log('  xem + nghe xong sau %.1f phút' % ((time.time() - t0) / 60))
+        try: plan = gemini(key, models, {'title': title, 'vids': A}) if key else fallback(A)
+        except Exception as e: log('  ', e, '→ dùng cách lọc đơn giản'); plan = fallback(A)
+        by = {a['i']: a for a in A}; seen = set(); clips = []
+        for c in plan.get('clips') or []:
+            try: vi = int(c.get('video'))
+            except Exception: continue
+            if vi not in by or vi in seen: continue
+            a = by[vi]; keep = []
+            for r in c.get('giu') or [[0, a['dur']]]:
+                try: s, e = max(0.0, float(r[0])), min(a['dur'], float(r[1]))
+                except Exception: continue
+                if e - s >= .8: keep.append([s, e])
+            if not keep: continue
+            seen.add(vi); clips.append(dict(t='A' if str(c.get('loai', 'B')).upper().startswith('A') else 'B', a=a, keep=sorted(keep), name=safe(str(c.get('ten') or os.path.splitext(a['name'])[0]))))
+        if not clips: raise RuntimeError('kế hoạch lọc không có file nào')
         na = nb = 0
         for c in clips:
             a = c['a']; c['n'] = (na := na + 1) if c['t'] == 'A' else (nb := nb + 1)
             ext = os.path.splitext(a['name'])[1].lower() if c['t'] == 'B' else '.mp4'
-            ext = ext if ext in ('.mp4', '.mov', '.m4v') else '.mp4'
-            nm = '%s%02d - %s%s' % (c['t'], c['n'], c['name'], ext)
-            whole = len(c['keep']) == 1 and c['keep'][0][0] < .3 and c['keep'][0][1] > a['dur'] - .3
-            if c['t'] == 'B' and whole:
-                drive('files/%s/copy' % a['id'], {'name': nm, 'parents': [loc], 'appProperties': AP}, params='supportsAllDrives=true&fields=id'); log('  ✓', nm, '(chép nguyên bản)'); continue
-            src = os.path.join(TMP, 'src_%03d%s' % (a['i'], os.path.splitext(a['name'])[1].lower() or '.mp4'))
-            download(a['id'], a['size'], src); out = os.path.join(TMP, 'out%s' % ext)
-            if c['t'] == 'A':
-                words = [w for s in a['segs'] for w in s['w']]
-                segs = refine(words, c['keep']) if words else c['keep']
-                make_a(a, segs or c['keep'], src, out)
-            else: make_b(a, c['keep'], src, out)
-            upload(out, nm, loc); os.remove(out); os.remove(src)
-            log('  ✓', nm)
-        drive('files/' + loc, {'name': 'Lọc'}, method='PATCH')
+            c['ext'] = ext if ext in ('.mp4', '.mov', '.m4v') else '.mp4'
+            c['nm'] = '%s%02d - %s%s' % (c['t'], c['n'], c['name'], c['ext'])
+            c['whole'] = c['t'] == 'B' and len(c['keep']) == 1 and c['keep'][0][0] < .3 and c['keep'][0][1] > a['dur'] - .3
+            c['src'] = os.path.join(TMP, 'src_%03d%s' % (a['i'], os.path.splitext(a['name'])[1].lower() or '.mp4'))
+        work = [c for c in clips if not c['whole']]
+        for c in clips:
+            if c['whole']: drive('files/%s/copy' % c['a']['id'], {'name': c['nm'], 'parents': [loc], 'appProperties': AP}, params={'fields': 'id'}); log('  ✓', c['nm'], '(chép nguyên bản)')
+        with ThreadPoolExecutor(1) as dl:  # tải sẵn video kế tiếp trong lúc cắt video hiện tại
+            fut = {}
+            def pre(k):
+                if k < len(work) and k not in fut: fut[k] = dl.submit(download, work[k]['a']['id'], work[k]['a']['size'], work[k]['src'])
+            pre(0)
+            for k, c in enumerate(work):
+                fut[k].result(); pre(k + 1); a = c['a']; out = os.path.join(TMP, 'out%02d%s' % (k, c['ext']))
+                if c['t'] == 'A':
+                    words = [w for s in a['segs'] for w in s['w']]
+                    segs = refine(words, c['keep']) if words else c['keep']
+                    make_a(a, segs or c['keep'], c['src'], out)
+                else: make_b(a, c['keep'], c['src'], out)
+                upload(out, c['nm'], loc); os.remove(out); os.remove(c['src'])
+                log('  ✓', c['nm'])
     except Exception:
         try: drive('files/' + loc, method='DELETE')
         except Exception: pass
         raise
-    secs = time.time() - t0
-    api('locDone', fid=jb['fid'], out=loc, name=jb['name'], src=jb.get('src') or '', n=na + nb, na=na, nb=nb, vin=len(vids), secs=round(secs), last=jb.get('last') or 0, goal=plan.get('muc_dich') or '')
+    secs, now = time.time() - t0, time.time()
+    rep = ('✂️ AI LỌC SOURCE XONG\n📁 %s › %s\n🎬 %d video gốc → %d file lọc (%d A-roll, %d B-roll)' % (jb.get('src') or '', jb['name'], len(vids), na + nb, na, nb) +
+           ('\n🎯 ' + str(plan.get('muc_dich'))[:200] if plan.get('muc_dich') else '') +
+           '\n⏱ Video cuối tải lên %s → xong %s: %d phút (máy làm %d phút)' % (hm(jb['last']), hm(now), round((now - jb['last']) / 60), max(1, round(secs / 60))) +
+           '\n🔗 https://drive.google.com/drive/folders/' + loc)
+    drive('files/' + loc, {'name': 'Lọc', 'description': rep, 'appProperties': {'locRep': '0'}}, method='PATCH')
+    mark(jb['fid'], locDone=int(now), locOut=loc, locFail=None, locErr=None)
     log('✓ Xong', title, '· %d file · %.1f phút' % (na + nb, secs / 60))
-
-NEED = 242
-def ensure():  # máy chủ chưa lên bản có AI lọc → nhờ máy chủ tự cập nhật từ web, chờ tới khi xong
-    for k in range(int(os.environ.get('LOC_WAIT', '56'))):  # chờ tối đa ~4,7 giờ (máy chủ hết hạn mức gọi mạng thì phải chờ Google cấp lại)
-        try:
-            j = api('cgCheck', v='MICC Bot bản %d' % NEED, uf=1, site=os.environ.get('MICC_SITE', 'https://miccmedia.edgeone.dev'))
-            if j.get('uf'): log('Lượt gọi mạng máy chủ 24 giờ qua:', j['uf'].get('total'), '· theo giờ (mới → cũ):', j['uf'].get('hours'), '\n  ' + '\n  '.join(j['uf'].get('top') or []))
-            n = int((re.search(r'(\d+)', j.get('ver') or '') or [0, 0])[1] or 0) if re.search(r'(\d+)', j.get('ver') or '') else 0
-            log('Máy chủ:', j.get('ver'), '·', j.get('err') or '', '·', ' | '.join(j.get('last') or []))
-            if n >= NEED: return True
-        except Exception as e: log('  kiểm tra máy chủ lỗi:', e)
-        time.sleep(300 if k else 60)
-    return False
+    flush_reports()
 
 def main():
+    check = '--check' in sys.argv
+    flush_reports()
+    if check:
+        n = len(scan()); log('Buổi quay cần lọc:', n)
+        with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as w: w.write('todo=%d\n' % (1 if n else 0))
+        return
+    c = cfg(); key = c['gem']; models = gem_models(key) if key else []
+    log('Gói máy chủ trên web:', c['ver'], '· Gemini:', ', '.join(models[:3]) or 'không có')
     done = 0
-    if not ensure(): log('Máy chủ chưa lên bản %d, dừng.' % NEED); sys.exit(1)
-    while (time.time() - T0) / 60 < MAXMIN - 45:
-        j = api('locJobs')
-        if not j.get('job'): break
-        try: job(j, j.get('key') or '', j.get('models') or ['gemini-flash-latest'])
+    while (time.time() - T0) / 60 < MAXMIN - 60:
+        L = scan(); log('Buổi quay cần lọc:', len(L))
+        if not L: break
+        jb = L[0]
+        try: job(jb, key, models); done += 1
         except Exception as e:
             log('✗ lỗi:', e)
-            try: api('locDone', fid=j['job']['fid'], name=j['job']['name'], fail=str(e)[:300])
-            except Exception: pass
-        done += 1
-    log('Hết việc lọc (%d buổi quay)' % done)
+            try:
+                mark(jb['fid'], locFail=jb['nfail'] + 1, locFailT=int(time.time()), locErr=str(e)[:100])
+                zt = groups()
+                for g in zt: zsend(g, '⚠️ AI lọc source lỗi: %s › %s\n%s\n%s' % (jb.get('src') or '', jb['name'], str(e)[:300], 'Tự thử lại sau 20 phút.' if jb['nfail'] + 1 < FAIL_MAX else 'Đã thử %d lần, tạm bỏ qua.' % FAIL_MAX))
+            except Exception as e2: log('  không ghi được lỗi:', e2)
+    log('Hết việc lọc (%d buổi quay xong)' % done)
 
 if __name__ == '__main__': main()
