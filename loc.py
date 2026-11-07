@@ -392,7 +392,15 @@ def scan():
         if fid in memo: return memo[fid]
         f = by.get(fid); r = bool(f and d < 40 and any(under(p, d + 1) for p in f.get('parents') or []))
         memo[fid] = r; return r
-    srcs = {f['id']: f for f in fol if 'source' in norm1(f['name']) and under(f['id'])}
+    isrc = lambda n: re.search(r'\bsources?\b', norm1(n)) is not None  # đúng chữ “source” (không nhận “Resources”)
+    srcs = {f['id']: f for f in fol if isrc(f['name']) and under(f['id'])}
+    for f in fol:  # dọn thư mục Lọc AI làm nhầm (buổi quay không nằm trong thư mục Source)
+        ap = f.get('appProperties') or {}
+        if ap.get('by') == 'ai-loc' and re.match(r'^loc\b', norm1(f['name'])):
+            sh = by.get((f.get('parents') or [''])[0]) or {}
+            if not any(p in srcs for p in sh.get('parents') or []):
+                try: drive('files/' + f['id'], {'trashed': True}, method='PATCH'); ix(dele=[f['id']]); log('  dọn thư mục Lọc làm nhầm trong', sh.get('name'))
+                except Exception as e: log('  không dọn được:', e)
     jobs = []
     for f in fol:
         par = [p for p in f.get('parents') or [] if p in srcs]
