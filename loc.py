@@ -328,8 +328,8 @@ def scan():
     jobs = []
     for f in fol:
         par = [p for p in f.get('parents') or [] if p in srcs]
-        if not par or 'source' in norm1(f['name']): continue
         ap = f.get('appProperties') or {}
+        if not par or re.match(r'^loc\b', norm1(f['name'])) or f['name'] == TMPNAME or ap.get('by') == 'ai-loc': continue  # (thư mục con của Source = buổi quay, kể cả tên có chữ source)
         if ap.get('locDone'): continue
         nf = int(ap.get('locFail') or 0)
         if nf >= FAIL_MAX or (nf and now - float(ap.get('locFailT') or 0) < FAIL_WAIT): continue
