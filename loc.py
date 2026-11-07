@@ -580,6 +580,7 @@ def server_sync():
     try:
         meta = json.loads(urllib.request.urlopen(SITE + '/cg.txt?t=%d' % time.time(), timeout=60).read())
         cur = server_ver()
+        if '--sync' in sys.argv: log('Máy chủ:', cur or '?', '· web:', meta.get('ver'))
         if not cur or verno(meta.get('ver')) <= verno(cur): return
         c = cfg(); src = c['src']
         if hashlib.sha256(src.encode('utf-8')).hexdigest() != meta.get('sha') or c['ver'] != meta.get('ver'): log('  gói máy chủ trên web chưa khớp, để lượt sau'); return
