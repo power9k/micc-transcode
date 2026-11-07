@@ -433,14 +433,30 @@ def scan():
 def mark(fid, **kv): drive('files/' + fid, {'appProperties': {k: (None if v is None else str(v)[:100]) for k, v in kv.items()}}, method='PATCH')
 
 # ---------- báo nhóm test Zalo (tự gửi, không qua máy chủ) ----------
-def groups():  # nhóm Zalo nhận tin AI lọc: nhóm thông báo + nhóm test (chủ cho phép từ 08/11); máy chủ không trả lời thì dùng danh sách đã lưu
-    ap = root_info().get('appProperties') or {}; zn = []
+ZG = {}
+def zcfg():  # nhóm Zalo: zn = nhóm thông báo (+ test), zt = nhóm test; máy chủ không trả lời thì dùng danh sách đã lưu trên thư mục kho
+    if ZG.get('t', 0) > time.time() - 600: return ZG
+    ap = root_info().get('appProperties') or {}; zn, zt = [], []
     try:
-        j = api('locCfg')
-        zn = [str(x) for x in (j.get('zn') or j.get('zt') or [])]
-        if zn and ','.join(zn)[:110] != (ap.get('locZN') or ''): mark(ROOT, locZN=','.join(zn)[:110])
+        j = api('locCfg'); zn = [str(x) for x in (j.get('zn') or [])]; zt = [str(x) for x in (j.get('zt') or [])]
+        up = {}
+        if zn and ','.join(zn)[:110] != (ap.get('locZN') or ''): up['locZN'] = ','.join(zn)[:110]
+        if zt and ','.join(zt)[:110] != (ap.get('locZT') or ''): up['locZT'] = ','.join(zt)[:110]
+        if up: mark(ROOT, **up); ap.update(up)
     except Exception as e: log('  (máy chủ chưa trả danh sách nhóm: %s)' % str(e)[:80])
-    return zn or [x for x in (ap.get('locZN') or ap.get('locZT') or '').split(',') if x]
+    sp = lambda k: [x for x in (ap.get(k) or '').split(',') if x]
+    ZG.update(t=time.time(), zn=zn or sp('locZN'), zt=zt or sp('locZT')); return ZG
+def groups():  # tin XONG: nhóm thông báo + nhóm test
+    g = zcfg(); return list(dict.fromkeys(g['zn'] + g['zt']))
+SAID = set()
+def tsay(text, once=None):  # báo NGAY vào nhóm test: bắt đầu lọc, lỗi, hết việc (chủ yêu cầu 08/11)
+    if once:
+        if once in SAID: return
+        SAID.add(once)
+    log('  [Zalo test]', text.replace('\n', ' | ')[:160])
+    for g in zcfg()['zt']:
+        try: zsend(g, text)
+        except Exception as e: log('  Zalo test lỗi:', str(e)[:100])
 def ix(files=None, dele=None, link=None):  # báo máy chủ đưa ngay vào kho web (không tốn hạn mức gọi mạng của máy chủ)
     b = {'files': files or []}
     if dele: b['del'] = dele
@@ -484,6 +500,7 @@ def hm(t): return datetime.datetime.fromtimestamp(t, VN).strftime('%H:%M %d/%m')
 def job(jb, key, models):
     t0 = time.time(); vids = jb['videos']; title = (jb.get('src') or '') + ' › ' + jb['name']
     log('▶ Lọc', title, '·', len(vids), 'video · tải xong lúc', hm(jb['last']))
+    tsay('🔄 AI BẮT ĐẦU LỌC SOURCE\n📁 %s\n🎬 %d video (video cuối tải lên %s)%s\n⏳ Còn %d buổi quay chờ sau buổi này' % (title, len(vids), hm(jb['last']), ' · lần thử %d' % (jb['nfail'] + 1) if jb.get('nfail') else '', jb.get('left', 0)))
     for x in jb.get('stale') or []:
         try: drive('files/' + x, {'trashed': True}, method='PATCH'); log('  bản lọc cũ → thùng rác')
         except Exception as e: log('  không bỏ được bản cũ:', e)
@@ -498,7 +515,7 @@ def job(jb, key, models):
             fs = {ex.submit(analyze, i + 1, v): i + 1 for i, v in enumerate(vids)}
             for f in as_completed(fs):
                 try: a = f.result()
-                except Exception as e: log('  bỏ qua video #%d: %s' % (fs[f], e)); continue
+                except Exception as e: log('  bỏ qua video #%d: %s' % (fs[f], e)); tsay('⚠️ AI lọc: không đọc được 1 video, bỏ qua\n📁 %s\n🎬 %s\n%s' % (title, vids[fs[f] - 1]['name'], str(e)[:200])); continue
                 a['segs'] = transcribe(a['wav']); res[a['i']] = a
                 log('  ✓ đã xem + nghe #%d %s (%.0fs, %d câu)' % (a['i'], a['name'], a['dur'], len(a['segs'])))
                 if len(res) % 10 == 0: prog(loc, 'Đã xem + nghe %d / %d video' % (len(res), len(vids)))
@@ -506,7 +523,7 @@ def job(jb, key, models):
         if not A: raise RuntimeError('không đọc được video nào')
         log('  xem + nghe xong sau %.1f phút' % ((time.time() - t0) / 60))
         try: plan = gemini(key, models, {'title': title, 'vids': A}) if key else fallback(A)
-        except Exception as e: log('  ', e, '→ dùng cách lọc đơn giản'); plan = fallback(A)
+        except Exception as e: log('  ', e, '→ dùng cách lọc đơn giản'); plan = fallback(A); tsay('⚠️ AI lọc: Gemini không trả kế hoạch, dùng cách lọc đơn giản (chỉ chia A-roll / B-roll, ít cắt)\n📁 %s\n%s' % (title, str(e)[:200]))
         kbs = {}
         for x in plan.get('kich_ban') or []:
             try: kbs[int(x.get('so'))] = safe(x.get('ten') or '', 80)
@@ -628,19 +645,30 @@ def main():
         return
     c = cfg(); key = c['gem']; models = gem_models(key) if key else []
     log('Gói máy chủ trên web:', c['ver'], '· Gemini:', ', '.join(models[:3]) or 'không có')
-    done = 0
+    done = fails = 0; L = [None]
     while (time.time() - T0) / 60 < MAXMIN - 60:
         L = scan(); log('Buổi quay cần lọc:', len(L))
         if not L: break
-        jb = L[0]; server_sync()
+        jb = L[0]; jb['left'] = len(L) - 1; server_sync()
         try: job(jb, key, models); done += 1
         except Exception as e:
-            log('✗ lỗi:', e)
+            log('✗ lỗi:', e); fails += 1
             try:
                 mark(jb['fid'], locFail=jb['nfail'] + 1, locFailT=int(time.time()), locErr=str(e)[:100])
-                zt = groups()
-                for g in zt: zsend(g, '⚠️ AI lọc source lỗi: %s › %s\n%s\n%s' % (jb.get('src') or '', jb['name'], str(e)[:300], 'Tự thử lại sau 20 phút.' if jb['nfail'] + 1 < FAIL_MAX else 'Đã thử %d lần, tạm bỏ qua.' % FAIL_MAX))
+                tsay('❌ AI LỌC SOURCE LỖI\n📁 %s › %s\n%s\n%s' % (jb.get('src') or '', jb['name'], str(e)[:300], 'Tự thử lại sau 20 phút.' if jb['nfail'] + 1 < FAIL_MAX else 'Đã thử %d lần, tạm bỏ qua (cần người xem).' % FAIL_MAX))
             except Exception as e2: log('  không ghi được lỗi:', e2)
     log('Hết việc lọc (%d buổi quay xong)' % done)
+    if L: tsay('⏸ AI LỌC: lượt chạy GitHub hết giờ, còn %d buổi quay chờ – lượt sau tự làm tiếp (%d buổi xong ở lượt này).' % (len(L), done))
+    elif done or fails: tsay('✅ AI LỌC: ĐÃ XONG HẾT – không còn buổi quay nào chờ lọc\n(%d buổi xong%s). Máy GitHub nghỉ; thư mục Source mới tải lên sẽ tự được lọc và báo ở đây.' % (done, ', %d buổi lỗi' % fails if fails else ''))
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    if '--fail' in sys.argv:  # bước cài đặt trên GitHub hỏng (gọi từ loc.yml khi failure())
+        try: tsay('❌ AI LỌC: máy GitHub lỗi khi chuẩn bị (cài ffmpeg / Whisper hoặc mạng). Lượt sau tự chạy lại.')
+        except Exception as e: log('không báo được:', e)
+        sys.exit(0)
+    try: main()
+    except Exception as e:
+        log('✗ lượt chạy hỏng:', e)
+        try: tsay('❌ AI LỌC: lượt chạy trên GitHub bị hỏng giữa chừng\n%s\nLượt sau tự chạy lại (thư mục đang dở sẽ được lọc lại).' % str(e)[:300])
+        except Exception: pass
+        raise
