@@ -184,9 +184,8 @@ async function voLoop(withSep) {
   const skip = [];
   for (let round = 0; round < 40 && Date.now() < DEADLINE - 10 * 60e3; round++) {
     let j; try { j = await api('voJobs', { skip, sep: withSep && Date.now() < DEADLINE - 25 * 60e3 ? 1 : 0 }); } catch (e) { log('voJobs lỗi:', e.message); return; }
-    if (round === 0 && withSep && j.dbg && j.dbg.length) log('  tách giọng – 6 video mới nhất: ' + j.dbg.join(' | '));
     const work = [...(j.clean || []).map(x => ['clean', x]), ...(j.mix || []).map(x => ['mix', x]), ...(j.sep || []).map(x => ['sep', x])]; if (!work.length) return;
-    for (const [k, x] of work) { if (Date.now() > DEADLINE - 10 * 60e3) return; if (k === 'sep' && (x.dur || 0) * 1000 + 12 * 60e3 > DEADLINE - Date.now()) { log('  (để lượt sau: video dài ' + Math.round((x.dur || 0) / 60) + ' phút, không đủ giờ chạy)'); continue; } const key = k === 'clean' ? x.aid : (k === 'mix' ? 'm' : 's') + x.fid; skip.push(key);
+    for (const [k, x] of work) { if (Date.now() > DEADLINE - 10 * 60e3) return; const key = k === 'clean' ? x.aid : (k === 'mix' ? 'm' : 's') + x.fid; skip.push(key);
       try { if (k === 'clean') await voClean(x, j.folder); else if (k === 'mix') await voMix(x, j.folder); else await voSep(x, j.folder); }
       catch (e) { log('  ✗ lồng tiếng', k, e.message); await api('voDone', { fail: k + ': ' + String(e.message).slice(0, 200), key }).catch(() => {}); } }
   }
