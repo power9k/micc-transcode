@@ -1,0 +1,25 @@
+name: MICC media - kiểm tra nhanh máy chủ
+on:
+  repository_dispatch:
+    types: [ping]
+  workflow_dispatch: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Bản máy chủ đang chạy + lượt gọi mạng 24 giờ qua
+        env:
+          MICC_API: ${{ secrets.MICC_API }}
+          MICC_SECRET: ${{ secrets.MICC_SECRET }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request
+          API, S = os.environ['MICC_API'], os.environ['MICC_SECRET']
+          print('ping:', urllib.request.urlopen(API + '?ping=1', timeout=60).read().decode()[:200])
+          try:
+              r = urllib.request.urlopen(urllib.request.Request(API, data=json.dumps({'action': 'cgCheck', 's': S, 'uf': 1}).encode()), timeout=120).read().decode()
+              j = json.loads(r); print('ver:', j.get('ver'), '| lỗi:', j.get('err')); uf = j.get('uf') or {}
+              print('gọi mạng 24h:', uf.get('total'), '| theo giờ:', uf.get('hours')); [print('  ', x) for x in uf.get('top') or []]
+          except Exception as e: print('cgCheck lỗi:', e)
+          PY
