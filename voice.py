@@ -1,13 +1,20 @@
 # Tách giọng người bằng Demucs (htdemucs). Chạy nền: đọc từng dòng JSON {"src","voc","rest"} ở stdin,
 # ghi file WAV giọng người (voc) và/hoặc phần còn lại không có giọng (rest), trả "DONE <src>" hoặc "FAIL <lỗi>".
-import sys, json, subprocess, numpy as np, torch, soundfile as sf
+import sys, json, re, subprocess, numpy as np, torch, soundfile as sf
 from demucs.pretrained import get_model
 from demucs.apply import apply_model
 torch.set_num_threads(max(1, torch.get_num_threads()))
 # Chỉ TÁCH (lọc bỏ) phần không phải giọng người, không tạo / sửa giọng. Đoạn lồng tiếng (ft) dùng bản htdemucs_ft tách sạch hơn.
 M = get_model('htdemucs'); M.eval(); SR = M.samplerate; VI = M.sources.index('vocals'); MF = None
 def load(p):
-    raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', p, '-vn', '-f', 'f32le', '-ac', '2', '-ar', str(SR), '-'], capture_output=True, check=True).stdout
+    r = subprocess.run(['ffmpeg', '-v', 'error', '-i', p, '-map', '0:a:0?', '-vn', '-f', 'f32le', '-ac', '2', '-ar', str(SR), '-'], capture_output=True)
+    err = (r.stderr or b'').decode('utf-8', 'ignore').strip()
+    if r.returncode != 0:  # ghi đúng nguyên nhân thay vì chỉ câu lệnh
+        if re.search(r'does not contain any stream|matches no streams|Output file is empty', err, re.I): raise RuntimeError('NOAUDIO video không có tiếng')
+        if re.search(r'Invalid data|moov atom|End of file|truncat|corrupt', err, re.I): raise RuntimeError('BADFILE file hỏng hoặc tải về bị thiếu: ' + err[-160:])
+        raise RuntimeError('ffmpeg: ' + (err[-200:] or 'mã lỗi %d' % r.returncode))
+    if not r.stdout: raise RuntimeError('NOAUDIO video không có tiếng')
+    raw = r.stdout[:len(r.stdout) // 8 * 8]
     return torch.from_numpy(np.frombuffer(raw, dtype=np.float32).reshape(-1, 2).T.copy())
 for line in sys.stdin:
     line = line.strip()
