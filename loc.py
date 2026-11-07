@@ -303,8 +303,21 @@ def job(j, key, models):
     api('locDone', fid=jb['fid'], out=loc, name=jb['name'], src=jb.get('src') or '', n=na + nb, na=na, nb=nb, vin=len(vids), secs=round(secs), last=jb.get('last') or 0, goal=plan.get('muc_dich') or '')
     log('✓ Xong', title, '· %d file · %.1f phút' % (na + nb, secs / 60))
 
+NEED = 242
+def ensure():  # máy chủ chưa lên bản có AI lọc → nhờ máy chủ tự cập nhật từ web, chờ tới khi xong
+    for k in range(12):
+        try:
+            j = api('cgCheck', v='MICC Bot bản %d' % NEED, site=os.environ.get('MICC_SITE', 'https://miccmedia.edgeone.dev'))
+            n = int((re.search(r'(\d+)', j.get('ver') or '') or [0, 0])[1] or 0) if re.search(r'(\d+)', j.get('ver') or '') else 0
+            log('Máy chủ:', j.get('ver'), '·', j.get('err') or '', '·', ' | '.join(j.get('last') or []))
+            if n >= NEED: return True
+        except Exception as e: log('  kiểm tra máy chủ lỗi:', e)
+        time.sleep(60)
+    return False
+
 def main():
     done = 0
+    if not ensure(): log('Máy chủ chưa lên bản %d, dừng.' % NEED); sys.exit(1)
     while (time.time() - T0) / 60 < MAXMIN - 45:
         j = api('locJobs')
         if not j.get('job'): break
