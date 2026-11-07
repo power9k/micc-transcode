@@ -1,3 +1,4 @@
+# Lịch chạy (schedule) chỉ hoạt động khi tệp này do máy chủ đẩy lên bằng GH_TOKEN (tài khoản chủ) – không đẩy tay tệp workflow từ phiên Claude.
 name: MICC media - máy chủ tự cập nhật + kiểm tra (10 phút / lần)
 on:
   repository_dispatch:
