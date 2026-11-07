@@ -37,6 +37,63 @@ def cues(segs):
         for p in parts:
             d = dur * len(p) / n; out.append({'s': t, 'e': t + d, 't': p}); t += d
     return out
+# Phụ đề từ bản 236: 1 phụ đề đúng lời nói (nhận ngôn ngữ theo từng câu, lẫn Anh – Việt vẫn đúng), có dấu câu + viết hoa, ngắt theo câu / cụm ý, mỗi câu tối đa 3 giây (cố dài gần 3 giây)
+SUB_MAX = 3.0
+PROMPT = 'Xin chào các bạn, hôm nay chúng ta cùng xem dự án mới nhé. Okay, let\'s go! Rất đẹp, đúng không?'
+PUN_END, PUN_MID = re.compile(r'[.!?…]["”’)]*$'), re.compile(r'[,;:]["”’)]*$')
+def cap_words(ws):
+    up = True
+    for w in ws:
+        t = w['w'].strip()
+        if up and t: w['w'] = re.sub(r'^(\W*)(\w)', lambda m: m.group(1) + m.group(2).upper(), w['w'], count=1)
+        if t: up = bool(PUN_END.search(t))
+    return ws
+def cues_w(ws):
+    txt = lambda l: re.sub(r'\s+([,.!?;:…])', r'\1', ' '.join(x['w'].strip() for x in l)).strip()
+    sents, cur = [], []
+    for w in ws:  # 1) tách theo câu (dấu kết câu hoặc ngừng nói > 1 giây)
+        if cur and w['s'] - cur[-1]['e'] > 1.0: sents.append(cur); cur = []
+        cur.append(w)
+        if PUN_END.search(w['w'].strip()): sents.append(cur); cur = []
+    if cur: sents.append(cur)
+    parts = []
+    for sw in sents:  # 2) câu > 3 giây hoặc quá dài: chia đều, ưu tiên cắt ở dấu phẩy, mỗi đoạn ≤ 3 giây
+        dur = sw[-1]['e'] - sw[0]['s']; n = max(1, -(-int(dur * 100) // int(SUB_MAX * 100)), -(-len(txt(sw)) // 84))
+        while True:
+            cut, st = [], 0
+            for i in range(1, n):
+                tg = sw[0]['s'] + dur * i / n
+                best = min(range(st, len(sw) - 1), key=lambda j: abs(sw[j]['e'] - tg) - (0.5 if PUN_MID.search(sw[j]['w'].strip()) else 0), default=None)
+                if best is None: break
+                cut.append(best); st = best + 1
+            seg, a = [], 0
+            for b in cut + [len(sw) - 1]: seg.append(sw[a:b + 1]); a = b + 1
+            seg = [x for x in seg if x]
+            if all(x[-1]['e'] - x[0]['s'] <= SUB_MAX + .01 for x in seg) or n >= len(sw): break
+            n += 1
+        parts += seg
+    out = []
+    for p in parts:  # 3) gộp các câu ngắn liền nhau cho gần 3 giây (≤ 3 giây, ≤ 2 dòng)
+        if out and p[-1]['e'] - out[-1][0]['s'] <= SUB_MAX and p[0]['s'] - out[-1][-1]['e'] < .6 and len(txt(out[-1] + p)) <= 70: out[-1] = out[-1] + p
+        else: out.append(p)
+    out = [{'s': p[0]['s'], 'e': p[-1]['e'], 't': txt(p)} for p in out]
+    for i, c in enumerate(out):  # giữ chữ thêm chút cho dễ đọc, không đè câu sau, không quá 3 giây
+        nxt = out[i + 1]['s'] if i + 1 < len(out) else c['e'] + 1
+        c['e'] = max(c['e'], min(c['s'] + SUB_MAX, nxt - .05, c['e'] + .5))
+    return out
+def punct(llm, ws):
+    # thêm dấu câu + viết hoa khi bản chép lời thiếu; chỉ nhận kết quả nếu GIỮ ĐÚNG từng chữ (so sau khi bỏ dấu câu, chữ thường)
+    norm = lambda t: re.sub(r'[^\w]', '', t.lower())
+    B = 120
+    for i in range(0, len(ws), B):
+        ch = ws[i:i + B]; src = ' '.join(x['w'].strip() for x in ch)
+        try:
+            r = llm.create_chat_completion(messages=[{'role': 'system', 'content': 'Bạn thêm dấu câu (chấm, phẩy, chấm hỏi, chấm than) và viết hoa đúng chuẩn cho văn bản chép lời (có thể lẫn nhiều thứ tiếng). TUYỆT ĐỐI giữ nguyên từng chữ và thứ tự, không thêm, bớt, sửa hay dịch chữ nào. Chỉ trả về văn bản đã thêm dấu.'}, {'role': 'user', 'content': src}], max_tokens=len(src) + 400, temperature=0)['choices'][0]['message']['content'].strip()
+        except Exception as e: log('   thêm dấu lỗi:', e); continue
+        out = r.split()
+        if [norm(x) for x in out if norm(x)] != [norm(x['w']) for x in ch if norm(x['w'])] or len(out) != len(ch): continue
+        for w, t in zip(ch, out): w['w'] = ' ' + t
+    return ws
 def vtt(cs): return 'WEBVTT\n\n' + '\n\n'.join('%s --> %s\n%s' % (ts(c['s']), ts(c['e']), c['t']) for c in cs) + '\n'
 def translate(llm, cs, lang):
     out, B = [], 25
@@ -77,23 +134,25 @@ def do_job(job, token):
             if re.search(r'does not contain any stream|matches no streams|no audio', err, re.I):
                 api('subSave', id=job['id'], lang='und', orig='WEBVTT\n\n', vi='WEBVTT\n\n'); log('  ∅', job['name'], '(video không có tiếng)'); return True
             raise RuntimeError('ffmpeg: ' + err)
-        segs, info = model().transcribe(wav, language=None, vad_filter=True, beam_size=5, condition_on_previous_text=False, temperature=0)
-        segs = [{'s': s.start, 'e': s.end, 't': s.text} for s in segs]
+        kw = dict(language=None, vad_filter=True, beam_size=5, condition_on_previous_text=False, temperature=0, word_timestamps=True, initial_prompt=PROMPT)
+        try: it, info = model().transcribe(wav, multilingual=True, **kw)  # nhận ngôn ngữ theo từng đoạn: video nói lẫn Anh – Việt vẫn chép đúng từng tiếng
+        except TypeError: it, info = model().transcribe(wav, **kw)
+        ws = []
+        for sg in it:
+            for w in (sg.words or []):
+                if w.word.strip(): ws.append({'s': w.start, 'e': w.end, 'w': w.word})
         lang = info.language or 'und'
-        if not segs: api('subSave', id=job['id'], lang=lang, orig='WEBVTT\n\n', vi='WEBVTT\n\n'); log('  ∅', job['name'], '(không có lời thoại)'); return True
-        cs = cues(segs); vi = ''
-        if lang != 'vi':
+        if not ws: api('subSave', id=job['id'], lang=lang, orig='WEBVTT\n\n', vi=''); log('  ∅', job['name'], '(không có lời thoại)'); return True
+        if sum(1 for w in ws if re.search(r'[.!?,…]', w['w'])) * 14 < len(ws):  # thiếu dấu câu → nhờ mô hình ngôn ngữ thêm dấu (giữ nguyên chữ)
             try:
                 if ST['llm'] is None:
                     from llama_cpp import Llama
                     from huggingface_hub import hf_hub_download
                     ST['llm'] = Llama(model_path=hf_hub_download(LLM_REPO, LLM_FILE), n_ctx=8192, n_threads=os.cpu_count() or 4, verbose=False)
-                vi = vtt(cues(translate(ST['llm'], [x for x in segs if x['t'].strip()], LANGS.get(lang, lang))))
-            except Exception as e:
-                vi = ''; log('  ! dịch lỗi, lưu bản gốc:', e)
-                try: api('ghLog', m='Phụ đề: dịch lỗi, vẫn lưu bản gốc – ' + str(e)[:120], lvl='err')
-                except Exception: pass
-        api('subSave', id=job['id'], lang=lang, orig=vtt(cs), vi=vi)
+                ws = punct(ST['llm'], ws)
+            except Exception as e: log('  ! thêm dấu lỗi, giữ bản chép lời:', e)
+        cs = cues_w(cap_words(ws))
+        api('subSave', id=job['id'], lang=lang, orig=vtt(cs), vi='')
         try: api('ghLog', m='✓ Phụ đề xong: ' + job['name'])
         except Exception: pass
         log('  ✓', job['name'], '·', lang, '·', len(cs), 'câu'); return True
