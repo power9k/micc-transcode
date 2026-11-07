@@ -640,7 +640,10 @@ def main():
     if '--sync' in sys.argv: return
     flush_reports()
     if check:
-        n = len(scan()); log('Buổi quay cần lọc:', n)
+        L = scan(); n = len(L); log('Buổi quay cần lọc:', n)
+        if (root_info().get('appProperties') or {}).get('locHi') != '2':  # báo trạng thái 1 lần khi lên cách báo mới
+            tsay('📋 AI LỌC – TRẠNG THÁI: ' + ('đang có %d buổi quay chờ lọc, máy GitHub bắt đầu ngay:\n' % n + '\n'.join('• %s › %s (%d video)' % (j['src'], j['name'], len(j['videos'])) for j in L[:10]) if n else 'không còn buổi quay nào chờ lọc, máy GitHub đang nghỉ.') + '\nTừ giờ: bắt đầu lọc, có lỗi, lọc xong đều báo ở nhóm này.')
+            mark(ROOT, locHi='2')
         with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as w: w.write('todo=%d\n' % (1 if n else 0))
         return
     c = cfg(); key = c['gem']; models = gem_models(key) if key else []
