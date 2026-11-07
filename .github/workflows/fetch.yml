@@ -1,0 +1,17 @@
+name: tmp fetch audio
+on:
+  push:
+    branches: [tmp-audio-transfer]
+permissions:
+  contents: write
+jobs:
+  fetch:
+    if: "!contains(github.event.head_commit.message, 'audio file')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o tieng-viet.mp3 'https://d2ol7oe51mr4n9.cloudfront.net/user_3LGciyeq1CHNF07eImQr3RGMpPs/7bf7f5f3-82c8-4416-acc8-59d2b5cdbbbb.mp3'
+          ls -la tieng-viet.mp3
+          git config user.name bot && git config user.email bot@users.noreply.github.com
+          git add tieng-viet.mp3 && git commit -m "audio file" && git push
