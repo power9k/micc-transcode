@@ -307,7 +307,8 @@ NEED = 242
 def ensure():  # máy chủ chưa lên bản có AI lọc → nhờ máy chủ tự cập nhật từ web, chờ tới khi xong
     for k in range(12):
         try:
-            j = api('cgCheck', v='MICC Bot bản %d' % NEED, site=os.environ.get('MICC_SITE', 'https://miccmedia.edgeone.dev'))
+            j = api('cgCheck', v='MICC Bot bản %d' % NEED, uf=1, site=os.environ.get('MICC_SITE', 'https://miccmedia.edgeone.dev'))
+            if j.get('uf') and k == 0: log('Lượt gọi mạng máy chủ 24 giờ qua:', j['uf'].get('total'), '· theo giờ (mới → cũ):', j['uf'].get('hours'), '\n  ' + '\n  '.join(j['uf'].get('top') or []))
             n = int((re.search(r'(\d+)', j.get('ver') or '') or [0, 0])[1] or 0) if re.search(r'(\d+)', j.get('ver') or '') else 0
             log('Máy chủ:', j.get('ver'), '·', j.get('err') or '', '·', ' | '.join(j.get('last') or []))
             if n >= NEED: return True
