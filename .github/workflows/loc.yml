@@ -5,6 +5,8 @@ on:
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch: {}
+permissions:
+  contents: write
 concurrency:
   group: micc-loc
   cancel-in-progress: false
@@ -43,3 +45,8 @@ jobs:
           MICC_SECRET: ${{ secrets.MICC_SECRET }}
           MAX_MIN: '330'
         run: python loc.py
+      - name: Giữ lịch tự chạy (GitHub tắt lịch nếu kho 60 ngày không thay đổi)
+        if: always()
+        run: |
+          last=$(git log -1 --format=%ct); now=$(date +%s)
+          if [ $((now-last)) -gt 2160000 ]; then date -u > .keepalive; git config user.name "MICC bot"; git config user.email "bot@micc.local"; git add .keepalive; git commit -qm "giữ lịch tự chạy"; git push -q || true; fi
