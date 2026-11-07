@@ -57,29 +57,30 @@ def cues_w(ws):
         if PUN_END.search(w['w'].strip()): sents.append(cur); cur = []
     if cur: sents.append(cur)
     parts = []
-    for sw in sents:  # 2) câu > 3 giây hoặc quá dài: chia đều, ưu tiên cắt ở dấu phẩy, mỗi đoạn ≤ 3 giây
-        dur = sw[-1]['e'] - sw[0]['s']; n = max(1, -(-int(dur * 100) // int(SUB_MAX * 100)), -(-len(txt(sw)) // 84))
-        while True:
-            cut, st = [], 0
-            for i in range(1, n):
-                tg = sw[0]['s'] + dur * i / n
-                best = min(range(st, len(sw) - 1), key=lambda j: abs(sw[j]['e'] - tg) - (0.5 if PUN_MID.search(sw[j]['w'].strip()) else 0), default=None)
-                if best is None: break
-                cut.append(best); st = best + 1
-            seg, a = [], 0
-            for b in cut + [len(sw) - 1]: seg.append(sw[a:b + 1]); a = b + 1
-            seg = [x for x in seg if x]
-            if all(x[-1]['e'] - x[0]['s'] <= SUB_MAX + .01 for x in seg) or n >= len(sw): break
-            n += 1
-        parts += seg
+    dur = lambda l: l[-1]['e'] - l[0]['s']
+    for sw in sents:  # 2) giữ TRỌN câu / ý: câu ≤ 4,5 giây giữ nguyên; dài hơn thì tách ở dấu phẩy thành các ý, ghép ý ngắn liền nhau ≤ 3 giây; ý nào > 6 giây mới chia đều
+        if dur(sw) <= 4.5 and len(txt(sw)) <= 90: parts.append(sw); continue
+        cl, cur = [], []
+        for w in sw:
+            cur.append(w)
+            if PUN_MID.search(w['w'].strip()): cl.append(cur); cur = []
+        if cur: cl.append(cur)
+        merged = []
+        for c in cl:
+            if merged and dur(merged[-1] + c) <= SUB_MAX and len(txt(merged[-1] + c)) <= 84: merged[-1] = merged[-1] + c
+            else: merged.append(c)
+        for c in merged:
+            if dur(c) <= 6 and len(txt(c)) <= 90: parts.append(c); continue
+            n = max(2, -(-int(dur(c) * 100) // int(SUB_MAX * 100))); k = -(-len(c) // n)
+            parts += [c[a:a + k] for a in range(0, len(c), k)]
     out = []
     for p in parts:  # 3) gộp các câu ngắn liền nhau cho gần 3 giây (≤ 3 giây, ≤ 2 dòng)
-        if out and p[-1]['e'] - out[-1][0]['s'] <= SUB_MAX and p[0]['s'] - out[-1][-1]['e'] < .6 and len(txt(out[-1] + p)) <= 70: out[-1] = out[-1] + p
+        if out and p[-1]['e'] - out[-1][0]['s'] <= SUB_MAX and p[0]['s'] - out[-1][-1]['e'] < .6 and len(txt(out[-1] + p)) <= 70 and PUN_END.search(out[-1][-1]['w'].strip()): out[-1] = out[-1] + p
         else: out.append(p)
     out = [{'s': p[0]['s'], 'e': p[-1]['e'], 't': txt(p)} for p in out]
     for i, c in enumerate(out):  # giữ chữ thêm chút cho dễ đọc, không đè câu sau, không quá 3 giây
         nxt = out[i + 1]['s'] if i + 1 < len(out) else c['e'] + 1
-        c['e'] = max(c['e'], min(c['s'] + SUB_MAX, nxt - .05, c['e'] + .5))
+        c['e'] = max(c['e'], min(max(c['s'] + SUB_MAX, c['e']), nxt - .05, c['e'] + .5))
     return out
 def punct(llm, ws):
     # thêm dấu câu + viết hoa khi bản chép lời thiếu; chỉ nhận kết quả nếu GIỮ ĐÚNG từng chữ (so sau khi bỏ dấu câu, chữ thường)
