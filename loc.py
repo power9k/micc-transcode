@@ -461,8 +461,8 @@ def flush_reports():  # báo các thư mục Lọc đã xong mà chưa báo đư
     if not zt: log('  %d tin chờ gửi – chưa có mã nhóm test, gửi sau' % len(pend)); return len(pend)
     for f in pend:
         txt = f.get('description') or ''
-        ap = f.get('appProperties') or {}; ids = [x for x in ((ap.get('locI1') or '') + '.' + (ap.get('locI2') or '')).split('.') if x]
-        photo = (SITE + ('/xg/' + '.'.join(ids[:4]) if len(ids) > 1 else '/xt/' + ids[0] + '?w=480')) if ids else None
+        ap = f.get('appProperties') or {}; ids = [x for k in range(1, 7) for x in (ap.get('locI%d' % k) or '').split('.') if x]
+        photo = (SITE + ('/xg/' + '.'.join(ids[:16]) if len(ids) > 1 else '/xt/' + ids[0] + '?w=480')) if ids else None  # luôn 1 ảnh (ghép tới 16 file lọc)
         if txt and all(zsend(g, txt, photo) for g in zt): mark(f['id'], locRep='1'); log('  ✓ đã báo nhóm test:', txt.split('\n')[1][:80] if '\n' in txt else '')
     return 0
 
@@ -565,8 +565,8 @@ def job(jb, key, models):
            ('\n⏱ Video cuối tải lên %s → xong %s: %d phút (máy làm %d phút)' % (hm(jb['last']), hm(now), round((now - jb['last']) / 60), max(1, round(secs / 60))) if now - jb['last'] < 6 * 3600 else
             '\n⏱ Thư mục có sẵn từ %s – máy lọc xong trong %d phút' % (hm(jb['last']), max(1, round(secs / 60)))) +
            '\n🔗 ' + ((ix(link=loc) or {}).get('link') or SITE + '/_mo/' + loc))
-    im = [i for t, i in sorted(outs, key=lambda x: x[0])][:4]
-    drive('files/' + loc, {'description': rep, 'appProperties': {'locRep': '0', 'locRun': None, 'locI1': '.'.join(im[:2]), 'locI2': '.'.join(im[2:4])}}, method='PATCH')
+    im = [i for t, i in sorted(outs, key=lambda x: x[0])][:16]
+    drive('files/' + loc, {'description': rep, 'appProperties': dict({'locRep': '0', 'locRun': None}, **{'locI%d' % (k + 1): '.'.join(im[k * 3:k * 3 + 3]) for k in range(6)})}, method='PATCH')
     mark(jb['fid'], locDone=int(now), locV=LOC_V, locOut=loc, locFail=None, locErr=None, locFailT=None)
     log('✓ Xong', title, '· %d file · %.1f phút' % (na + nb, secs / 60))
     flush_reports()
