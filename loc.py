@@ -295,8 +295,10 @@ def ts(x):
     try: return datetime.datetime.fromisoformat(str(x).replace('Z', '+00:00')).timestamp()
     except Exception: return 0
 VEXT = ('.mp4', '.mov', '.m4v', '.mxf', '.mts', '.m2ts', '.avi', '.mkv', '.mpg', '.mpeg', '.webm', '.3gp')
+PROXY = ('.lrf', '.lrv', '.thm', '.ser')  # file xem trước độ phân giải thấp của DJI / GoPro – bỏ qua
 def is_video(f):
     mt = f.get('mimeType') or ''
+    if f.get('name', '').lower().endswith(PROXY): return False
     if mt == 'application/vnd.google-apps.shortcut': mt = (f.get('shortcutDetails') or {}).get('targetMimeType') or ''
     return mt.startswith('video/') or (not mt.startswith('application/vnd.google-apps') and f.get('name', '').lower().endswith(VEXT))
 
@@ -341,7 +343,7 @@ def scan():
         if any(re.match(r'^loc\b', norm1(c['name'])) for c in dirs):  # đã có thư mục Lọc (editor hay AI làm rồi)
             continue
         lk = [c for c in dirs if c['name'] == TMPNAME]
-        if any(now - ts(c['createdTime']) < LOCK_MAX for c in lk): continue  # đang có lượt khác lọc
+        # thư mục tạm còn sót = lượt trước bị dừng giữa chừng (GitHub chỉ cho 1 lượt lọc chạy 1 lúc) → xóa, làm lại
         vids = [c for c in ch if is_video(c)]
         if not vids: continue
         last = max(max(ts(c.get('createdTime')), ts(c.get('modifiedTime'))) for c in vids)
