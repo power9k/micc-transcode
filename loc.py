@@ -26,6 +26,7 @@ ZALO = 'https://bot-api.zaloplatforms.com/bot'
 AP = {'by': 'ai-loc', 'byName': 'AI lọc source', 'via': 'loc'}
 FILL = {'ừ', 'ừm', 'ờ', 'ờm', 'ơ', 'à', 'ầm', 'ậm', 'hừm', 'ừa', 'um', 'uhm', 'uh', 'ah', 'eh', 'hmm', 'ưm', 'ừ ừ', 'ơ ơ'}
 VN = datetime.timezone(datetime.timedelta(hours=7))
+FIELDS = 'id,name,mimeType,size,createdTime,thumbnailLink,appProperties,parents,shortcutDetails,videoMediaMetadata(width,height,durationMillis),imageMediaMetadata(width,height,rotation)'  # giống máy chủ (để báo thẳng vào kho web)
 
 def log(*a): print(time.strftime('%H:%M:%S'), *a, flush=True)
 
@@ -308,7 +309,7 @@ def upload(path, name, parent):
     mt = 'video/quicktime' if path.lower().endswith('.mov') else 'video/mp4'
     for i in range(5):
         try:
-            r, _ = http(G + '/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id', {'name': name, 'parents': [parent], 'appProperties': AP},
+            r, _ = http(G + '/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=' + urllib.parse.quote(FIELDS), {'name': name, 'parents': [parent], 'appProperties': AP},
                         {'Authorization': 'Bearer ' + tok(), 'X-Upload-Content-Type': mt, 'X-Upload-Content-Length': str(size)}, raw=True)
             url = r.headers['Location']; pos = 0
             with open(path, 'rb') as f:
@@ -316,7 +317,7 @@ def upload(path, name, parent):
                     f.seek(pos); b = f.read(64 << 20)
                     req = urllib.request.Request(url, data=b, method='PUT', headers={'Content-Range': 'bytes %d-%d/%d' % (pos, pos + len(b) - 1, size) if size else 'bytes */0'})
                     try:
-                        with urllib.request.urlopen(req, timeout=600) as rr: return json.loads(rr.read())['id']
+                        with urllib.request.urlopen(req, timeout=600) as rr: return json.loads(rr.read())
                     except urllib.error.HTTPError as e:
                         if e.code != 308: raise
                         rg = e.headers.get('Range'); pos = int(rg.split('-')[1]) + 1 if rg else pos + len(b)
@@ -424,16 +425,27 @@ def scan():
 def mark(fid, **kv): drive('files/' + fid, {'appProperties': {k: (None if v is None else str(v)[:100]) for k, v in kv.items()}}, method='PATCH')
 
 # ---------- báo nhóm test Zalo (tự gửi, không qua máy chủ) ----------
-def groups():
-    ap = root_info().get('appProperties') or {}; zt = []
+def groups():  # nhóm Zalo nhận tin AI lọc: nhóm thông báo + nhóm test (chủ cho phép từ 08/11); máy chủ không trả lời thì dùng danh sách đã lưu
+    ap = root_info().get('appProperties') or {}; zn = []
     try:
         j = api('locCfg')
-        zt = [str(x) for x in (j.get('zt') or [])]
-        if zt and ','.join(zt)[:100] != (ap.get('locZT') or ''): mark(ROOT, locZT=','.join(zt)[:100])
-    except Exception as e: log('  (máy chủ chưa trả mã nhóm test: %s)' % str(e)[:80])
-    return zt or [x for x in (ap.get('locZT') or '').split(',') if x]
-def zsend(chat, text):
+        zn = [str(x) for x in (j.get('zn') or j.get('zt') or [])]
+        if zn and ','.join(zn)[:110] != (ap.get('locZN') or ''): mark(ROOT, locZN=','.join(zn)[:110])
+    except Exception as e: log('  (máy chủ chưa trả danh sách nhóm: %s)' % str(e)[:80])
+    return zn or [x for x in (ap.get('locZN') or ap.get('locZT') or '').split(',') if x]
+def ix(files=None, dele=None, link=None):  # báo máy chủ đưa ngay vào kho web (không tốn hạn mức gọi mạng của máy chủ)
+    b = {'files': files or []}
+    if dele: b['del'] = dele
+    if link: b['link'] = link
+    try: return api('locIx', **b)
+    except Exception as e: log('  (chưa báo được kho web: %s)' % str(e)[:80]); return {}
+def zsend(chat, text, photo=None):
     tk = cfg()['zalo']
+    if photo:  # tin kèm ảnh (ảnh ghép các file lọc)
+        try:
+            j = http(ZALO + tk + '/sendPhoto', {'chat_id': chat, 'photo': photo, 'caption': text[:1900]}, timeout=90)
+            if j.get('ok') is not False: return True
+        except Exception as e: log('  Zalo ảnh lỗi:', str(e).replace(tk, '***')[:160])
     for i in range(3):
         try:
             j = http(ZALO + tk + '/sendMessage', {'chat_id': chat, 'text': text[:1900]}, timeout=60)
@@ -442,14 +454,16 @@ def zsend(chat, text):
         time.sleep(3)
     return False
 def flush_reports():  # báo các thư mục Lọc đã xong mà chưa báo được (vd. lúc chưa có mã nhóm)
-    try: pend = listq("mimeType='%s' and trashed=false and appProperties has { key='locRep' and value='0' }" % FOLDER, 'id,name,description', corpora())
+    try: pend = listq("mimeType='%s' and trashed=false and appProperties has { key='locRep' and value='0' }" % FOLDER, 'id,name,description,appProperties', corpora())
     except Exception as e: log('  không đọc được tin chờ gửi:', e); return 0
     if not pend: return 0
     zt = groups()
     if not zt: log('  %d tin chờ gửi – chưa có mã nhóm test, gửi sau' % len(pend)); return len(pend)
     for f in pend:
         txt = f.get('description') or ''
-        if txt and all(zsend(g, txt) for g in zt): mark(f['id'], locRep='1'); log('  ✓ đã báo nhóm test:', txt.split('\n')[1][:80] if '\n' in txt else '')
+        ap = f.get('appProperties') or {}; ids = [x for x in ((ap.get('locI1') or '') + '.' + (ap.get('locI2') or '')).split('.') if x]
+        photo = (SITE + ('/xg/' + '.'.join(ids[:4]) if len(ids) > 1 else '/xt/' + ids[0] + '?w=480')) if ids else None
+        if txt and all(zsend(g, txt, photo) for g in zt): mark(f['id'], locRep='1'); log('  ✓ đã báo nhóm test:', txt.split('\n')[1][:80] if '\n' in txt else '')
     return 0
 
 def prog(fid, txt):  # tiến độ hiện trong mô tả thư mục “_AI đang lọc…” (xem được ngay trên Drive)
@@ -465,7 +479,9 @@ def job(jb, key, models):
     for x in jb.get('stale') or []:
         try: drive('files/' + x, {'trashed': True}, method='PATCH'); log('  bản lọc cũ → thùng rác')
         except Exception as e: log('  không bỏ được bản cũ:', e)
-    loc = drive('files', {'name': 'Lọc', 'mimeType': FOLDER, 'parents': [jb['fid']], 'appProperties': dict(AP, locRun='1'), 'description': 'AI đang lọc…'}, params={'fields': 'id'})['id']
+    if jb.get('stale'): ix(dele=jb['stale'])
+    lf = drive('files', {'name': 'Lọc', 'mimeType': FOLDER, 'parents': [jb['fid']], 'appProperties': dict(AP, locRun='1'), 'description': 'AI đang lọc…'}, params={'fields': FIELDS}); loc = lf['id']; ix([lf])
+    outs = []
     up = ThreadPoolExecutor(1); ups = []
     try:
         shutil.rmtree(TMP, ignore_errors=True); os.makedirs(TMP)
@@ -506,7 +522,7 @@ def job(jb, key, models):
         used = sorted({c['kb'] for c in clips}); fold = {}
         if len(used) > 1:  # nhiều kịch bản → mỗi kịch bản 1 thư mục “1. Tên kịch bản”
             for n, kb in enumerate(used, 1):
-                fold[kb] = drive('files', {'name': '%d. %s' % (n, kbs.get(kb) or 'Kịch bản %d' % n), 'mimeType': FOLDER, 'parents': [loc], 'appProperties': AP}, params={'fields': 'id'})['id']
+                ff = drive('files', {'name': '%d. %s' % (n, kbs.get(kb) or 'Kịch bản %d' % n), 'mimeType': FOLDER, 'parents': [loc], 'appProperties': AP}, params={'fields': FIELDS}); fold[kb] = ff['id']; ix([ff])
         prog(loc, 'Đã xem hết %d video, AI chọn %d cảnh%s – đang cắt ghép, xong file nào hiện file đó' % (len(A), len(clips), ' (%d kịch bản)' % len(used) if len(used) > 1 else ''))
         cnt = {}; na = nb = 0
         for c in clips:
@@ -521,9 +537,9 @@ def job(jb, key, models):
             c['whole'] = len(c['segs']) == 1 and c['segs'][0][0] < .3 and c['segs'][0][1] > a['dur'] - .3
         work = [c for c in clips if not c['whole']]
         for c in clips:
-            if c['whole']: drive('files/%s/copy' % c['a']['id'], {'name': c['nm'], 'parents': [c['dst']], 'appProperties': AP}, params={'fields': 'id'}); log('  ✓', c['nm'], '(chép nguyên bản)')
+            if c['whole']: cf = drive('files/%s/copy' % c['a']['id'], {'name': c['nm'], 'parents': [c['dst']], 'appProperties': AP}, params={'fields': FIELDS}); ix([cf]); outs.append((c['t'], cf['id'])); log('  ✓', c['nm'], '(chép nguyên bản)')
         def send(path, c, k):  # tải lên ngay khi xong (chạy song song với cắt video sau)
-            upload(path, c['nm'], c['dst']); os.remove(path); log('  ✓ đã đưa lên', c['nm']); prog(loc, 'Đã xong %d / %d file' % (k + 1, len(work)))
+            uf = upload(path, c['nm'], c['dst']); os.remove(path); ix([uf]); outs.append((c['t'], uf['id'])); log('  ✓ đã đưa lên', c['nm']); prog(loc, 'Đã xong %d / %d file' % (k + 1, len(work)))
         with ThreadPoolExecutor(1) as dl:  # tải sẵn video kế tiếp trong lúc cắt video hiện tại
             fut = {}
             def pre(k):
@@ -548,8 +564,9 @@ def job(jb, key, models):
            ('\n🎯 ' + str(plan.get('muc_dich'))[:200] if plan.get('muc_dich') else '') +
            ('\n⏱ Video cuối tải lên %s → xong %s: %d phút (máy làm %d phút)' % (hm(jb['last']), hm(now), round((now - jb['last']) / 60), max(1, round(secs / 60))) if now - jb['last'] < 6 * 3600 else
             '\n⏱ Thư mục có sẵn từ %s – máy lọc xong trong %d phút' % (hm(jb['last']), max(1, round(secs / 60)))) +
-           '\n🔗 https://drive.google.com/drive/folders/' + loc)
-    drive('files/' + loc, {'description': rep, 'appProperties': {'locRep': '0', 'locRun': None}}, method='PATCH')
+           '\n🔗 ' + ((ix(link=loc) or {}).get('link') or SITE + '/_mo/' + loc))
+    im = [i for t, i in sorted(outs, key=lambda x: x[0])][:4]
+    drive('files/' + loc, {'description': rep, 'appProperties': {'locRep': '0', 'locRun': None, 'locI1': '.'.join(im[:2]), 'locI2': '.'.join(im[2:4])}}, method='PATCH')
     mark(jb['fid'], locDone=int(now), locV=LOC_V, locOut=loc, locFail=None, locErr=None, locFailT=None)
     log('✓ Xong', title, '· %d file · %.1f phút' % (na + nb, secs / 60))
     flush_reports()
@@ -588,6 +605,7 @@ def server_sync():
 def main():
     check = '--check' in sys.argv
     server_sync()
+    if '--sync' in sys.argv: return
     flush_reports()
     if check:
         n = len(scan()); log('Buổi quay cần lọc:', n)
@@ -599,7 +617,7 @@ def main():
     while (time.time() - T0) / 60 < MAXMIN - 60:
         L = scan(); log('Buổi quay cần lọc:', len(L))
         if not L: break
-        jb = L[0]
+        jb = L[0]; server_sync()
         try: job(jb, key, models); done += 1
         except Exception as e:
             log('✗ lỗi:', e)

@@ -1,13 +1,24 @@
-name: MICC media - kiểm tra nhanh máy chủ
+name: MICC media - máy chủ tự cập nhật + kiểm tra (10 phút / lần)
 on:
   repository_dispatch:
     types: [ping]
+  schedule:
+    - cron: '5-59/10 * * * *'
   workflow_dispatch: {}
+concurrency:
+  group: micc-sync
+  cancel-in-progress: false
 jobs:
   ping:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+      - name: Máy chủ cũ hơn web thì tự cập nhật (Apps Script API, không tốn hạn mức của máy chủ)
+        env:
+          MICC_API: ${{ secrets.MICC_API }}
+          MICC_SECRET: ${{ secrets.MICC_SECRET }}
+        run: python3 loc.py --sync
       - name: Bản máy chủ đang chạy + lượt gọi mạng 24 giờ qua
         env:
           MICC_API: ${{ secrets.MICC_API }}
