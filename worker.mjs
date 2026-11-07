@@ -175,7 +175,11 @@ async function voMix(x, folder) {
 }
 async function voSep(x, folder) {
   const src = TMP + '/sp_' + x.fid, rest = src + '_r.wav', out = src + '_i.m4a'; log('  ▶ tách giọng người', x.name, Math.round(x.dur) + 's');
-  try { await download(x.fid, x.size, src); if (!await vox({ src, rest })) throw new Error('chưa có công cụ tách giọng');
+  try { await download(x.fid, x.size, src);
+    const tv = async () => { try { return await vox({ src, rest }) ? 'ok' : 'notool'; } catch (e) { return 'E:' + (e.message || ''); } };
+    let r = await tv(); if (/BADFILE/.test(r)) { rmf(src); await download(x.fid, x.size, src); r = await tv(); } // tải thiếu → tải lại, thử thêm 1 lần
+    if (r === 'notool') throw new Error('chưa có công cụ tách giọng');
+    if (r !== 'ok') { if (/NOAUDIO/.test(r)) { await api('voDone', { fail: 'sep: video không có tiếng', key: 's' + x.fid, dead: 1 }); log('  ∅ video không có tiếng'); return; } throw new Error(r.slice(2).replace(/^(BADFILE|NOAUDIO)\s*/, '')); }
     await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', rest, '-c:a', 'aac', '-b:a', '128k', '-ac', '2', out]);
     const id = await upFile(out, x.name.replace(/\.[^.]+$/, '') + ' · không giọng người.m4a', folder, 'audio/mp4'); await api('voDone', { kind: 'sep', fid: x.fid, ins: id }); log('  ✓ tách giọng xong');
   } finally { rmf(src, rest, out); }
