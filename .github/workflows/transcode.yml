@@ -1,3 +1,4 @@
+# Lịch chạy (schedule) chỉ hoạt động khi tệp này do máy chủ đẩy lên bằng GH_TOKEN (tài khoản chủ) – không đẩy tay tệp workflow từ phiên Claude.
 name: MICC media - bản nhẹ 480p-720p, phụ đề video, chép lời ghi âm
 on:
   repository_dispatch:
