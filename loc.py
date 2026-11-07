@@ -126,7 +126,7 @@ def analyze(i, v):
     for k in pick:
         im = Image.open(ims[k]).convert('RGB'); im.thumbnail((288, 288)); bio = __import__('io').BytesIO(); im.save(bio, 'JPEG', quality=60)
         thumbs.append([round(kt[k], 1), base64.b64encode(bio.getvalue()).decode()])
-    return dict(i=i, name=v['name'], id=v['id'], size=v.get('size') or 0, dur=dur, w=vs.get('width'), h=vs.get('height'), codec=vs.get('codec_name'),
+    return dict(i=i, name=v['name'], sub=v.get('dir', ''), id=v['id'], size=v.get('size') or 0, dur=dur, w=vs.get('width'), h=vs.get('height'), codec=vs.get('codec_name'),
                 wav=os.path.join(d, 'a.wav') if has_a and os.path.exists(os.path.join(d, 'a.wav')) else None, kt=kt, sharp=sharp, bright=bright, mot=mot, thumbs=thumbs, dir=d)
 
 ASR = {}
@@ -155,12 +155,12 @@ def summary(a):
         else: ivs.append([t, t, why])
     q = ', '.join('%.0f-%.0fs %s' % (x[0], x[1] + 1, x[2]) for x in ivs[:12]) or 'ổn định, nét'
     tx = ' '.join('[%.1f-%.1f] %s' % (s['s'], s['e'], s['t']) for s in a['segs'])
-    return 'VIDEO #%d · tên "%s" · %.1f giây · %sx%s · độ nét TB %.0f · chất lượng hình: %s\nLời thoại: %s' % (a['i'], a['name'], a['dur'], a['w'], a['h'], ref, q, tx[:3500] or '(không có lời)')
+    return 'VIDEO #%d · %stên "%s" · %.1f giây · %sx%s · độ nét TB %.0f · chất lượng hình: %s\nLời thoại: %s' % (a['i'], ('thư mục con “%s” · ' % a['sub']) if a.get('sub') else '', a['name'], a['dur'], a['w'], a['h'], ref, q, tx[:3500] or '(không có lời)')
 
 # ---------- 3) Gemini lên kế hoạch lọc ----------
 SYS = '''Bạn là video editor chuyên nghiệp của team truyền thông bất động sản MICC. Bạn nhận toàn bộ source (cảnh quay gốc) của 1 buổi quay: ảnh khung hình, chất lượng hình, lời thoại có mốc thời gian (lời do máy nghe, có thể sai chính tả).
 Nhiệm vụ: LỌC SOURCE như editor lọc tay trước khi dựng.
-1. Hiểu buổi quay nhằm mục đích gì. Một buổi quay có thể quay NHIỀU KỊCH BẢN khác nhau: phân biệt dựa vào nội dung lời thoại, B-roll hợp với lời thoại nào, bối cảnh, nhân vật, trang phục. Đặt tên từng kịch bản ngắn gọn (vd "Giới thiệu ứng dụng NextMe", "Dự án Vinhomes Ocean Park đang mở bán").
+1. Hiểu buổi quay nhằm mục đích gì. Nếu video đã được xếp vào các thư mục con (vd “Kịch bản 1”, “Kịch bản 2”) thì mỗi thư mục con thường là 1 kịch bản – dùng làm gợi ý chính (tên kịch bản vẫn đặt theo nội dung thật). Một buổi quay có thể quay NHIỀU KỊCH BẢN khác nhau: phân biệt dựa vào nội dung lời thoại, B-roll hợp với lời thoại nào, bối cảnh, nhân vật, trang phục. Đặt tên từng kịch bản ngắn gọn (vd "Giới thiệu ứng dụng NextMe", "Dự án Vinhomes Ocean Park đang mở bán").
 2. Phân loại: A-roll = cảnh có người nói theo kịch bản (MC, phỏng vấn, thuyết trình); B-roll = cảnh minh họa không thoại chính (toàn cảnh, cận cảnh, chi tiết, flycam, quay màn hình…).
 3. Cảnh quay lại nhiều lần (cùng góc / cùng nội dung / cùng câu thoại): chỉ chọn 1 bản tốt nhất – nét, ổn định, bố cục đẹp, nói trôi chảy, ĐỦ Ý nhất. Bỏ hẳn bản kém, bản hỏng, bản quay nhầm.
 4. Với mỗi video được chọn, ghi các đoạn GIỮ LẠI (giây, theo video gốc). A-roll: giữ TRỌN câu nói, tuyệt đối không cắt giữa câu, giữ từ đầu câu đầu tới hết câu cuối của phần nói đúng; chỉ bỏ phần nói hỏng rồi nói lại (giữ lần nói đúng cuối cùng), nói linh tinh ngoài kịch bản, đoạn chuẩn bị / chờ. B-roll: giữ đoạn đẹp, ổn định (bỏ rung lắc, mờ, lia vội); nhiều đoạn đẹp khác nhau thì giữ nhiều đoạn.
@@ -419,13 +419,23 @@ def scan():
         if len(locs) > len(mine): continue  # editor đã lọc tay (thư mục Lọc không phải của AI) → bỏ qua
         lk = mine + [c for c in dirs if c['name'] == TMPNAME]  # bản AI cũ / lượt trước dừng giữa chừng → thùng rác, lọc lại
         vids = [c for c in ch if is_video(c)]
+        # video có thể nằm trong thư mục con của buổi quay (vd “Kịch bản 1”, “Kịch bản 2 duyệt”, “Cam A”…) → tìm mọi tầng (tối đa 4), bỏ qua thư mục Lọc / thư mục tạm
+        st = [(c, c['name']) for c in dirs if c not in locs and c['name'] != TMPNAME]
+        for g in range(60):
+            if not st: break
+            d, path = st.pop(0)
+            sub = listq("'%s' in parents and trashed=false" % d['id'], 'id,name,mimeType,size,createdTime,modifiedTime,appProperties,shortcutDetails,videoMediaMetadata', corpora())
+            for c in sub:
+                if c['mimeType'] == FOLDER:
+                    if not re.match(r'^loc\b', norm1(c['name'])) and c['name'] != TMPNAME and path.count('/') < 3: st.append((c, path + '/' + c['name']))
+                elif is_video(c): c['_dir'] = path; vids.append(c)
         if not vids: continue
         last = max(max(ts(c.get('createdTime')), ts(c.get('modifiedTime'))) for c in vids)
         if now - last < SETTLE: continue  # còn đang tải lên
         def vrow(c):
             sd = c.get('shortcutDetails') or {}; vm = c.get('videoMediaMetadata') or {}
-            return {'id': sd.get('targetId') or c['id'], 'name': c['name'], 'size': int(c.get('size') or 0), 'dur': (int(vm.get('durationMillis') or 0)) / 1000, 'w': vm.get('width'), 'h': vm.get('height')}
-        nk = lambda c: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', c['name'])]
+            return {'id': sd.get('targetId') or c['id'], 'name': c['name'], 'dir': c.get('_dir', ''), 'size': int(c.get('size') or 0), 'dur': (int(vm.get('durationMillis') or 0)) / 1000, 'w': vm.get('width'), 'h': vm.get('height')}
+        nk = lambda c: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', c.get('_dir', '') + '/' + c['name'])]
         jb.update(last=last, stale=[c['id'] for c in lk], videos=[vrow(c) for c in sorted(vids, key=nk)]); ready.append(jb)
     ready.sort(key=lambda j: -j['last'])  # buổi quay vừa tải lên làm trước
     return ready
