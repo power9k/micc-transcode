@@ -387,6 +387,10 @@ def flush_reports():  # báo các thư mục Lọc đã xong mà chưa báo đư
         if txt and all(zsend(g, txt) for g in zt): mark(f['id'], locRep='1'); log('  ✓ đã báo nhóm test:', txt.split('\n')[1][:80] if '\n' in txt else '')
     return 0
 
+def prog(fid, txt):  # tiến độ hiện trong mô tả thư mục “_AI đang lọc…” (xem được ngay trên Drive)
+    try: drive('files/' + fid, {'description': hm(time.time()) + ' · ' + txt}, method='PATCH'); log('  …', txt)
+    except Exception: pass
+
 def hm(t): return datetime.datetime.fromtimestamp(t, VN).strftime('%H:%M %d/%m')
 
 # ---------- 1 buổi quay ----------
@@ -407,6 +411,7 @@ def job(jb, key, models):
                 except Exception as e: log('  bỏ qua video #%d: %s' % (fs[f], e)); continue
                 a['segs'] = transcribe(a['wav']); res[a['i']] = a
                 log('  ✓ đã xem + nghe #%d %s (%.0fs, %d câu)' % (a['i'], a['name'], a['dur'], len(a['segs'])))
+                if len(res) % 10 == 0: prog(loc, 'Đã xem + nghe %d / %d video' % (len(res), len(vids)))
         A = [res[k] for k in sorted(res)]
         if not A: raise RuntimeError('không đọc được video nào')
         log('  xem + nghe xong sau %.1f phút' % ((time.time() - t0) / 60))
@@ -425,6 +430,7 @@ def job(jb, key, models):
             if not keep: continue
             seen.add(vi); clips.append(dict(t='A' if str(c.get('loai', 'B')).upper().startswith('A') else 'B', a=a, keep=sorted(keep), name=safe(str(c.get('ten') or os.path.splitext(a['name'])[0]))))
         if not clips: raise RuntimeError('kế hoạch lọc không có file nào')
+        prog(loc, 'Đã xem hết %d video, AI chọn %d cảnh – đang cắt ghép' % (len(A), len(clips)))
         na = nb = 0
         for c in clips:
             a = c['a']; c['n'] = (na := na + 1) if c['t'] == 'A' else (nb := nb + 1)
@@ -449,7 +455,7 @@ def job(jb, key, models):
                     make_a(a, segs or c['keep'], c['src'], out)
                 else: make_b(a, c['keep'], c['src'], out)
                 upload(out, c['nm'], loc); os.remove(out); os.remove(c['src'])
-                log('  ✓', c['nm'])
+                log('  ✓', c['nm']); prog(loc, 'Đã cắt xong %d / %d file' % (k + 1, len(work)))
     except Exception:
         try: drive('files/' + loc, method='DELETE')
         except Exception: pass
