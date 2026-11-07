@@ -41,11 +41,18 @@ jobs:
           pip install -q faster-whisper 'av<14' numpy pillow
       - if: steps.chk.outputs.todo == '1'
         name: AI lọc source (xem, nghe, chọn bản tốt nhất, cắt ghép → thư mục Lọc)
+        id: run
         env:
           MICC_API: ${{ secrets.MICC_API }}
           MICC_SECRET: ${{ secrets.MICC_SECRET }}
           MAX_MIN: '330'
         run: python loc.py
+      - name: Báo nhóm test nếu máy GitHub lỗi khi chuẩn bị
+        if: failure() && steps.run.outcome != 'failure'
+        env:
+          MICC_API: ${{ secrets.MICC_API }}
+          MICC_SECRET: ${{ secrets.MICC_SECRET }}
+        run: python3 loc.py --fail
       - name: Giữ lịch tự chạy (GitHub tắt lịch nếu kho 60 ngày không thay đổi)
         if: always()
         run: |
