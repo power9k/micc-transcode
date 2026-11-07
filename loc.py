@@ -463,7 +463,8 @@ def job(jb, key, models):
     secs, now = time.time() - t0, time.time()
     rep = ('✂️ AI LỌC SOURCE XONG\n📁 %s › %s\n🎬 %d video gốc → %d file lọc (%d A-roll, %d B-roll)' % (jb.get('src') or '', jb['name'], len(vids), na + nb, na, nb) +
            ('\n🎯 ' + str(plan.get('muc_dich'))[:200] if plan.get('muc_dich') else '') +
-           '\n⏱ Video cuối tải lên %s → xong %s: %d phút (máy làm %d phút)' % (hm(jb['last']), hm(now), round((now - jb['last']) / 60), max(1, round(secs / 60))) +
+           ('\n⏱ Video cuối tải lên %s → xong %s: %d phút (máy làm %d phút)' % (hm(jb['last']), hm(now), round((now - jb['last']) / 60), max(1, round(secs / 60))) if now - jb['last'] < 6 * 3600 else
+            '\n⏱ Thư mục có sẵn từ %s – máy lọc xong trong %d phút' % (hm(jb['last']), max(1, round(secs / 60)))) +
            '\n🔗 https://drive.google.com/drive/folders/' + loc)
     drive('files/' + loc, {'name': 'Lọc', 'description': rep, 'appProperties': {'locRep': '0'}}, method='PATCH')
     mark(jb['fid'], locDone=int(now), locOut=loc, locFail=None, locErr=None)
