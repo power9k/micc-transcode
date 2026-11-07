@@ -471,7 +471,7 @@ def flush_reports():  # báo các thư mục Lọc đã xong mà chưa báo đư
         txt = f.get('description') or ''
         ap = f.get('appProperties') or {}; ids = [x for k in range(1, 7) for x in (ap.get('locI%d' % k) or '').split('.') if x]
         photo = (SITE + ('/xg/' + '.'.join(ids[:16]) if len(ids) > 1 else '/xt/' + ids[0] + '?w=480')) if ids else None  # luôn 1 ảnh (ghép tới 16 file lọc)
-        if txt and all(zsend(g, txt, photo) for g in zt): mark(f['id'], locRep='1'); log('  ✓ đã báo nhóm test:', txt.split('\n')[1][:80] if '\n' in txt else '')
+        if txt and all(zsend(g, txt, photo) for g in zt): mark(f['id'], locRep='1'); log('  ✓ đã báo nhóm Zalo:', txt.split('\n')[1][:80] if '\n' in txt else '')
     return 0
 
 def prog(fid, txt):  # tiến độ hiện trong mô tả thư mục “_AI đang lọc…” (xem được ngay trên Drive)
