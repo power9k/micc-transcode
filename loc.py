@@ -587,6 +587,12 @@ def server_sync():
         S = 'https://script.googleapis.com/v1/projects/' + SCRIPT_ID; H = lambda: {'Authorization': 'Bearer ' + tok()}
         old = http(S + '/content', headers=H())
         files = [dict(f, source=src) if f.get('type') == 'SERVER_JS' and 'const BOT_VER = ' in (f.get('source') or '') else f for f in old['files']]
+        for f in files:  # bật dịch vụ Drive v3 (đọc Drive không tốn hạn mức gọi mạng của máy chủ)
+            if f.get('type') == 'JSON' and f.get('name') == 'appsscript':
+                try:
+                    mf = json.loads(f['source']); sv = mf.setdefault('dependencies', {}).setdefault('enabledAdvancedServices', [])
+                    if not any(x.get('serviceId') == 'drive' for x in sv): sv.append({'userSymbol': 'Drive', 'serviceId': 'drive', 'version': 'v3'}); f['source'] = json.dumps(mf, indent=2, ensure_ascii=False); log('  bật dịch vụ Drive cho máy chủ')
+                except Exception as e: log('  không sửa được cấu hình dự án:', e)
         if not any(f.get('source') == src for f in files): raise RuntimeError('không thấy tệp code chính')
         http(S + '/content', {'files': files}, H(), 'PUT')
         v = http(S + '/versions', {'description': meta['ver'] + ' (máy GitHub cập nhật)'}, H(), 'POST')
