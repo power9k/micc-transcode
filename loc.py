@@ -278,9 +278,9 @@ def short(t, k):
     if len(t) <= k: return t
     t = t[:k].rsplit(' ', 1)[0]; return t.rstrip(',.;:') + '…'
 
-def copy_cut(a, s, e, src, out):  # 1 đoạn liền: cắt không nén lại (giữ nguyên chất lượng gốc) nếu có khung chính ngay trước điểm đầu
+def copy_cut(a, s, e, src, out):  # 1 đoạn liền: cắt không nén lại (giữ nguyên chất lượng gốc) chỉ khi điểm đầu đúng khung chính (bản 262: chặt hơn để không đen / đứng hình đầu)
     ks = max([t for t in a['kt'] if t <= s + .02] or [-99])
-    if s - ks > 1.5: return False
+    if s - ks > .25: return False
     run(['ffmpeg', '-y', '-v', 'error', '-ss', '%.3f' % max(0, ks), '-i', src, '-t', '%.3f' % (e - max(0, ks)), '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy', '-avoid_negative_ts', 'make_zero', '-movflags', '+faststart', out], timeout=1800)
     return True
 
@@ -291,6 +291,47 @@ def make_a(a, segs, src, out):  # nối các đoạn giữ lại thành 1 video 
            '-c:v', 'libx264', '-preset', os.environ.get('LOC_PRESET', 'ultrafast'), '-crf', os.environ.get('LOC_CRF', '14'),
            '-af', 'aresample=async=1:first_pts=0', '-c:a', 'aac', '-b:a', '256k', '-movflags', '+faststart', '-threads', '0', out]
     run(cmd, timeout=5400); os.remove(lst)
+
+# bản 262 (chủ dặn): cắt CHÍNH XÁC từng đoạn (tua chính xác tới khung, nén lại) rồi nối – không còn đen / đứng hình đầu video, hình tiếng không lệch, không mất câu cuối
+def render_exact(a, segs, src, out):
+    P, C = os.environ.get('LOC_PRESET', 'ultrafast'), os.environ.get('LOC_CRF', '14'); parts = []
+    for k, (s0, e0) in enumerate(segs):
+        pth = out + '.x%02d.mp4' % k
+        run(['ffmpeg', '-y', '-v', 'error', '-ss', '%.3f' % s0, '-i', src, '-t', '%.3f' % (e0 - s0), '-map', '0:v:0', '-map', '0:a:0?', '-vf', 'format=yuv420p', '-c:v', 'libx264', '-preset', P, '-crf', C,
+             '-af', 'aresample=async=1000', '-c:a', 'aac', '-b:a', '256k', '-ar', '48000', '-ac', '2', '-avoid_negative_ts', 'make_zero', '-movflags', '+faststart', '-threads', '0', pth], timeout=5400)
+        parts.append(pth)
+    if len(parts) == 1: os.replace(parts[0], out); return
+    lst = out + '.txt'; open(lst, 'w').write(''.join("file '%s'\n" % x.replace("'", "'\\''") for x in parts))
+    run(['ffmpeg', '-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', lst, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k', '-movflags', '+faststart', out], timeout=3600)
+    for x in parts + [lst]: os.remove(x)
+
+def qa(path, aroll=True, full=True, want=None):  # tự kiểm tra file lọc: đen màn / đứng hình (đầu hoặc giữa), hình – tiếng lệch, cắt giữa câu ở cuối
+    import numpy as np
+    issues = {}
+    pr = json.loads(run(['ffprobe', '-v', 'error', '-print_format', 'json', '-show_streams', '-show_format'] + (path if isinstance(path, list) else [path]), timeout=180).stdout or '{}')
+    dv = [float(x.get('duration') or 0) for x in pr.get('streams', []) if x.get('codec_type') == 'video']; da = [float(x.get('duration') or 0) for x in pr.get('streams', []) if x.get('codec_type') == 'audio']
+    D = float((pr.get('format') or {}).get('duration') or (dv[0] if dv else 0))
+    if dv and da and dv[0] and da[0] and abs(dv[0] - da[0]) > .6: issues['lech'] = round(dv[0] - da[0], 2)
+    if want and D and abs(D - want) > max(.8, want * .04): issues['dai_sai'] = round(D - want, 2)  # dài / ngắn hơn phần cần giữ (vd dính phần trước điểm cắt)
+    src = path if isinstance(path, list) else ['-i', path]
+    p = subprocess.run(['ffmpeg', '-v', 'info'] + (src if full else src[:-2] + ['-t', '14'] + src[-2:]) + ['-map', '0:v:0', '-vf', 'scale=320:-2,blackdetect=d=0.5:pix_th=0.08,freezedetect=n=-60dB:d=1', '-f', 'null', '-'], capture_output=True, text=True, timeout=3600)
+    for m in re.finditer(r'black_start:([\d.]+) black_end:([\d.]+) black_duration:([\d.]+)', p.stderr):
+        b0, b1, bd = map(float, m.groups())
+        if b0 < .4 and bd >= .6: issues['den_dau'] = round(b1, 2)
+        elif bd >= 2 and b1 < D - .3: issues.setdefault('den_giua', round(b0, 2))
+    fz = re.findall(r'freeze_start: ([\d.]+)', p.stderr); fe = re.findall(r'freeze_end: ([\d.]+)', p.stderr)
+    for k, f0 in enumerate(fz):
+        f0 = float(f0); f1 = float(fe[k]) if k < len(fe) else D
+        if f0 < .4 and f1 - f0 >= 1.0 and aroll: issues['dung_dau'] = round(f1, 2)  # B-roll đặt máy cố định có thể đứng yên thật
+        elif aroll and f1 - f0 >= 3 and f1 < D - .3: issues.setdefault('dung_giua', round(f0, 2))
+    if aroll and da:  # tiếng 0,25 s cuối còn to như đang nói → cắt giữa câu
+        q = subprocess.run(['ffmpeg', '-v', 'error'] + (['-sseof', '-6'] if not full else []) + src + ['-map', '0:a:0', '-ac', '1', '-ar', '16000', '-f', 's16le', '-'], capture_output=True, timeout=1800).stdout
+        x = np.frombuffer(q, dtype=np.int16).astype(np.float32)
+        F = 320; m = len(x) // F
+        if m > 40:
+            e = 10 * np.log10((x[:m * F].reshape(m, F) ** 2).mean(1) + 1); thr = max(np.percentile(e, 90) - 10, 40)
+            if (e[-12:] > thr).mean() > .5: issues['cat_cuoi'] = 1
+    return issues
 
 def make_b(a, keep, src, out):
     kt = sorted(a['kt']); parts = []
@@ -305,12 +346,12 @@ def make_b(a, keep, src, out):
     run(['ffmpeg', '-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', lst, '-c', 'copy', '-movflags', '+faststart', out], timeout=1800)
     for p in parts + [lst]: os.remove(p)
 
-def upload(path, name, parent):
+def upload(path, name, parent, extra=None):
     size = os.path.getsize(path)
     mt = 'video/quicktime' if path.lower().endswith('.mov') else 'video/mp4'
     for i in range(5):
         try:
-            r, _ = http(G + '/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=' + urllib.parse.quote(FIELDS), {'name': name, 'parents': [parent], 'appProperties': AP},
+            r, _ = http(G + '/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=' + urllib.parse.quote(FIELDS), {'name': name, 'parents': [parent], 'appProperties': dict(AP, **(extra or {}))},
                         {'Authorization': 'Bearer ' + tok(), 'X-Upload-Content-Type': mt, 'X-Upload-Content-Length': str(size)}, raw=True)
             url = r.headers['Location']; pos = 0
             with open(path, 'rb') as f:
@@ -402,42 +443,49 @@ def scan():
             if not any(p in srcs for p in sh.get('parents') or []):
                 try: drive('files/' + f['id'], {'trashed': True}, method='PATCH'); ix(dele=[f['id']]); log('  dọn thư mục Lọc làm nhầm trong', sh.get('name'))
                 except Exception as e: log('  không dọn được:', e)
-    jobs = []
+    # bản 262 (chủ dặn): thư mục “Lọc” luôn nằm NGAY TRONG thư mục chứa video. Mỗi thư mục có video (buổi quay hoặc thư mục con của nó, vd “Kịch bản 1”) = 1 lượt lọc riêng, chỉ lấy video nằm trực tiếp trong đó.
+    FL = 'id,name,mimeType,size,createdTime,modifiedTime,appProperties,shortcutDetails,videoMediaMetadata'
+    skipd = lambda c: re.match(r'^loc\b', norm1(c['name'])) or c['name'] == TMPNAME or mine_ap(c.get('appProperties')) or (c.get('appProperties') or {}).get('mcache') == '1'
+    ready = []
     for f in fol:
         par = [p for p in f.get('parents') or [] if p in srcs]
-        ap = f.get('appProperties') or {}
-        if not par or re.match(r'^loc\b', norm1(f['name'])) or f['name'] == TMPNAME or mine_ap(ap): continue  # (thư mục con của Source = buổi quay, kể cả tên có chữ source)
-        if ap.get('locDone') and ap.get('locV') == LOC_V: continue
-        nf = int(ap.get('locFail') or 0) if ap.get('locV') == LOC_V else 0
-        if nf >= FAIL_MAX or (nf and now - float(ap.get('locFailT') or 0) < FAIL_WAIT): continue
-        jobs.append({'fid': f['id'], 'name': f['name'], 'src': srcs[par[0]]['name'], 'nfail': nf})
-    ready = []
-    for jb in jobs:
-        ch = listq("'%s' in parents and trashed=false" % jb['fid'], 'id,name,mimeType,size,createdTime,modifiedTime,appProperties,shortcutDetails,videoMediaMetadata', corpora())
-        dirs = [c for c in ch if c['mimeType'] == FOLDER]
-        locs = [c for c in dirs if re.match(r'^loc\b', norm1(c['name']))]
-        mine = [c for c in locs if mine_ap(c.get('appProperties'))]
-        if len(locs) > len(mine): continue  # editor đã lọc tay (thư mục Lọc không phải của AI) → bỏ qua
-        lk = mine + [c for c in dirs if c['name'] == TMPNAME]  # bản AI cũ / lượt trước dừng giữa chừng → thùng rác, lọc lại
-        vids = [c for c in ch if is_video(c)]
-        # video có thể nằm trong thư mục con của buổi quay (vd “Kịch bản 1”, “Kịch bản 2 duyệt”, “Cam A”…) → tìm mọi tầng (tối đa 4), bỏ qua thư mục Lọc / thư mục tạm
-        st = [(c, c['name']) for c in dirs if c not in locs and c['name'] != TMPNAME]
-        for g in range(60):
-            if not st: break
-            d, path = st.pop(0)
-            sub = listq("'%s' in parents and trashed=false" % d['id'], 'id,name,mimeType,size,createdTime,modifiedTime,appProperties,shortcutDetails,videoMediaMetadata', corpora())
-            for c in sub:
-                if c['mimeType'] == FOLDER:
-                    if not re.match(r'^loc\b', norm1(c['name'])) and c['name'] != TMPNAME and path.count('/') < 3: st.append((c, path + '/' + c['name']))
-                elif is_video(c): c['_dir'] = path; vids.append(c)
-        if not vids: continue
-        last = max(max(ts(c.get('createdTime')), ts(c.get('modifiedTime'))) for c in vids)
-        if now - last < SETTLE: continue  # còn đang tải lên
-        def vrow(c):
-            sd = c.get('shortcutDetails') or {}; vm = c.get('videoMediaMetadata') or {}
-            return {'id': sd.get('targetId') or c['id'], 'name': c['name'], 'dir': c.get('_dir', ''), 'size': int(c.get('size') or 0), 'dur': (int(vm.get('durationMillis') or 0)) / 1000, 'w': vm.get('width'), 'h': vm.get('height')}
-        nk = lambda c: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', c.get('_dir', '') + '/' + c['name'])]
-        jb.update(last=last, stale=[c['id'] for c in lk], videos=[vrow(c) for c in sorted(vids, key=nk)]); ready.append(jb)
+        if not par or skipd(f): continue  # thư mục con của Source = buổi quay (kể cả tên có chữ source)
+        nodes, st = [], [(f, f['name'], 0)]
+        while st and len(nodes) < 80:
+            d, path, dep = st.pop(0)
+            ch = listq("'%s' in parents and trashed=false" % d['id'], FL, corpora())
+            dirs = [c for c in ch if c['mimeType'] == FOLDER]
+            locs = [c for c in dirs if re.match(r'^loc\b', norm1(c['name']))]
+            mine = [c for c in locs if mine_ap(c.get('appProperties'))]
+            nd = dict(f=d, path=path, vids=[c for c in ch if is_video(c)], locs=locs, mine=mine, tmp=[c for c in dirs if c['name'] == TMPNAME], kids=[])
+            nodes.append(nd)
+            for c in dirs:
+                if not skipd(c) and dep < 4: nd['kids'].append(c['id']); st.append((c, path + ' › ' + c['name'], dep + 1))
+        byn = {n['f']['id']: n for n in nodes}
+        def hasv(n, g=0): return g < 8 and any(byn[k]['vids'] or hasv(byn[k], g + 1) for k in n['kids'] if k in byn)
+        undone = 0
+        for n in nodes:
+            if not n['vids']: continue
+            ap = n['f'].get('appProperties') or (by.get(n['f']['id']) or {}).get('appProperties') or {}
+            done = ap.get('locDone') and ap.get('locV') == LOC_V and (ap.get('locL') == '1' or not hasv(n))  # bản cũ gộp cả thư mục con vào 1 thư mục Lọc → lọc lại đúng chỗ
+            if done: continue
+            undone += 1
+            if len(n['locs']) > len(n['mine']): continue  # editor đã lọc tay (thư mục Lọc không phải của AI) → bỏ qua
+            nf = int(ap.get('locFail') or 0) if ap.get('locV') == LOC_V else 0
+            if nf >= FAIL_MAX or (nf and now - float(ap.get('locFailT') or 0) < FAIL_WAIT): continue
+            last = max(max(ts(c.get('createdTime')), ts(c.get('modifiedTime'))) for c in n['vids'])
+            if now - last < SETTLE: continue  # còn đang tải lên
+            def vrow(c):
+                sd = c.get('shortcutDetails') or {}; vm = c.get('videoMediaMetadata') or {}
+                return {'id': sd.get('targetId') or c['id'], 'name': c['name'], 'dir': '', 'size': int(c.get('size') or 0), 'dur': (int(vm.get('durationMillis') or 0)) / 1000, 'w': vm.get('width'), 'h': vm.get('height')}
+            nk = lambda c: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', c['name'])]
+            ready.append({'fid': n['f']['id'], 'name': n['path'], 'src': srcs[par[0]]['name'], 'nfail': nf, 'last': last, 'stale': [c['id'] for c in n['mine'] + n['tmp']], 'videos': [vrow(c) for c in sorted(n['vids'], key=nk)]})
+        if not undone:  # thư mục Lọc AI cũ nằm ở thư mục KHÔNG chứa video (vd ngoài “Kịch bản 1”, “Kịch bản 2”) → các thư mục con đã có Lọc riêng → bỏ bản cũ
+            for n in nodes:
+                if n['vids']: continue
+                for c in n['mine'] + n['tmp']:
+                    try: drive('files/' + c['id'], {'trashed': True}, method='PATCH'); ix(dele=[c['id']]); log('  bỏ thư mục Lọc cũ đặt sai chỗ trong', n['path'])
+                    except Exception as e: log('  không bỏ được Lọc sai chỗ:', e)
     ready.sort(key=lambda j: -j['last'])  # buổi quay vừa tải lên làm trước
     return ready
 
@@ -522,6 +570,38 @@ def prog(fid, txt):  # tiến độ hiện trong mô tả thư mục “_AI đan
 def hm(t): return datetime.datetime.fromtimestamp(t, VN).strftime('%H:%M %d/%m')
 
 # ---------- 1 buổi quay ----------
+QA_N = {'den_dau': 'đen màn đầu video', 'den_giua': 'đen màn giữa video', 'dung_dau': 'đứng hình đầu video', 'dung_giua': 'đứng hình giữa video', 'lech': 'hình và tiếng lệch nhau', 'dai_sai': 'thời lượng sai (dính phần ngoài đoạn cắt)', 'cat_cuoi': 'cắt giữa câu ở cuối'}
+def qa_txt(q): return ', '.join(QA_N.get(k, k) for k in q)
+def meta(c):  # nguồn + mốc cắt lưu trong file lọc → sau này phát hiện lỗi thì làm lại đúng file đó
+    sg = ';'.join('%.2f-%.2f' % (x, y) for x, y in c['segs']); m = {'locSrc': c['a']['id'], 'locT': c['t'], 'locQa': '1'}
+    for k in range(4): m['locSg%d' % (k + 1)] = sg[k * 95:(k + 1) * 95] or None
+    return {k: v for k, v in m.items() if v}
+def ext_end(a, e):  # còn đang nói ở điểm cắt cuối → cho nói hết (tối đa thêm 4 giây) + 0,35 s đệm
+    v = vad(a); dur = a['dur']
+    if v is None: return min(dur, e + 1.5)
+    t, n = e, 0
+    while t < dur and n < 200 and (sp(a, t) or sp(a, t + .1) or sp(a, t + .2)): t += FR; n += 1
+    return min(dur, t + .35)
+def build(a, c, out):  # cắt → tự kiểm tra → sửa (tối đa 3 lần): đen / đứng hình đầu → cắt chính xác, nếu do chính video gốc thì bỏ phần đó; cắt giữa câu → kéo dài tới hết câu
+    segs = [list(x) for x in c['segs']]; aroll = c['t'] == 'A' or bool(a['segs']); exact = False; last = {}
+    for rnd in range(4):
+        if not exact and len(segs) == 1 and copy_cut(a, segs[0][0], segs[0][1], c['src'], out): pass
+        elif not exact and not aroll: make_b(a, segs, c['src'], out)
+        else: render_exact(a, segs, c['src'], out); exact = True
+        q = qa(out, aroll, want=sum(y - x for x, y in segs) if exact else None)
+        if not q: c['segs'] = segs; return {}
+        log('  ⚠ tự kiểm tra %s: %s → làm lại' % (c['nm'], qa_txt(q))); last = q
+        if not exact: exact = True; continue  # lần đầu: chỉ cần cắt chính xác (lỗi do cắt nhanh không nén)
+        ch = False
+        if 'den_dau' in q or 'dung_dau' in q:  # vẫn đen / đứng hình dù cắt chính xác → do video gốc: bỏ phần đó
+            cut = max(q.get('den_dau', 0), q.get('dung_dau', 0)) + .05
+            if segs[0][1] - segs[0][0] > cut + .8: segs[0][0] += cut; ch = True
+        if 'cat_cuoi' in q:
+            e2 = ext_end(a, segs[-1][1])
+            if e2 > segs[-1][1] + .05: segs[-1][1] = e2; ch = True
+        if not ch: break
+    c['segs'] = segs; return last
+
 def job(jb, key, models):
     t0 = time.time(); vids = jb['videos']; title = (jb.get('src') or '') + ' › ' + jb['name']
     log('▶ Lọc', title, '·', len(vids), 'video · tải xong lúc', hm(jb['last']))
@@ -589,7 +669,7 @@ def job(jb, key, models):
         for c in clips:
             if c['whole']: cf = drive('files/%s/copy' % c['a']['id'], {'name': c['nm'], 'parents': [c['dst']], 'appProperties': dict(AP, by='', byName='', uid='', own='')}, params={'fields': FIELDS}); ix([cf]); outs.append((c['t'], cf['id'])); log('  ✓', c['nm'], '(chép nguyên bản)')
         def send(path, c, k):  # tải lên ngay khi xong (chạy song song với cắt video sau)
-            uf = upload(path, c['nm'], c['dst']); os.remove(path); ix([uf]); outs.append((c['t'], uf['id'])); log('  ✓ đã đưa lên', c['nm']); prog(loc, 'Đã xong %d / %d file' % (k + 1, len(work)))
+            uf = upload(path, c['nm'], c['dst'], meta(c)); os.remove(path); ix([uf]); outs.append((c['t'], uf['id'])); log('  ✓ đã đưa lên', c['nm']); prog(loc, 'Đã xong %d / %d file' % (k + 1, len(work)))
         with ThreadPoolExecutor(1) as dl:  # tải sẵn video kế tiếp trong lúc cắt video hiện tại
             fut = {}
             def pre(k):
@@ -597,9 +677,7 @@ def job(jb, key, models):
             pre(0)
             for k, c in enumerate(work):
                 fut[k].result(); pre(k + 1); a = c['a']; out = os.path.join(TMP, 'out%02d%s' % (k, c['ext']))
-                if len(c['segs']) == 1 and copy_cut(a, c['segs'][0][0], c['segs'][0][1], c['src'], out): pass
-                elif c['t'] == 'A' or a['segs']: make_a(a, c['segs'], c['src'], out)
-                else: make_b(a, c['segs'], c['src'], out)
+                c['qa'] = build(a, c, out)
                 os.remove(c['src']); ups.append(up.submit(send, out, c, k))
         for f in ups: f.result()
     except Exception:
@@ -617,9 +695,81 @@ def job(jb, key, models):
            '\n🔗 ' + ((ix(link=loc) or {}).get('link') or SITE + '/_mo/' + loc))
     im = [i for t, i in sorted(outs, key=lambda x: x[0])][:16]
     drive('files/' + loc, {'description': rep, 'appProperties': dict({'locRep': '0', 'locRun': None}, **{'locI%d' % (k + 1): '.'.join(im[k * 3:k * 3 + 3]) for k in range(6)})}, method='PATCH')
-    mark(jb['fid'], locDone=int(now), locV=LOC_V, locOut=loc, locFail=None, locErr=None, locFailT=None)
+    mark(jb['fid'], locDone=int(now), locV=LOC_V, locL='1', locOut=loc, locFail=None, locErr=None, locFailT=None)
+    bad = [c for c in clips if c.get('qa')]
+    if bad: tsay('⚠️ AI LỌC – còn %d file chưa sửa hết lỗi sau khi tự làm lại\n📁 %s\n%s' % (len(bad), title, '\n'.join('• %s: %s' % (c['nm'], qa_txt(c['qa'])) for c in bad[:8])))
     log('✓ Xong', title, '· %d file · %.1f phút' % (na + nb, secs / 60))
     flush_reports()
+
+# ---------- bản 262 (chủ dặn): tự rà lại các file AI lọc đã có – đen / đứng hình đầu video, hình tiếng lệch, cắt giữa câu → tự lọc lại RIÊNG file đó ----------
+QAQ = "appProperties has { key='ailoc' and value='1' } and trashed=false and mimeType contains 'video/'"
+def qa_list():
+    try: return [f for f in listq(QAQ, 'id,name,parents,appProperties,size,mimeType,createdTime', corpora()) if (f.get('appProperties') or {}).get('locQa') != '1']
+    except Exception as e: log('  không rà được file lọc cũ:', e); return []
+def find_src(f):  # file lọc cũ → thư mục Lọc → thư mục chứa video gốc → video gốc theo tên (A01 - nội dung - tên gốc)
+    ap = f.get('appProperties') or {}; par = (f.get('parents') or [''])[0]; loc = None
+    for g in range(3):
+        d = drive('files/' + par, params='supportsAllDrives=true&fields=id,name,parents,appProperties')
+        if re.match(r'^loc\b', norm1(d['name'])): loc = d; break
+        par = (d.get('parents') or [''])[0]
+    if not loc: return None, None
+    jf = (loc.get('parents') or [''])[0]
+    if ap.get('locSrc'):
+        v = drive('files/' + ap['locSrc'], params='supportsAllDrives=true&fields=id,name,size,videoMediaMetadata')
+        return v, jf
+    m = re.match(r'^[AB]\d{2} - .* - (.+?)(\.[A-Za-z0-9]{2,5})?$', f['name']); stem = m.group(1) if m else ''
+    if not stem: return None, jf
+    st = [jf]
+    for g in range(30):
+        if not st: break
+        d = st.pop(0)
+        for c in listq("'%s' in parents and trashed=false" % d, 'id,name,mimeType,size,videoMediaMetadata,appProperties', corpora()):
+            if c['mimeType'] == FOLDER:
+                if not re.match(r'^loc\b', norm1(c['name'])) and not mine_ap(c.get('appProperties')): st.append(c['id'])
+            elif is_video(c) and safe(os.path.splitext(c['name'])[0], 60) == stem: return c, jf
+    return None, jf
+def regen_one(f, key, models, q):
+    v, jf = find_src(f)
+    if not v: log('  không tìm được video gốc của', f['name']); return False
+    vm = v.get('videoMediaMetadata') or {}; vr = {'id': v['id'], 'name': v['name'], 'dir': '', 'size': int(v.get('size') or 0), 'dur': int(vm.get('durationMillis') or 0) / 1000}
+    shutil.rmtree(TMP, ignore_errors=True); os.makedirs(TMP)
+    a = analyze(1, vr); a['segs'] = transcribe(a['wav']); ap = f.get('appProperties') or {}; t = 'A' if f['name'].startswith('A') else 'B'
+    keep = None
+    if ap.get('locSg1'):
+        try: keep = [[float(x) for x in z.split('-')] for z in ''.join(ap.get('locSg%d' % k) or '' for k in range(1, 5)).split(';') if z]
+        except Exception: keep = None
+    if not keep:
+        try: plan = gemini(key, models, {'title': 'Lọc lại riêng 1 video', 'vids': [a]}) if key else fallback([a])
+        except Exception: plan = fallback([a])
+        cl = (plan.get('clips') or fallback([a])['clips'])[0]
+        keep = [[max(0.0, float(r[0])), min(a['dur'], float(r[1]))] for r in (cl.get('giu') or [[0, a['dur']]]) if float(r[1]) - float(r[0]) >= .8] or [[0, a['dur']]]
+        keep = speech_cut(a, sorted(keep)) if (t == 'A' or a['segs']) else sorted(keep)
+    ext0 = os.path.splitext(v['name'])[1].lower() or '.mp4'
+    c = dict(t=t, a=a, segs=keep, nm=f['name'], dst=(f.get('parents') or [''])[0], src=os.path.join(TMP, 'src_regen' + ext0))
+    download(v['id'], vr['size'], c['src']); out = os.path.join(TMP, 'regen' + os.path.splitext(f['name'])[1].lower() if os.path.splitext(f['name'])[1].lower() in ('.mp4', '.mov', '.m4v') else os.path.join(TMP, 'regen.mp4'))
+    left = build(a, c, out); os.remove(c['src'])
+    uf = upload(out, f['name'], c['dst'], meta(c)); os.remove(out); ix([uf])
+    drive('files/' + f['id'], {'trashed': True}, method='PATCH'); ix(dele=[f['id']])
+    log('  ✓ đã lọc lại', f['name'], '(lỗi cũ: %s)' % qa_txt(q))
+    return uf, left
+def qa_old(key, models, until):
+    L = qa_list(); fixed = []
+    if L: log('Tự rà lại %d file AI lọc' % len(L))
+    for f in L:
+        if time.time() > until: break
+        try:
+            q = qa(fin(f['id']), aroll=f['name'].startswith('A'), full=False)
+            if not q: mark(f['id'], locQa='1'); continue
+            log('  ⚠', f['name'], '→', qa_txt(q))
+            r = regen_one(f, key, models, q)
+            if r: fixed.append('• %s: %s%s' % (f['name'], qa_txt(q), ' (vẫn còn: %s)' % qa_txt(r[1]) if r[1] else ''))
+            else: mark(f['id'], locQa='x')
+        except Exception as e:
+            log('  ✗ rà / lọc lại lỗi', f['name'], e); tsay('❌ AI lọc: tự rà lại file lỗi không xong\n🎬 %s\n%s' % (f['name'], str(e)[:200]))
+            try: mark(f['id'], locQa='x')
+            except Exception: pass
+    if fixed: tsay('🔁 AI LỌC – TỰ RÀ LẠI FILE ĐÃ LỌC: phát hiện lỗi và đã lọc lại %d file\n%s' % (len(fixed), '\n'.join(fixed[:12])))
+    return len(L)
 
 # ---------- máy GitHub tự cập nhật máy chủ Apps Script (không cần máy chủ gọi mạng → không dính hạn mức) ----------
 def verno(v): return int((re.search(r'bản\s*(\d+)', str(v or '')) or [0, 0])[1] or 0)
@@ -689,11 +839,11 @@ def main():
     fix_old()
     flush_reports()
     if check:
-        L = scan(); n = len(L); log('Buổi quay cần lọc:', n)
+        L = scan(); n = len(L); nq = len(qa_list()); log('Buổi quay cần lọc:', n, '· file lọc cần tự rà lại:', nq)
         if (root_info().get('appProperties') or {}).get('locHi') != '2':  # báo trạng thái 1 lần khi lên cách báo mới
             tsay('📋 AI LỌC – TRẠNG THÁI: ' + ('đang có %d buổi quay chờ lọc, máy GitHub bắt đầu ngay:\n' % n + '\n'.join('• %s › %s (%d video)' % (j['src'], j['name'], len(j['videos'])) for j in L[:10]) if n else 'không còn buổi quay nào chờ lọc, máy GitHub đang nghỉ.') + '\nTừ giờ: bắt đầu lọc, có lỗi, lọc xong đều báo ở nhóm này.')
             mark(ROOT, locHi='2')
-        with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as w: w.write('todo=%d\n' % (1 if n else 0))
+        with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'a') as w: w.write('todo=%d\n' % (1 if n or nq else 0))
         return
     c = cfg(); key = c['gem']; models = gem_models(key) if key else []
     log('Gói máy chủ trên web:', c['ver'], '· Gemini:', ', '.join(models[:3]) or 'không có')
@@ -710,6 +860,9 @@ def main():
                 tsay('❌ AI LỌC SOURCE LỖI\n📁 %s › %s\n%s\n%s' % (jb.get('src') or '', jb['name'], str(e)[:300], 'Tự thử lại sau 20 phút.' if jb['nfail'] + 1 < FAIL_MAX else 'Đã thử %d lần, tạm bỏ qua (cần người xem).' % FAIL_MAX))
             except Exception as e2: log('  không ghi được lỗi:', e2)
     log('Hết việc lọc (%d buổi quay xong)' % done)
+    if not L:
+        try: qa_old(key, models, T0 + (MAXMIN - 45) * 60)
+        except Exception as e: log('tự rà lại lỗi:', e)
     if L: tsay('⏸ AI LỌC: lượt chạy GitHub hết giờ, còn %d buổi quay chờ – lượt sau tự làm tiếp (%d buổi xong ở lượt này).' % (len(L), done))
     elif done or fails: tsay('✅ AI LỌC: ĐÃ XONG HẾT – không còn buổi quay nào chờ lọc\n(%d buổi xong%s). Máy GitHub nghỉ; thư mục Source mới tải lên sẽ tự được lọc và báo ở đây.' % (done, ', %d buổi lỗi' % fails if fails else ''))
 
