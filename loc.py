@@ -848,6 +848,55 @@ def pkg():
     if go and (tot.get('wrap') or tot.get('docs') or tot.get('mv', 0) >= 100):  # chỉ báo khi có thay đổi đáng kể (bản nhẹ mới tạo được dọn về hằng ngày, không báo lẻ tẻ)
         tsay('📦 ĐÓNG GÓI DRIVE THEO VIỆC: bọc %d video vào thư mục việc, %d file kịch bản, chuyển %d file bộ nhớ đệm về đúng việc.' % (tot.get('wrap', 0), tot.get('docs', 0), tot.get('mv', 0)))
 
+# ---------- bản 263 (chủ dặn): bộ nhớ đệm ảnh nhỏ – tạo sẵn ảnh 480px cho mọi video / ảnh, lưu ở thư mục hệ thống; EdgeOne phát; file gốc xóa thì ảnh nhỏ xóa theo ----------
+def tc_img(fid, mime):
+    try:
+        tl = drive('files/' + fid, params={'fields': 'thumbnailLink'}).get('thumbnailLink')
+        if tl:
+            req = urllib.request.Request(re.sub(r'=s\d+$', '', tl) + '=s480', headers={'Authorization': 'Bearer ' + tok()})
+            with urllib.request.urlopen(req, timeout=60) as r: b = r.read()
+            if len(b) > 800: return b
+    except Exception: pass
+    if shutil.which('ffmpeg') and (mime.startswith('video/') or mime.startswith('image/')):  # Drive chưa có ảnh xem trước → tự lấy 1 khung hình
+        out = '/tmp/tc_%s.jpg' % fid
+        try:
+            run(['ffmpeg', '-y', '-v', 'error'] + fin(fid, ss=1 if mime.startswith('video/') else None) + ['-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '5', out], timeout=180)
+            b = open(out, 'rb').read(); os.remove(out); return b if len(b) > 800 else None
+        except Exception: return None
+    return None
+def tc_put(b, fid, parent, old=''):
+    if old:  # file đổi → thay nội dung ảnh nhỏ cũ (giữ nguyên id)
+        try: http(G + '/upload/drive/v3/files/' + old + '?uploadType=media&supportsAllDrives=true&fields=id', bytes(b), {'Authorization': 'Bearer ' + tok(), 'Content-Type': 'image/jpeg'}, 'PATCH'); return old
+        except Exception: pass
+    bd = 'tc' + hashlib.md5(fid.encode()).hexdigest()[:12]
+    body = ('--%s\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' % bd).encode() + json.dumps({'name': fid + '.jpg', 'parents': [parent], 'appProperties': {'tcOf': fid}}).encode() + ('\r\n--%s\r\nContent-Type: image/jpeg\r\n\r\n' % bd).encode() + bytes(b) + ('\r\n--%s--' % bd).encode()
+    return http(G + '/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id', body, {'Authorization': 'Bearer ' + tok(), 'Content-Type': 'multipart/related; boundary=' + bd})['id']
+def tcache(budget=240):
+    t0 = time.time()
+    try: r = api('tcNeed', limit=400)
+    except Exception as e: log('  ảnh nhỏ: máy chủ chưa sẵn sàng –', str(e)[:160]); return
+    ok = []
+    for fid, tid in (r.get('gone') or []):  # file gốc đã xóa → xóa ảnh nhỏ theo
+        try: drive('files/' + tid, None, 'DELETE'); ok.append(fid)
+        except Exception as e:
+            if '404' in str(e): ok.append(fid)
+            else: log('  không xóa được ảnh nhỏ', tid, str(e)[:120])
+    if ok: api('tcDel', ids=ok); log('🖼 Đã xóa %d ảnh nhỏ của file đã bị xóa' % len(ok))
+    need, done, n = r.get('need') or [], [], 0
+    def one(it):
+        if time.time() - t0 > budget: return None
+        fid, name, mime, size, old = it
+        b = tc_img(fid, mime)
+        return [fid, tc_put(b, fid, r['folder'], old), str(size)] if b else None
+    with ThreadPoolExecutor(8) as ex:
+        for f in as_completed([ex.submit(one, it) for it in need]):
+            try: x = f.result()
+            except Exception as e: x = None; log('  ảnh nhỏ lỗi:', str(e)[:120])
+            if x: done.append(x)
+            if len(done) >= 40: api('tcSet', rows=done); n += len(done); done = []
+    if done: api('tcSet', rows=done); n += len(done)
+    if need or ok: log('🖼 Ảnh nhỏ bộ nhớ đệm: tạo %d / %d, còn chờ %d' % (n, len(need), max(0, (r.get('left') or 0) - n)))
+
 def main():
     check = '--check' in sys.argv
     server_sync()
@@ -855,6 +904,8 @@ def main():
     if check:
         try: pkg()
         except Exception as e: log('đóng gói Drive lỗi:', e)
+        try: tcache()
+        except Exception as e: log('ảnh nhỏ lỗi:', e)
     repair_lost()
     fix_old()
     flush_reports()
