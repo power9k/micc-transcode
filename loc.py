@@ -659,10 +659,33 @@ def server_sync():
         log('  máy chủ chưa trả lời bản mới → quay lại bản cũ'); put(oldv, 'quay lại bản cũ'); http(S + '/content', {'files': old['files']}, H(), 'PUT')
     except Exception as e: log('  tự cập nhật máy chủ lỗi:', str(e)[:200])
 
+# Đóng gói Drive theo việc + dọn bộ nhớ đệm về đúng nhà (bản 260, chủ yêu cầu). Máy chủ làm, máy GitHub chỉ gọi lặp tới khi xong.
+# Chưa có tệp pkg_go trong repo → chỉ ĐẾM (in ra log, không đụng Drive); có pkg_go → làm thật (chỉ tạo thư mục + chuyển file, không xóa gì).
+def pkg():
+    go = os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pkg_go'))
+    t0, tot, n = time.time(), {}, 0
+    while time.time() - t0 < (20 if go else 4) * 60:
+        try: r = api('pkgRun', go=1 if go else 0, budget=140)
+        except Exception as e: log('  đóng gói Drive: máy chủ chưa sẵn sàng –', str(e)[:160]); return
+        n += 1
+        log('📦 Đóng gói Drive %s · lượt %d: bọc %d video, đổi tên %d thư mục, kịch bản %d, đệm chuyển %s, không rõ nhà %s, thư mục đệm mới %d, nơi đến %d, %ss%s' % (
+            'LÀM THẬT' if go else 'CHỈ ĐẾM', n, r.get('wrap', 0), r.get('ren', 0), r.get('docs', 0), json.dumps(r.get('mv'), ensure_ascii=False), json.dumps(r.get('orphan'), ensure_ascii=False), r.get('mcNew', 0), r.get('dests', 0), r.get('secs'), ' · còn tiếp' if r.get('more') else ''))
+        for x in (r.get('wrapL') or [])[:12]: log('   • bọc:', x)
+        for x in (r.get('docsL') or [])[:8]: log('   • kịch bản:', x)
+        for x in (r.get('err') or [])[:20]: log('   ✗', x)
+        for k in ('wrap', 'docs', 'ren'): tot[k] = tot.get(k, 0) + (r.get(k) or 0)
+        tot['mv'] = tot.get('mv', 0) + sum((r.get('mv') or {}).values())
+        if not go or not r.get('more'): break
+    if go and (tot.get('wrap') or tot.get('docs') or tot.get('mv')):
+        tsay('📦 ĐÓNG GÓI DRIVE THEO VIỆC: bọc %d video vào thư mục việc, %d file kịch bản, chuyển %d file bộ nhớ đệm về đúng việc.' % (tot.get('wrap', 0), tot.get('docs', 0), tot.get('mv', 0)))
+
 def main():
     check = '--check' in sys.argv
     server_sync()
     if '--sync' in sys.argv: return
+    if check:
+        try: pkg()
+        except Exception as e: log('đóng gói Drive lỗi:', e)
     fix_old()
     flush_reports()
     if check:
