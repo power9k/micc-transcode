@@ -772,7 +772,8 @@ def qa_old(key, models, until):
     return len(L)
 
 # ---------- máy GitHub tự cập nhật máy chủ Apps Script (không cần máy chủ gọi mạng → không dính hạn mức) ----------
-def verno(v): return int((re.search(r'bản\s*(\d+)', str(v or '')) or [0, 0])[1] or 0)
+def verno(v):  # số chính + số phụ (263.1 = lần đẩy giữa chừng của bản 263)
+    m = re.search(r'bản\s*(\d+)(?:\.(\d+))?', str(v or '')); return (int(m.group(1)) + int(m.group(2) or 0) / 1000) if m else 0
 def server_ver():
     try: return http(API + '?ping=1', timeout=60).get('ver') or ''
     except Exception as e: log('  không hỏi được bản máy chủ:', str(e)[:100]); return ''
