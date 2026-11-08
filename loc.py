@@ -440,7 +440,9 @@ def scan():
         ap = f.get('appProperties') or {}
         if mine_ap(ap) and (re.match(r'^loc\b', norm1(f['name'])) or f['name'] == TMPNAME):
             sh = by.get((f.get('parents') or [''])[0]) or {}
-            if (sh.get('appProperties') or {}).get('mcache') == '1' or (re.match(r'^loc\b', norm1(f['name'])) and not any(p in srcs for p in sh.get('parents') or [])):
+            def insrc(fid, g=0):  # thư mục Lọc nằm ở BẤT KỲ tầng nào bên trong 1 thư mục Source (bản 262: Lọc nằm ngay trong thư mục chứa video, có thể sâu hơn buổi quay)
+                x = by.get(fid); return bool(x and g < 40 and any(p in srcs or insrc(p, g + 1) for p in x.get('parents') or []))
+            if (sh.get('appProperties') or {}).get('mcache') == '1' or (re.match(r'^loc\b', norm1(f['name'])) and not insrc(f['id'])):
                 try: drive('files/' + f['id'], {'trashed': True}, method='PATCH'); ix(dele=[f['id']]); log('  dọn thư mục Lọc làm nhầm trong', sh.get('name'))
                 except Exception as e: log('  không dọn được:', e)
     # bản 262 (chủ dặn): thư mục “Lọc” luôn nằm NGAY TRONG thư mục chứa video. Mỗi thư mục có video (buổi quay hoặc thư mục con của nó, vd “Kịch bản 1”) = 1 lượt lọc riêng, chỉ lấy video nằm trực tiếp trong đó.
@@ -488,6 +490,17 @@ def scan():
                     except Exception as e: log('  không bỏ được Lọc sai chỗ:', e)
     ready.sort(key=lambda j: -j['last'])  # buổi quay vừa tải lên làm trước
     return ready
+
+def repair_lost():  # bản 262: khôi phục thư mục Lọc mới bị quy tắc dọn cũ cho nhầm vào thùng rác (Lọc đúng chỗ của thư mục chứa video: id = locOut của thư mục đó)
+    try: L = listq("trashed=true and mimeType='%s' and name='Lọc' and appProperties has { key='ailoc' and value='1' }" % FOLDER, 'id,name,parents,modifiedTime', corpora())
+    except Exception as e: log('  không rà được thư mục Lọc trong thùng rác:', e); return
+    for f in L:
+        par = (f.get('parents') or [''])[0]
+        try: pa = drive('files/' + par, params='supportsAllDrives=true&fields=id,name,trashed,appProperties')
+        except Exception: continue
+        if not pa.get('trashed') and (pa.get('appProperties') or {}).get('locOut') == f['id']:
+            try: uf = drive('files/' + f['id'], {'trashed': False}, method='PATCH', params='supportsAllDrives=true&fields=' + urllib.parse.quote(FIELDS)); ix([uf]); log('  ✓ khôi phục thư mục Lọc trong', pa.get('name'))
+            except Exception as e: log('  không khôi phục được:', e)
 
 def fix_old():  # bản 254: file / thư mục AI lọc cũ → bỏ người sở hữu “AI lọc source”, đổi tên “A01 - tên gốc - nội dung” → “A01 - nội dung - tên gốc”
     try: L = listq("trashed=false and appProperties has { key='by' and value='ai-loc' }", 'id,name,mimeType', corpora())
@@ -837,6 +850,7 @@ def main():
     if check:
         try: pkg()
         except Exception as e: log('đóng gói Drive lỗi:', e)
+    repair_lost()
     fix_old()
     flush_reports()
     if check:
