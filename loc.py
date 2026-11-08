@@ -498,7 +498,8 @@ def repair_lost():  # bản 262: khôi phục thư mục Lọc mới bị quy t�
         par = (f.get('parents') or [''])[0]
         try: pa = drive('files/' + par, params='supportsAllDrives=true&fields=id,name,trashed,appProperties')
         except Exception: continue
-        if not pa.get('trashed') and (pa.get('appProperties') or {}).get('locOut') == f['id']:
+        pap = pa.get('appProperties') or {}
+        if not pa.get('trashed') and pap.get('locOut') == f['id'] and pap.get('locL') == '1' and pap.get('mcache') != '1':  # chỉ Lọc của cách xếp mới (ngay trong thư mục chứa video); Lọc cũ sai chỗ / trong bộ nhớ đệm thì thôi
             try: uf = drive('files/' + f['id'], {'trashed': False}, method='PATCH', params='supportsAllDrives=true&fields=' + urllib.parse.quote(FIELDS)); ix([uf]); log('  ✓ khôi phục thư mục Lọc trong', pa.get('name'))
             except Exception as e: log('  không khôi phục được:', e)
 
