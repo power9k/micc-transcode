@@ -841,7 +841,7 @@ def pkg():
         for k in ('wrap', 'docs', 'ren'): tot[k] = tot.get(k, 0) + (r.get(k) or 0)
         tot['mv'] = tot.get('mv', 0) + sum((r.get('mv') or {}).values())
         if not go or not r.get('more'): break
-    if go and (tot.get('wrap') or tot.get('docs') or tot.get('mv')):
+    if go and (tot.get('wrap') or tot.get('docs') or tot.get('mv', 0) >= 100):  # chỉ báo khi có thay đổi đáng kể (bản nhẹ mới tạo được dọn về hằng ngày, không báo lẻ tẻ)
         tsay('📦 ĐÓNG GÓI DRIVE THEO VIỆC: bọc %d video vào thư mục việc, %d file kịch bản, chuyển %d file bộ nhớ đệm về đúng việc.' % (tot.get('wrap', 0), tot.get('docs', 0), tot.get('mv', 0)))
 
 def main():
