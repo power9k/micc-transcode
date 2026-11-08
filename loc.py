@@ -895,7 +895,9 @@ def tcache(budget=240):
             if x: done.append(x)
             if len(done) >= 40: api('tcSet', rows=done); n += len(done); done = []
     if done: api('tcSet', rows=done); n += len(done)
-    if need or ok: log('🖼 Ảnh nhỏ bộ nhớ đệm: tạo %d / %d, còn chờ %d' % (n, len(need), max(0, (r.get('left') or 0) - n)))
+    left = max(0, (r.get('left') or 0) - n)
+    if need or ok: log('🖼 Ảnh nhỏ bộ nhớ đệm: tạo %d / %d, còn chờ %d' % (n, len(need), left))
+    return left if n else 0
 
 def main():
     check = '--check' in sys.argv
@@ -904,8 +906,11 @@ def main():
     if check:
         try: pkg()
         except Exception as e: log('đóng gói Drive lỗi:', e)
-        try: tcache()
-        except Exception as e: log('ảnh nhỏ lỗi:', e)
+        t1 = time.time()  # nhiều đợt trong 1 lượt (tối đa ~9 phút) cho nhanh phủ hết kho
+        while time.time() - t1 < 9 * 60:
+            try: left = tcache(budget=min(240, 9 * 60 - (time.time() - t1)))
+            except Exception as e: log('ảnh nhỏ lỗi:', e); break
+            if not left: break
     repair_lost()
     fix_old()
     flush_reports()
