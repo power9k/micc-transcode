@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          curl -fsSL -o tieng-viet.mp3 'https://d2ol7oe51mr4n9.cloudfront.net/user_3LGciyeq1CHNF07eImQr3RGMpPs/694668a5-10d1-46c4-b7a9-d1512cc8eabf.mp3'
+          curl -fsSL -o tieng-viet.mp3 'https://d2ol7oe51mr4n9.cloudfront.net/user_3LGciyeq1CHNF07eImQr3RGMpPs/1f30f3e8-fa6c-4380-8723-ee301934b500.mp3'
           ls -la tieng-viet.mp3
           git config user.name bot && git config user.email bot@users.noreply.github.com
           git add tieng-viet.mp3 && git commit -m "audio file" && git push
