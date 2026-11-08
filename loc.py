@@ -436,11 +436,11 @@ def scan():
         memo[fid] = r; return r
     isrc = lambda n: re.search(r'\bsources?\b', norm1(n)) is not None  # đúng chữ “source” (không nhận “Resources”)
     srcs = {f['id']: f for f in fol if isrc(f['name']) and under(f['id'])}
-    for f in fol:  # dọn thư mục Lọc AI làm nhầm (buổi quay không nằm trong thư mục Source)
+    for f in fol:  # dọn thư mục Lọc AI làm nhầm (buổi quay không nằm trong thư mục Source, hoặc nằm trong thư mục “Bộ nhớ đệm (không xóa)” – bản 262)
         ap = f.get('appProperties') or {}
-        if mine_ap(ap) and re.match(r'^loc\b', norm1(f['name'])):
+        if mine_ap(ap) and (re.match(r'^loc\b', norm1(f['name'])) or f['name'] == TMPNAME):
             sh = by.get((f.get('parents') or [''])[0]) or {}
-            if not any(p in srcs for p in sh.get('parents') or []):
+            if (sh.get('appProperties') or {}).get('mcache') == '1' or (re.match(r'^loc\b', norm1(f['name'])) and not any(p in srcs for p in sh.get('parents') or [])):
                 try: drive('files/' + f['id'], {'trashed': True}, method='PATCH'); ix(dele=[f['id']]); log('  dọn thư mục Lọc làm nhầm trong', sh.get('name'))
                 except Exception as e: log('  không dọn được:', e)
     # bản 262 (chủ dặn): thư mục “Lọc” luôn nằm NGAY TRONG thư mục chứa video. Mỗi thư mục có video (buổi quay hoặc thư mục con của nó, vd “Kịch bản 1”) = 1 lượt lọc riêng, chỉ lấy video nằm trực tiếp trong đó.
