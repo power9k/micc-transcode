@@ -901,16 +901,17 @@ def tcache(budget=240):
 
 def main():
     check = '--check' in sys.argv
-    server_sync()
+    if '--quick' not in sys.argv: server_sync()  # máy đồng bộ nhanh: bước trước đã cập nhật máy chủ rồi
     if '--sync' in sys.argv: return
-    if check:
+    if '--quick' in sys.argv:  # bản 263 (chủ dặn): đồng bộ ngay khi có thay đổi (máy ping, hàng chờ riêng – không kẹt sau AI lọc)
         try: pkg()
         except Exception as e: log('đóng gói Drive lỗi:', e)
-        t1 = time.time()  # nhiều đợt trong 1 lượt (tối đa ~9 phút) cho nhanh phủ hết kho
-        while time.time() - t1 < 9 * 60:
-            try: left = tcache(budget=min(240, 9 * 60 - (time.time() - t1)))
+        t1 = time.time()  # nhiều đợt trong 1 lượt (tối đa ~10 phút) cho nhanh phủ hết kho
+        while time.time() - t1 < 10 * 60:
+            try: left = tcache(budget=min(240, 10 * 60 - (time.time() - t1)))
             except Exception as e: log('ảnh nhỏ lỗi:', e); break
             if not left: break
+        return
     repair_lost()
     fix_old()
     flush_reports()
@@ -936,9 +937,15 @@ def main():
                 tsay('❌ AI LỌC SOURCE LỖI\n📁 %s › %s\n%s\n%s' % (jb.get('src') or '', jb['name'], str(e)[:300], 'Tự thử lại sau 20 phút.' if jb['nfail'] + 1 < FAIL_MAX else 'Đã thử %d lần, tạm bỏ qua (cần người xem).' % FAIL_MAX))
             except Exception as e2: log('  không ghi được lỗi:', e2)
     log('Hết việc lọc (%d buổi quay xong)' % done)
-    if not L:
-        try: qa_old(key, models, T0 + (MAXMIN - 45) * 60)
-        except Exception as e: log('tự rà lại lỗi:', e)
+    while not L and (time.time() - T0) / 60 < MAXMIN - 45:  # bản 263: rà lại file lọc cũ từng đợt 3 phút, giữa các đợt xem có buổi quay mới không → buổi mới không phải chờ hàng giờ
+        if not qa_list(): break
+        try: qa_old(key, models, min(time.time() + 180, T0 + (MAXMIN - 45) * 60))
+        except Exception as e: log('tự rà lại lỗi:', e); break
+        L2 = scan()
+        if L2:
+            jb = L2[0]; jb['left'] = len(L2) - 1
+            try: job(jb, key, models); done += 1
+            except Exception as e: log('✗ lỗi:', e); fails += 1
     if L: tsay('⏸ AI LỌC: lượt chạy GitHub hết giờ, còn %d buổi quay chờ – lượt sau tự làm tiếp (%d buổi xong ở lượt này).' % (len(L), done))
     elif done or fails: tsay('✅ AI LỌC: ĐÃ XONG HẾT – không còn buổi quay nào chờ lọc\n(%d buổi xong%s). Máy GitHub nghỉ; thư mục Source mới tải lên sẽ tự được lọc và báo ở đây.' % (done, ', %d buổi lỗi' % fails if fails else ''))
 
