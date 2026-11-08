@@ -603,6 +603,10 @@ def build(a, c, out):  # cắt → tự kiểm tra → sửa (tối đa 3 lần)
         elif not exact and not aroll: make_b(a, segs, c['src'], out)
         else: render_exact(a, segs, c['src'], out); exact = True
         q = qa(out, aroll, want=sum(y - x for x, y in segs) if exact else None)
+        if 'cat_cuoi' in q:  # đối chiếu lời thoại máy nghe: chỉ là lỗi khi điểm cắt cuối rơi giữa 1 từ / giữa câu; video gốc tự dừng giữa câu thì không kéo thêm được; tiếng ồn nền to không phải lỗi
+            e = segs[-1][1]; W = [w for g in (a.get('segs') or []) for w in g.get('w') or []]
+            mid = any(w[0] < e - .05 and w[1] > e + .05 for w in W) or (any(e - .3 < w[1] <= e + .05 for w in W) and any(e < w[0] < e + .3 for w in W))
+            if e >= a['dur'] - .3 or (W and not mid): q.pop('cat_cuoi')
         if not q: c['segs'] = segs; return {}
         log('  ⚠ tự kiểm tra %s: %s → làm lại' % (c['nm'], qa_txt(q))); last = q
         if not exact: exact = True; continue  # lần đầu: chỉ cần cắt chính xác (lỗi do cắt nhanh không nén)
