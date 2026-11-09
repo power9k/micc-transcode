@@ -533,8 +533,8 @@ def zcfg():  # nhóm Zalo: zn = nhóm thông báo (+ test), zt = nhóm test; má
     except Exception as e: log('  (máy chủ chưa trả danh sách nhóm: %s)' % str(e)[:80])
     sp = lambda k: [x for x in (ap.get(k) or '').split(',') if x]
     ZG.update(t=time.time(), zn=zn or sp('locZN'), zt=zt or sp('locZT')); return ZG
-def groups():  # tin XONG: nhóm thông báo + nhóm test
-    g = zcfg(); return list(dict.fromkeys(g['zn'] + g['zt']))
+def groups():  # tin XONG: bản 263.38 (chủ dặn) – việc AI làm chỉ báo nhóm test, không báo nhóm thông báo
+    g = zcfg(); return list(dict.fromkeys(g['zt']))
 SAID = set()
 def tsay(text, once=None):  # báo NGAY vào nhóm test: bắt đầu lọc, lỗi, hết việc (chủ yêu cầu 08/11)
     if once:
