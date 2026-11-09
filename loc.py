@@ -276,7 +276,7 @@ def safe(n, k=150): return re.sub(r'\s+', ' ', re.sub(r'[\\/:*?"<>|\n\r\t]+', ' 
 def short(t, k):
     t = safe(t, 400)
     if len(t) <= k: return t
-    t = t[:k].rsplit(' ', 1)[0]; return t.rstrip(',.;:') + '…'
+    t = t[:k].rsplit(' ', 1)[0]; return t.rstrip(',.;:') + '...'  # bản 263.34 (chủ báo): không dùng ký tự “…” trong tên file lọc – CapCut trên Windows không liên kết được file
 
 def copy_cut(a, s, e, src, out):  # 1 đoạn liền: cắt không nén lại (giữ nguyên chất lượng gốc) chỉ khi điểm đầu đúng khung chính (bản 262: chặt hơn để không đen / đứng hình đầu)
     ks = max([t for t in a['kt'] if t <= s + .02] or [-99])
