@@ -12,6 +12,3 @@ jobs:
       - name: Cài + kiểm tra ổ M, lối tắt CapCut
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File capcut\thu\thu-cai-dat.ps1
-      - name: Thử file Kết nối Gemini Pro
-        shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File capcut\thu\thu-gemini.ps1
