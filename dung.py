@@ -22,7 +22,18 @@ def cache_dir():
     return _CD[0]
 LIB = '1ZIROORo_epCYmpf55Q0reoT8gOfCwyEX'  # thư mục nhạc + hiệu ứng âm thanh + font mẫu (AI tải về của Center Avenue KB2)
 LIB_SKIP = ('Phim ', 'Outro ')
-DRV = 'G:/Drive của tôi/PHÒNG TRUYỀN THÔNG MICC'
+DRV = 'G:/Drive của tôi/PHÒNG TRUYỀN THÔNG MICC'   # đường dẫn lúc dựng; khi đưa lên Drive đổi sang ổ M: (máy nào công cụ đồng bộ cũng gán M: = thư mục này)
+MROOT = re.compile(r'[A-Za-z]:(?:/|\\\\)+(?:Drive của tôi|My Drive)(?:/|\\\\)+PHÒNG TRUYỀN THÔNG MICC')
+def to_m(b): return MROOT.sub('M:', unicodedata.normalize('NFC', b.decode('utf-8'))).encode('utf-8')
+def migrate_m():   # project cũ (G:/Drive của tôi/...) → M:/... để máy nào mở cũng thấy file
+    n = 0
+    for nm in ('draft_content.json', 'draft_info.json'):
+        for f in lq("name='%s' and fullText contains 'PHÒNG TRUYỀN THÔNG MICC' and trashed=false" % nm, 'id,name'):
+            try:
+                b = raw(f['id']); nb = to_m(b)
+                if nb != b: update(f['id'], nb, 'application/json'); n += 1
+            except Exception as e: log('  không đổi được đường dẫn', f['id'], e)
+    if n: log('Đổi %d file project sang ổ M:' % n)
 SKIPDIR = re.compile(r'^(capcut|lọc|loc\b|bộ nhớ đệm|ai tải về|_ai)', re.I)
 ENG = os.path.join(L.TMP, 'eng')
 _PL, _PF = [], [None]
@@ -297,7 +308,7 @@ def publish(jb, sc, n):
                 try: put(f['name'], af, raw(f['id']), f.get('mimeType') or 'application/octet-stream')
                 except Exception as e: log('  bỏ file thư viện', f['name'], e)
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
-            put(fn, pf, open(os.path.join(od, fn), 'rb').read(), 'application/json')
+            put(fn, pf, to_m(open(os.path.join(od, fn), 'rb').read()), 'application/json')
         put('draft_cover.jpg', pf, base64.b64decode(a0['thumbs'][len(a0['thumbs']) // 2][1]), 'image/jpeg')
         list_edit(add=[rel])
     except Exception:   # hỏng giữa chừng → bỏ thư mục dở, không để rác
@@ -329,6 +340,8 @@ def pending():
     except Exception as e: log('AI dựng: không quét được', e); return 0
 def run(key, models, until):
     if not key: log('AI dựng: không có khóa Gemini'); return
+    try: migrate_m()
+    except Exception as e: log('AI dựng: đổi ổ M lỗi', e)
     q, busy = queue.Queue(maxsize=1), set()
     def reader():
         while time.time() < until - 20 * 60:
