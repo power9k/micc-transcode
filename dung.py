@@ -134,18 +134,43 @@ def scan():
     return jobs
 
 # ---------------------------------------------------------------- 1) đọc source (song song với dựng)
+_MEM, _ANA = {}, []   # kết quả đọc video: nhớ trong lượt + lưu Drive (MICC media · Hệ thống/AI dựng CapCut/Phân tích video) → video đã đọc KHÔNG đọc lại
+def ana_dir():
+    if not _ANA:
+        f = lq("'%s' in parents and name='Phân tích video' and mimeType='%s'" % (cache_dir(), L.FOLDER), 'id')
+        _ANA.append(f[0]['id'] if f else mkdir('Phân tích video', cache_dir()))
+        _ANA.append({x['name']: x['id'] for x in lq("'%s' in parents" % _ANA[0], 'id,name')})
+    return _ANA
+def jdef(o):
+    if hasattr(o, 'tolist'): return o.tolist()
+    try: return float(o)
+    except Exception: return str(o)
 def read(jb):
     t0 = time.time(); A = []
     vids = sorted(jb['vids'], key=lambda v: v['name'])
     from concurrent.futures import ThreadPoolExecutor
+    try: ad, idx = ana_dir()
+    except Exception as e: ad, idx = None, {}; log('  không mở được kho phân tích:', e)
     def one(iv):
-        i, v = iv
-        try: a = L.analyze(i + 1, dict(id=v['id'], name=v['name'], size=int(v.get('size') or 0), dur=float((v.get('videoMediaMetadata') or {}).get('durationMillis') or 0) / 1000))
-        except Exception as e: log('  bỏ video đọc lỗi:', v['name'], e); return None
-        a['vid'] = v; log('  đọc video %d/%d: %s (%.1f phút từ đầu)' % (i + 1, len(vids), v['name'], (time.time() - t0) / 60)); return a
+        i, v = iv; br = bool(v.get('broll')); nm = '%s_%s%s.json' % (v['id'], v.get('size') or 0, '' if br else '_loi')
+        a = _MEM.get(nm)
+        if a is None and nm in idx:
+            try: a = json.loads(raw(idx[nm]).decode('utf-8'))
+            except Exception: a = None
+        if a is None:
+            try: a = L.analyze(i + 1, dict(id=v['id'], name=v['name'], size=int(v.get('size') or 0), dur=float((v.get('videoMediaMetadata') or {}).get('durationMillis') or 0) / 1000))
+            except Exception as e: log('  bỏ video đọc lỗi:', v['name'], e); return None
+            a['segs'] = [] if br else L.transcribe(a['wav']); a['wav'] = bool(a.get('wav'))
+            a = json.loads(json.dumps(a, default=jdef))
+            if ad:
+                try: put(nm, ad, json.dumps(a, ensure_ascii=False).encode('utf-8'), 'application/json')
+                except Exception as e: log('  không lưu được phân tích', v['name'], e)
+            log('  đọc video %d/%d: %s (%.1f phút từ đầu)' % (i + 1, len(vids), v['name'], (time.time() - t0) / 60))
+        _MEM[nm] = a
+        return dict(a, i=i + 1, vid=v)
     with ThreadPoolExecutor(3) as ex: A = [a for a in ex.map(one, enumerate(vids)) if a]
     if not A: raise RuntimeError('không đọc được video nào')
-    for i, a in enumerate(A): a['segs'] = [] if a['vid'].get('broll') else L.transcribe(a['wav']); log('  nghe lời %d/%d (%.1f phút)' % (i + 1, len(A), (time.time() - t0) / 60))
+    log('  %d video, %d video đã đọc từ trước (dùng lại, không đọc lại)' % (len(A), sum(1 for v in vids if any(k.startswith(v['id'] + '_') for k in idx))))
     gb = sum(int(v.get('size') or 0) for v in vids) / 1e9
     log('  đọc xong %s: %d video, %.1f GB trong %.1f phút' % (jb['name'], len(A), gb, (time.time() - t0) / 60))
     try: L.tsay('📖 AI ĐÃ ĐỌC XONG SOURCE\n📁 %s\n🎬 %d video · %.1f GB · %.0f phút đọc\n➡️ Bắt đầu chia kịch bản + dựng project' % (path_of(jb['id']), len(A), gb, (time.time() - t0) / 60))
