@@ -21,6 +21,8 @@ def log(*a):   # ghi log + file tiến độ trên Drive (SETUP/AI dựng – ti
     L.log(*a)
     try:
         _PL.append(time.strftime('%H:%M:%S ', time.gmtime(time.time() + 7 * 3600)) + ' '.join(str(x) for x in a)); del _PL[:-60]
+        if time.time() - (_PF[1:] or [0])[0] < 20 and not re.search(r'✓|✗|xong|lỗi', _PL[-1]): return   # ghi Drive tối đa 20 s/lần
+        _PF[1:] = [time.time()]
         if not _PF[0]:
             setup = lq("'%s' in parents and name='%s'" % (L.ROOT, SETUP_NAME))[0]['id']
             f = lq("'%s' in parents and name='AI dựng – tiến độ.txt' and trashed=false" % setup)
