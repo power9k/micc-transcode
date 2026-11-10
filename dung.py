@@ -100,9 +100,11 @@ def read(jb):
     from concurrent.futures import ThreadPoolExecutor
     def one(iv):
         i, v = iv
-        a = L.analyze(i + 1, dict(id=v['id'], name=v['name'], size=int(v.get('size') or 0), dur=(v.get('videoMediaMetadata') or {}).get('durationMillis', 0) / 1000))
+        try: a = L.analyze(i + 1, dict(id=v['id'], name=v['name'], size=int(v.get('size') or 0), dur=float((v.get('videoMediaMetadata') or {}).get('durationMillis') or 0) / 1000))
+        except Exception as e: log('  bỏ video đọc lỗi:', v['name'], e); return None
         a['vid'] = v; log('  đọc video %d/%d: %s (%.1f phút từ đầu)' % (i + 1, len(vids), v['name'], (time.time() - t0) / 60)); return a
-    with ThreadPoolExecutor(3) as ex: A = list(ex.map(one, enumerate(vids)))
+    with ThreadPoolExecutor(3) as ex: A = [a for a in ex.map(one, enumerate(vids)) if a]
+    if not A: raise RuntimeError('không đọc được video nào')
     for i, a in enumerate(A): a['segs'] = L.transcribe(a['wav']); log('  nghe lời %d/%d (%.1f phút)' % (i + 1, len(A), (time.time() - t0) / 60))
     gb = sum(int(v.get('size') or 0) for v in vids) / 1e9
     log('  đọc xong %s: %d video, %.1f GB trong %.1f phút' % (jb['name'], len(A), gb, (time.time() - t0) / 60))
