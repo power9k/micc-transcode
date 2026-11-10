@@ -70,20 +70,9 @@ def scan():
         f = by.get(fid); r = bool(f and d < 40 and any(under(p, d + 1) for p in f.get('parents') or [])); memo[fid] = r; return r
     srcs = [f for f in fol if re.search(r'\bsources?\b', L.norm1(f['name'])) and under(f['id'])]
     out, now = [], time.time()
-    KB = re.compile(r'^(kịch bản|kich ban|kb)\s*\d', re.I)
     for s in srcs:
-        kids_ = [sh for sh in ch.get(s['id'], []) if not SKIPDIR.match(nf(sh['name']))]
-        kbs = [sh for sh in kids_ if KB.match(nf(sh['name']))]
-        pool = []   # có thư mục "Kịch bản N" → các thư mục khác (flycam, Vid AI, Trám…) + video rời = kho cảnh phụ dùng chung, không dựng riêng
-        if kbs:
-            pool = [(s['id'], False)]
-            for o in kids_:
-                if o in kbs: continue
-                st = [o]
-                while st:
-                    d = st.pop(); pool.append((d['id'], True))
-                    st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name']))]
-        for sh in (kbs or kids_):
+        for sh in ch.get(s['id'], []):
+            if SKIPDIR.match(nf(sh['name'])): continue
             ap = sh.get('appProperties') or {}
             if ap.get('dungV') == DV or int(ap.get('dungFail') or 0) >= 3: continue
             sub, st = [], [sh]
@@ -91,7 +80,7 @@ def scan():
                 d = st.pop(); sub.append(d['id'])
                 st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name']))]
             if EXCL & set(sub): continue
-            out.append(dict(id=sh['id'], name=nf(sh['name']), src=nf(s['name']), dirs=sub, ap=ap, pool=pool))
+            out.append(dict(id=sh['id'], name=nf(sh['name']), src=nf(s['name']), dirs=sub, ap=ap))
     jobs = []
     for j in out:   # video trong buổi quay (cả thư mục con)
         vids, docs = [], []
@@ -102,8 +91,6 @@ def scan():
         if not vids: continue
         last = max(L.ts(v['createdTime']) for v in vids)
         if now - last < L.SETTLE: continue   # còn đang tải lên
-        for d, _ in j['pool']:
-            vids += [dict(c, dir=d, broll=True) for c in kids(d) if L.is_video(c) and not c['name'].lower().endswith('.lrf')]
         jobs.append(dict(j, vids=vids, docs=docs, last=last))
     jobs.sort(key=lambda j: -j['last'])
     return jobs
@@ -120,7 +107,7 @@ def read(jb):
         a['vid'] = v; log('  đọc video %d/%d: %s (%.1f phút từ đầu)' % (i + 1, len(vids), v['name'], (time.time() - t0) / 60)); return a
     with ThreadPoolExecutor(3) as ex: A = [a for a in ex.map(one, enumerate(vids)) if a]
     if not A: raise RuntimeError('không đọc được video nào')
-    for i, a in enumerate(A): a['segs'] = [] if a['vid'].get('broll') else L.transcribe(a['wav']); log('  nghe lời %d/%d (%.1f phút)' % (i + 1, len(A), (time.time() - t0) / 60))
+    for i, a in enumerate(A): a['segs'] = L.transcribe(a['wav']); log('  nghe lời %d/%d (%.1f phút)' % (i + 1, len(A), (time.time() - t0) / 60))
     gb = sum(int(v.get('size') or 0) for v in vids) / 1e9
     log('  đọc xong %s: %d video, %.1f GB trong %.1f phút' % (jb['name'], len(A), gb, (time.time() - t0) / 60))
     try: L.tsay('📖 AI ĐÃ ĐỌC XONG SOURCE\n📁 %s\n🎬 %d video · %.1f GB · %.0f phút đọc\n➡️ Bắt đầu chia kịch bản + dựng project' % (path_of(jb['id']), len(A), gb, (time.time() - t0) / 60))
@@ -153,9 +140,9 @@ def doc_text(jb):
         except Exception as e: log('  không đọc được file kịch bản', d['name'], e)
     return '\n\n'.join(out)
 def plan(jb, key, models):
-    parts = [{'text': 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nThư mục tên "Kịch bản N" = đúng 1 video (1 script).' if re.match(r'(?i)(kịch bản|kich ban|kb)\s*\d', jb['name']) else '')}]
+    parts = [{'text': 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)')}]
     for a in jb['A']:
-        parts.append({'text': ('[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + L.summary(a)[:1500]) if a['vid'].get('broll') else L.summary(a)[:6000]})
+        parts.append({'text': L.summary(a)[:6000]})
         for t, b in a['thumbs'][:3]: parts += [{'text': '#%d lúc %.1fs:' % (a['i'], t)}, {'inline_data': {'mime_type': 'image/jpeg', 'data': b}}]
     body = {'systemInstruction': {'parts': [{'text': SYS}]}, 'contents': [{'role': 'user', 'parts': parts}],
             'generationConfig': {'temperature': .3, 'maxOutputTokens': 30000, 'responseMimeType': 'application/json'}}
