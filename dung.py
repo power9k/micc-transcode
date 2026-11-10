@@ -16,7 +16,17 @@ LIB_SKIP = ('Phim ', 'Outro ')
 DRV = 'G:/Drive của tôi/PHÒNG TRUYỀN THÔNG MICC'
 SKIPDIR = re.compile(r'^(capcut|lọc|loc\b|bộ nhớ đệm|ai tải về|_ai)', re.I)
 ENG = os.path.join(L.TMP, 'eng')
-log = L.log
+_PL, _PF = [], [None]
+def log(*a):   # ghi log + file tiến độ trên Drive (SETUP/AI dựng – tiến độ.txt) để theo dõi khi máy đang chạy
+    L.log(*a)
+    try:
+        _PL.append(time.strftime('%H:%M:%S ', time.gmtime(time.time() + 7 * 3600)) + ' '.join(str(x) for x in a)); del _PL[:-60]
+        if not _PF[0]:
+            setup = lq("'%s' in parents and name='%s'" % (L.ROOT, SETUP_NAME))[0]['id']
+            f = lq("'%s' in parents and name='AI dựng – tiến độ.txt' and trashed=false" % setup)
+            _PF[0] = f[0]['id'] if f else put('AI dựng – tiến độ.txt', setup, b' ', 'text/plain')['id']
+        update(_PF[0], '\r\n'.join(_PL).encode('utf-8'), 'text/plain')
+    except Exception: pass
 
 def lq(q, f='id,name,mimeType,size,createdTime,parents,appProperties,videoMediaMetadata(width,height,durationMillis)'):
     return L.listq(q + ' and trashed=false', f, L.corpora())
@@ -91,9 +101,9 @@ def read(jb):
     def one(iv):
         i, v = iv
         a = L.analyze(i + 1, dict(id=v['id'], name=v['name'], size=int(v.get('size') or 0), dur=(v.get('videoMediaMetadata') or {}).get('durationMillis', 0) / 1000))
-        a['vid'] = v; return a
+        a['vid'] = v; log('  đọc video %d/%d: %s (%.1f phút từ đầu)' % (i + 1, len(vids), v['name'], (time.time() - t0) / 60)); return a
     with ThreadPoolExecutor(3) as ex: A = list(ex.map(one, enumerate(vids)))
-    for a in A: a['segs'] = L.transcribe(a['wav'])
+    for i, a in enumerate(A): a['segs'] = L.transcribe(a['wav']); log('  nghe lời %d/%d (%.1f phút)' % (i + 1, len(A), (time.time() - t0) / 60))
     gb = sum(int(v.get('size') or 0) for v in vids) / 1e9
     log('  đọc xong %s: %d video, %.1f GB trong %.1f phút' % (jb['name'], len(A), gb, (time.time() - t0) / 60))
     try: L.tsay('📖 AI ĐÃ ĐỌC XONG SOURCE\n📁 %s\n🎬 %d video · %.1f GB · %.0f phút đọc\n➡️ Bắt đầu chia kịch bản + dựng project' % (path_of(jb['id']), len(A), gb, (time.time() - t0) / 60))
