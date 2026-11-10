@@ -262,6 +262,7 @@ def cli_plan(parts):
         except Exception as e: log('  Gemini Pro (tài khoản) lỗi:', e)
     return None
 # ---------------------------------------------------------------- Claude Code chạy không người bấm, dùng gói Claude Max (không tốn tiền API)
+class ClaudeWait(Exception): pass
 _CL = []
 def claude_ready():
     if _CL: return _CL[0]
@@ -317,8 +318,7 @@ def plan(jb, key, models, extra=''):
             'generationConfig': {'temperature': .3, 'maxOutputTokens': 30000, 'responseMimeType': 'application/json'}}
     r = claude_plan(parts)   # 1) Claude (gói Claude Max của chủ, mã CLAUDE_CODE_OAUTH_TOKEN) – đọc lời + khung hình, chọn câu, viết chữ
     if r is not None: return r
-    log('  Claude không lên được kế hoạch → tự chọn theo luật (chủ dặn: chỉ dùng Claude, không dùng Gemini)')
-    return rule_plan(jb)
+    raise ClaudeWait('Claude chưa trả lời được (có thể đang hết hạn mức) – dừng, đợi lượt sau')   # chủ dặn: chỉ dùng bộ não Claude, hết hạn mức thì đợi, KHÔNG tự chọn theo luật
     last = ''
     for rnd in range(3):
         for m in models:
@@ -665,6 +665,8 @@ def run(key, models, until):
         jb = q.get()
         if jb is None: break
         try: edit(jb, key, models)
+        except ClaudeWait as e:
+            log('⏸', e); L.mark(jb['id'], dungErr='chờ Claude'); break   # không tính là lỗi, lượt sau (10 phút / lần) làm tiếp
         except Exception as e:
             log('✗ AI dựng lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
             if (int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1 >= 3: L.tsay('❌ AI DỰNG LỖI (đã thử 3 lần)\n📁 %s\n%s' % (jb['name'], str(e)[:300]))   # lỗi tạm thời tự thử lại, không báo ồn
