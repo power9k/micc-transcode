@@ -8,7 +8,7 @@
 import os, sys, json, time, re, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
 import loc as L
 
-DV = '1'                                   # đổi số này = dựng lại mọi buổi quay
+DV = '2'                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
 SETUP_NAME, LIST_NAME, ENG_NAME = 'SETUP', 'CapCut projects.txt', 'engine.zip'
 LIB = '1ZIROORo_epCYmpf55Q0reoT8gOfCwyEX'  # thư mục nhạc + hiệu ứng âm thanh + font mẫu (AI tải về của Center Avenue KB2)
@@ -257,8 +257,12 @@ def publish(jb, sc, n):
     for old in lq("'%s' in parents and name='%s' and mimeType='%s'" % (host, proj.replace("'", "\\'"), L.FOLDER), 'id'):   # chỉ giữ 1 phiên bản
         list_edit(remove=[rel]); L.drive('files/' + old['id'], {'trashed': True}, method='PATCH')
     pf = mkdir(proj, host); af = mkdir('AI tải về', pf)
-    for f in lq("'%s' in parents" % LIB, 'id,name'):
-        if not f['name'].startswith(LIB_SKIP): L.drive('files/%s/copy' % f['id'], {'name': f['name'], 'parents': [af]}, params={'fields': 'id'})
+    for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):
+        if f['name'].startswith(LIB_SKIP) or f.get('mimeType') == L.FOLDER: continue
+        try: L.drive('files/%s/copy' % f['id'], {'name': f['name'], 'parents': [af]}, params={'fields': 'id'})
+        except Exception:   # file bị chặn sao chép → tải về rồi đưa lên lại
+            try: put(f['name'], af, raw(f['id']), f.get('mimeType') or 'application/octet-stream')
+            except Exception as e: log('  bỏ file thư viện', f['name'], e)
     for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
         put(fn, pf, open(os.path.join(od, fn), 'rb').read(), 'application/json')
     put('draft_cover.jpg', pf, base64.b64decode(a0['thumbs'][len(a0['thumbs']) // 2][1]), 'image/jpeg')
@@ -275,6 +279,7 @@ def edit(jb, key, models):
             if r: done.append(r); log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
             if r: L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id'])))
         except Exception as e: log('  ✗ kịch bản', n, e)
+    if scs and not done: raise RuntimeError('không dựng được kịch bản nào – thử lại lượt sau')
     L.mark(jb['id'], dungV=DV, dungN=len(done), dungT=int(time.time()), dungFail=None)
     if done and len(done) > 1:
         L.tsay('🎬 AI DỰNG XONG CẢ BUỔI QUAY: %d PROJECT CAPCUT\n📁 %s\n%s\n⏱ %.0f phút · mở CapCut là có (lối tắt tự vào máy)' % (
