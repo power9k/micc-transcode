@@ -488,7 +488,8 @@ def build_plan(jb, sc, proj, adir, music=None):
         if not big: continue
         bw = [L.norm(w) for w in big.split()]
         BAD = {'và', 'của', 'là', 'thì', 'mà', 'với', 'cho', 'các', 'những', 'một', 'này', 'đó', 'để', 'từ', 'đến', 'ở', 'tại', 'ra', 'vào', 'nhưng', 'cũng', 'rất', 'được', 'có', 'như', 'khi', 'thể'}
-        if not bw or bw[0] in BAD or bw[-1] in BAD: log('  bỏ chữ không trọn nghĩa:', big); continue   # vd "NINH VÀ"
+        HEAD_BAD = {'và', 'nhưng', 'mà', 'thì', 'là', 'của', 'với'}; TAIL_BAD = HEAD_BAD | {'các', 'những', 'một', 'cho', 'được', 'rất', 'cũng', 'như', 'khi'}
+        if not bw or bw[0] in HEAD_BAD or bw[-1] in TAIL_BAD: log('  bỏ chữ không trọn nghĩa:', big); continue   # vd "NINH VÀ"; vẫn giữ "TỪ 7 TỶ", "MUA ĐỂ Ở"
         n = len(titles); num = bool(re.search(r'\d', big))
         on_b = any(x['line'] == 'B' and x['t0'] <= T < x['t1'] for x in shots)
         # chữ 2 tầng (theo bộ mẫu BĐS): dòng viết tay dẫn ý + dòng chữ đậm chính, tối đa 2 dòng; màu nhấn đổi theo cụm, quầng sáng mềm
@@ -627,14 +628,17 @@ def edit(jb, key, models):
             try:
                 r = publish(jb, sc, n)
                 if r: done.append(r); log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
-                if r and not r.get('exists'): L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id'])))
+                if r and not r.get('exists'):
+                    try: tot = len(lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id'))
+                    except Exception: tot = 0
+                    L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n📊 Tổng đã hoàn thành: %d project\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id']), tot))
             except Exception as e: log('  ✗ kịch bản', n, e)
         if done or not scs or rnd: break
         log('  Gemini chọn thiếu câu nói → hỏi lại')
         scs = plan(jb, key, models, 'LẦN TRƯỚC KẾ HOẠCH HỎNG: tổng A-roll dưới 15 giây. Lần này BẮT BUỘC chọn đủ 45–110 giây câu nói (số # của video CÓ LỜI THOẠI của buổi quay, không phải KHO CẢNH PHỤ; chỉ ghi MÃ CÂU C…).\n\n')
     if scs and not done: raise RuntimeError('không dựng được kịch bản nào – thử lại lượt sau')
     L.mark(jb['id'], dungV=DV, dungN=len(done), dungT=int(time.time()), dungFail=None)
-    if done and len(done) > 1:
+    if False and done and len(done) > 1:   # chủ dặn: không gửi tổng kết, chỉ báo từng project kèm tổng số
         L.tsay('🎬 AI DỰNG XONG CẢ BUỔI QUAY: %d PROJECT CAPCUT\n📁 %s\n%s\n⏱ %.0f phút · mở CapCut là có (lối tắt tự vào máy)' % (
             len(done), path_of(jb['id']), '\n'.join('• %s (%d giây)' % (r['proj'], r['dur']) for r in done), (time.time() - t0) / 60))
     return done
@@ -664,12 +668,18 @@ def run(key, models, until):
                 log('  đọc lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
         q.put(None)
     th = threading.Thread(target=reader, daemon=True); th.start()
+    built = [0]
     while True:
         jb = q.get()
         if jb is None: break
-        try: edit(jb, key, models)
+        try: built[0] += len([r for r in (edit(jb, key, models) or []) if not r.get('exists')])
         except ClaudeWait as e:
             log('⏸', e); L.mark(jb['id'], dungErr='chờ Claude'); break   # không tính là lỗi, lượt sau (10 phút / lần) làm tiếp
         except Exception as e:
             log('✗ AI dựng lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
             if (int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1 >= 3: L.tsay('❌ AI DỰNG LỖI (đã thử 3 lần)\n📁 %s\n%s' % (jb['name'], str(e)[:300]))   # lỗi tạm thời tự thử lại, không báo ồn
+    try:
+        if built[0] and not scan():
+            tot = len(lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id'))
+            L.tsay('🏁 AI ĐÃ DỰNG HẾT CÁC THƯ MỤC SOURCE\n📊 Tổng đã hoàn thành: %d project' % tot)
+    except Exception as e: log('  không báo được tổng:', e)
