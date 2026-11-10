@@ -163,9 +163,10 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 SYS = '''Bạn là editor video ngắn (TikTok/Reels dọc 9:16) chuyên nghiệp của team truyền thông MICC (bất động sản + đào tạo).
 Bạn nhận toàn bộ source của 1 buổi quay: lời thoại có mốc thời gian, chất lượng hình, ảnh khung hình. Hãy lên kế hoạch DỰNG các video ngắn.
 ''' + RULES + '''
-Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi CapCut / Kịch bản / số thứ tự","aroll":[{"video":<số #>,"s":giây,"e":giây}],"broll":[{"video":<số #>,"s":giây,"e":giây,"luc":<giây của A-roll video nào đó: dạng [số #, giây]>}],"titles":[{"video":<số #>,"t":giây (lúc nói từ khóa, theo video gốc),"big":"TỪ KHÓA","small":"dòng phụ"}]}]}
-- aroll theo đúng thứ tự phát. "s","e" theo giây của video gốc, bao trọn câu.
-- broll "luc" = [số video A-roll, giây trong video đó] lúc cảnh phụ bắt đầu che hình (tiếng vẫn là A-roll); mỗi cảnh phụ 1.5–3.5 giây.
+Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi CapCut / Kịch bản / số thứ tự","aroll":["C12","C13","C20",...],"broll":[{"video":<số # cảnh phụ>,"s":giây,"e":giây,"cau":"C13"}],"titles":[{"cau":"C12","big":"TỪ KHÓA","small":"dòng phụ"}]}]}
+- Lời thoại đã được máy chia sẵn thành CÂU có mã (C1, C2, …). "aroll" = DANH SÁCH MÃ CÂU theo đúng thứ tự phát (KHÔNG ghi giây – máy tự lấy mốc chính xác). Mỗi câu nói lại nhiều lần → chọn 1 mã hay nhất. Tổng độ dài các câu chọn 45–110 giây (độ dài mỗi câu ghi trong ngoặc).
+- broll "cau" = mã câu A-roll mà cảnh phụ bắt đầu che hình (tiếng vẫn là A-roll); "s","e" = giây trong video cảnh phụ, mỗi cảnh 1.5–3.5 giây.
+- titles "cau" = mã câu có từ khóa đó.
 - Không có kịch bản dựng được (source hỏng / chỉ thử máy) → {"scripts":[]}.'''
 def doc_text(jb):
     out = []
@@ -179,8 +180,14 @@ def doc_text(jb):
     return '\n\n'.join(out)
 def plan(jb, key, models, extra=''):
     parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nThư mục tên "Kịch bản N" = đúng 1 video (1 script).' if re.match(r'(?i)(kịch bản|kich ban|kb)\s*\d', jb['name']) else '')}]
+    C = jb['C'] = {}
     for a in jb['A']:
-        parts.append({'text': ('[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + L.summary(a)[:1500]) if a['vid'].get('broll') else L.summary(a)[:6000]})
+        head = L.summary(a).split('\nLời thoại:')[0]
+        if a['vid'].get('broll'): parts.append({'text': '[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + head}); continue
+        ln = []
+        for sg in a['segs']:
+            k = 'C%d' % (len(C) + 1); C[k] = (a['i'], float(sg['s']), float(sg['e'])); ln.append('%s (%.1fs) %s' % (k, sg['e'] - sg['s'], sg['t'].strip()))
+        parts.append({'text': head + '\nCÁC CÂU NÓI:\n' + ('\n'.join(ln)[:7000] or '(không có lời)')})
         for t, b in a['thumbs'][:3]: parts += [{'text': '#%d lúc %.1fs:' % (a['i'], t)}, {'inline_data': {'mime_type': 'image/jpeg', 'data': b}}]
     body = {'systemInstruction': {'parts': [{'text': SYS}]}, 'contents': [{'role': 'user', 'parts': parts}],
             'generationConfig': {'temperature': .3, 'maxOutputTokens': 30000, 'responseMimeType': 'application/json'}}
@@ -216,6 +223,17 @@ def build_plan(jb, sc, proj, adir):
                             kind='video', has_audio=bool(a.get('wav')), name=nf(a['name']), S0=s0(a))
         return k
     t, pieces, z = 0.0, [], 0
+    C = jb.get('C') or {}
+    def conv(x):   # mã câu → (video, s, e) chính xác theo Whisper
+        return C.get(str(x).strip().upper()) if isinstance(x, str) else None
+    if any(isinstance(x, str) for x in sc.get('aroll', [])):
+        sc = dict(sc); ar = []
+        for x in sc.get('aroll', []):
+            c = conv(x)
+            if c: ar.append({'video': c[0], 's': c[1], 'e': c[2]})
+        sc['aroll'] = ar
+        sc['broll'] = [dict(b, luc=[conv(b.get('cau'))[0], conv(b.get('cau'))[1]]) for b in sc.get('broll', []) if conv(b.get('cau'))]
+        sc['titles'] = [dict(t, video=conv(t.get('cau'))[0], t=conv(t.get('cau'))[1] + .3) for t in sc.get('titles', []) if conv(t.get('cau'))]
     why = {}
     def vid(x): m = re.search(r'\d+', str(x)); return int(m.group()) if m else 0
     for it in sc.get('aroll', []):
@@ -335,7 +353,7 @@ def edit(jb, key, models):
             except Exception as e: log('  ✗ kịch bản', n, e)
         if done or not scs or rnd: break
         log('  Gemini chọn thiếu câu nói → hỏi lại')
-        scs = plan(jb, key, models, 'LẦN TRƯỚC KẾ HOẠCH HỎNG: tổng A-roll dưới 15 giây. Lần này BẮT BUỘC chọn đủ 45–110 giây câu nói (số # của video CÓ LỜI THOẠI của buổi quay, không phải KHO CẢNH PHỤ; mốc giây nằm trong độ dài video).\n\n')
+        scs = plan(jb, key, models, 'LẦN TRƯỚC KẾ HOẠCH HỎNG: tổng A-roll dưới 15 giây. Lần này BẮT BUỘC chọn đủ 45–110 giây câu nói (số # của video CÓ LỜI THOẠI của buổi quay, không phải KHO CẢNH PHỤ; chỉ ghi MÃ CÂU C…).\n\n')
     if scs and not done: raise RuntimeError('không dựng được kịch bản nào – thử lại lượt sau')
     L.mark(jb['id'], dungV=DV, dungN=len(done), dungT=int(time.time()), dungFail=None)
     if done and len(done) > 1:
