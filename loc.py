@@ -494,6 +494,7 @@ def scan():
     return ready
 
 def repair_lost():  # bản 262: khôi phục thư mục Lọc mới bị quy tắc dọn cũ cho nhầm vào thùng rác (Lọc đúng chỗ của thư mục chứa video: id = locOut của thư mục đó)
+    if os.environ.get('LOC_ON') != '1': return  # bản 263.40: máy lọc tắt – KHÔNG khôi phục thư mục Lọc chủ đã xóa
     try: L = listq("trashed=true and mimeType='%s' and name='Lọc' and appProperties has { key='ailoc' and value='1' }" % FOLDER, 'id,name,parents,modifiedTime', corpora())
     except Exception as e: log('  không rà được thư mục Lọc trong thùng rác:', e); return
     for f in L:
