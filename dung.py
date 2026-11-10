@@ -462,6 +462,28 @@ def build_plan(jb, sc, proj, adir, music=None):
                 if sh['line'] == 'A' and sh['t0'] + .2 < T < sh['t1'] - .35:
                     k0, k1 = sh['keys'][0], sh['keys'][-1]; m = k0[1]
                     sh['keys'] = [k0, [round(T - .001, 3), m] + k0[2:], [round(T + .08, 3), round(m * 1.14, 4)] + k0[2:], [k1[0], round(m * 1.16, 4)] + k1[2:]]; break
+    # lấp chỗ trống: AI cho ít chữ → tự thêm chữ nhấn từ lời đang nói (số liệu / từ dài, ghép 2 từ cho trọn nghĩa) để cứ 1–3 s có 1 cụm
+    STOP = set('và là của có cho các những một này đó thì mà được với trong ngoài khi nhưng cũng rất như để từ đến ra vào lại nữa đây kia ạ nhé nha thôi rồi'.split())
+    have = sorted(x['t0'] for x in titles)
+    for i, x, y, t0 in pieces:
+        a = A[i]
+        for w in words(a, x, y):
+            T = t0 + max(0, w[0] - x)
+            if T > total - 1.0: continue
+            if any(abs(T - h) < 2.6 for h in have): continue
+            tok = re.sub(r'[^\wÀ-ỹ%.,]', '', w[2]).strip('.,')
+            if not tok or L.norm(tok) in STOP or (len(tok) < 4 and not re.search(r'\d', tok)): continue
+            ws = [v for v in words(a, w[0] - .05, w[0] + 1.2)]
+            big = ' '.join(re.sub(r'[^\wÀ-ỹ%.,]', '', v[2]) for v in ws[:2]).strip(' .,').upper()
+            if not big: continue
+            n = len(titles); on_b = any(z['line'] == 'B' and z['t0'] <= T < z['t1'] for z in shots)
+            col = '#FFD54A' if re.search(r'\d', big) else ['#FFD54A', '#7FE3FF', '#FF9A6B', '#FFFFFF', '#FFB3D1'][n % 5]
+            main = 'BEB' if n % 3 != 2 else 'BIG'
+            titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.0), 3), line='A', lines=[[big, main, 8.0 if main == 'BEB' else 6.4, col]],
+                               y_pct=(19.0 + (n % 3) * 4) if on_b else (57.0 + (n % 3) * 4), bright=False, anim=n))
+            have.append(T)
+    titles.sort(key=lambda z: z['t0'])
+    for n, z in enumerate(titles): z['anim'] = n
     for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
     sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
@@ -523,7 +545,7 @@ def publish(jb, sc, n):
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
     if not 40 <= pl['total'] <= 120: bad.append('dài %.0fs (cần 40–120s)' % pl['total'])
-    if len(pl.get('titles') or []) < pl['total'] / 4.5: bad.append('chỉ %d chữ nhấn / %.0fs (cần ~1 cụm mỗi 1–3 s)' % (len(pl.get('titles') or []), pl['total']))
+    if len(pl.get('titles') or []) < pl['total'] / 5.0: bad.append('chỉ %d chữ nhấn / %.0fs (cần ~1 cụm mỗi 1–3 s)' % (len(pl.get('titles') or []), pl['total']))
     if any(m.get('kind') == 'video' and not m.get('path') for m in pl['media'].values()): bad.append('thiếu file')
     if len([x for x in pl['shots'] if x.get('line') != 'A']) < 2: bad.append('quá ít cảnh phụ')
     if bad: log('  chưa đạt, không đẩy lên:', proj, '–', ', '.join(bad)); return None
