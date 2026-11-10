@@ -641,11 +641,14 @@ def edit(jb, key, models):
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
 def pending():
+    if PAUSE: return 0
     for k in range(3):
         try: return len(scan())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
     return 1   # quét lỗi mãi → vẫn giữ lượt chạy để run() thử lại, không bỏ việc
+PAUSE = True   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 def run(key, models, until):
+    if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
     if not key: log('AI dựng: không có khóa Gemini'); return
     try: migrate_m()
     except Exception as e: log('AI dựng: đổi ổ M lỗi', e)
