@@ -114,7 +114,7 @@ def scan():
                     st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name'])) and (c.get('appProperties') or {}).get('dungP') != '1']
         for sh in (kbs or kids_):
             ap = sh.get('appProperties') or {}
-            if ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3): continue   # project đã đẩy lên không bị ghi đè (publish giữ nguyên bản đã có)
+            if ap.get('dungV') == DV or int(ap.get('dungFail') or 0) >= 3: continue   # project đã đẩy lên không bị ghi đè (publish giữ nguyên bản đã có)
             sub, st = [], [sh]
             while st:
                 d = st.pop(); sub.append(d['id'])
@@ -669,7 +669,7 @@ def run(key, models, until):
             jb = J[0]; busy.add(jb['id']); log('AI dựng – đọc:', jb['src'], '›', jb['name'], '(%d video)' % len(jb['vids']))
             try: q.put(read(jb))
             except Exception as e:
-                log('  đọc lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
+                log('  đọc lỗi:', e); L.mark(jb['id'], dungFail=int(jb['ap'].get('dungFail') or 0) + 1, dungErr=str(e)[:100])
         q.put(None)
     th = threading.Thread(target=reader, daemon=True); th.start()
     while True:
@@ -677,5 +677,5 @@ def run(key, models, until):
         if jb is None: break
         try: edit(jb, key, models)
         except Exception as e:
-            log('✗ AI dựng lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
-            if (int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1 >= 3: L.tsay('❌ AI DỰNG LỖI (đã thử 3 lần)\n📁 %s\n%s' % (jb['name'], str(e)[:300]))   # lỗi tạm thời tự thử lại, không báo ồn
+            log('✗ AI dựng lỗi:', e); L.mark(jb['id'], dungFail=int(jb['ap'].get('dungFail') or 0) + 1, dungErr=str(e)[:100])
+            if int(jb['ap'].get('dungFail') or 0) + 1 >= 3: L.tsay('❌ AI DỰNG LỖI (đã thử 3 lần)\n📁 %s\n%s' % (jb['name'], str(e)[:300]))   # lỗi tạm thời tự thử lại, không báo ồn
