@@ -8,7 +8,7 @@
 import os, sys, json, time, re, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
 import loc as L
 
-DV = '3'                                   # đổi số này = dựng lại mọi buổi quay
+DV = '4'                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -110,7 +110,7 @@ def scan():
                     st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name'])) and (c.get('appProperties') or {}).get('dungP') != '1']
         for sh in (kbs or kids_):
             ap = sh.get('appProperties') or {}
-            if ap.get('dungV') == DV or int(ap.get('dungN') or 0) > 0 or int(ap.get('dungFail') or 0) >= 3: continue   # đã có project trên Drive → KHÔNG tự dựng lại / rút về (chủ dặn)
+            if ap.get('dungV') == DV or int(ap.get('dungFail') or 0) >= 3: continue   # project đã đẩy lên không bị ghi đè (publish giữ nguyên bản đã có)
             sub, st = [], [sh]
             while st:
                 d = st.pop(); sub.append(d['id'])
@@ -184,11 +184,11 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 - A-roll: chỉ lấy câu người nói ĐÚNG lời thoại, nói trôi chảy, diễn xuất tốt (không đứng nhẩm, không nói lại, không nhăn mặt). Mỗi câu nói lại nhiều lần → chọn 1 bản hay nhất. Giữ TRỌN câu, không cắt giữa câu.
 - Cảnh phụ (B-roll) phải KHỚP lời đang nói. Không dùng cảnh có người đang nói câu khác. Mỗi cảnh dùng 1 lần, không lặp cảnh giống nhau.
 - Không cố nhét cảnh: ít cảnh đẹp thì dùng ít.
-- Chữ: KHÔNG chạy phụ đề theo lời. Chỉ 1 cụm nhấn ý chính mỗi 5–8 giây: "big" = TỪ KHÓA viết hoa ≤ 3 từ (số liệu, tên dự án, lợi ích), "small" = 1 dòng phụ ≤ 6 từ. Đúng chính tả tiếng Việt, trọn nghĩa.'''
+- Chữ: KHÔNG chạy phụ đề theo lời. Chỉ 1 cụm nhấn ý chính mỗi 4–7 giây (video 60 s ≈ 10 cụm), hiện đúng lúc người nói nói chữ đó ("tu"): "big" = TỪ KHÓA viết hoa ≤ 3 từ (số liệu, tên dự án, lợi ích), "small" = 1 dòng phụ ≤ 6 từ. Đúng chính tả tiếng Việt, trọn nghĩa.'''
 SYS = '''Bạn là editor video ngắn (TikTok/Reels dọc 9:16) chuyên nghiệp của team truyền thông MICC (bất động sản + đào tạo).
 Bạn nhận toàn bộ source của 1 buổi quay: lời thoại có mốc thời gian, chất lượng hình, ảnh khung hình. Hãy lên kế hoạch DỰNG các video ngắn.
 ''' + RULES + '''
-Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi CapCut / Kịch bản / số thứ tự","aroll":["C12","C13","C20",...],"broll":[{"video":<số # cảnh phụ>,"s":giây,"e":giây,"cau":"C13"}],"titles":[{"cau":"C12","big":"TỪ KHÓA","small":"dòng phụ"}]}]}
+Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi CapCut / Kịch bản / số thứ tự","aroll":["C12","C13","C20",...],"broll":[{"video":<số # cảnh phụ>,"s":giây,"e":giây,"cau":"C13"}],"titles":[{"cau":"C12","tu":"đúng 1–3 chữ người nói trong câu đó (chép y nguyên)","big":"TỪ KHÓA","small":"dòng phụ"}]}]}
 - Lời thoại đã được máy chia sẵn thành CÂU có mã (C1, C2, …). "aroll" = DANH SÁCH MÃ CÂU theo đúng thứ tự phát (KHÔNG ghi giây – máy tự lấy mốc chính xác). Mỗi câu nói lại nhiều lần → chọn 1 mã hay nhất. Tổng độ dài các câu chọn 45–110 giây (độ dài mỗi câu ghi trong ngoặc).
 - broll "cau" = mã câu A-roll mà cảnh phụ bắt đầu che hình (tiếng vẫn là A-roll); "s","e" = giây trong video cảnh phụ, mỗi cảnh 1.5–3.5 giây.
 - titles "cau" = mã câu có từ khóa đó.
@@ -231,92 +231,149 @@ def plan(jb, key, models, extra=''):
 CW, CH = 1080, 1920
 def s0(a): w, h = a.get('w') or 1080, a.get('h') or 1920; return (w / h) / (CW / CH) if w / h > CW / CH + .01 else 1.0
 def words(a, s, e): return [w for sg in a['segs'] for w in sg['w'] if w[0] >= s - .05 and w[1] <= e + .05]
-def tighten(a, s, e):   # bỏ ngập ngừng, ầm à: giữ cụm có chữ, khoảng lặng > 0.3 s rút về 0.12 s
+def tighten(a, s, e):   # bỏ ngập ngừng: cắt ĐÚNG khoảng lặng giữa 2 từ, không cắt vào chữ
     W = [w for w in words(a, s, e) if L.norm(w[2]) not in L.FILL]
     if not W: return [(s, e)]
     iv = []
     for w in W:
-        if iv and w[0] - iv[-1][1] <= .3: iv[-1][1] = w[1]
+        if iv and w[0] - iv[-1][1] <= .45: iv[-1][1] = w[1]
         else: iv.append([w[0], w[1]])
-    return [(max(s, x - .06), min(e, y + .1)) for x, y in iv if y - x > .12]
-def build_plan(jb, sc, proj, adir):
-    A = {a['i']: a for a in jb['A']}; media, shots, speech, titles, sfx = {}, [], [], [], []
+    out = []
+    for k, (x, y) in enumerate(iv):
+        lo = iv[k - 1][1] + .03 if k else s - .2
+        hi = iv[k + 1][0] - .03 if k + 1 < len(iv) else e + .3
+        x2, y2 = max(lo, x - .12), min(hi, y + .2)
+        if y2 - x2 > .3: out.append((max(0.0, x2), min(y2, a['dur'] - .05)))
+    return out
+FX_TR = [('Pull in', '6724226861666144779'), ('Glare II', '6952697917563998722'), ('Flash', '6987208055511323137'), ('Pull out', '6724226338418332167')]
+BMOVES = [((1.0, .5, .5, 0.0), (1.09, .5, .5, 0.0)), ((1.1, .5, .5, 0.0), (1.0, .5, .5, 0.0)), ((1.08, .44, .5, 0.0), (1.08, .56, .5, 0.0)),
+          ((1.08, .56, .5, 0.0), (1.08, .44, .5, 0.0)), ((1.05, .5, .5, -1.2), (1.1, .5, .5, 1.2)), ((1.0, .5, .56, 0.0), (1.08, .5, .46, 0.0))]
+def build_plan(jb, sc, proj, adir, music=None):
+    A = {a['i']: a for a in jb['A']}; media, shots, speech, titles, sfx, trans, fx = {}, [], [], [], [], [], []
     def key(a):
         k = 'V%d' % a['i']
         if k not in media:
             media[k] = dict(path=DRV + '/' + path_of(a['vid']['dir']) + '/' + nf(a['name']), dur=a['dur'], w=a.get('w') or 1080, h=a.get('h') or 1920,
                             kind='video', has_audio=bool(a.get('wav')), name=nf(a['name']), S0=s0(a))
         return k
-    t, pieces, z = 0.0, [], 0
     C = jb.get('C') or {}
-    def conv(x):   # mã câu → (video, s, e) chính xác theo Whisper
-        return C.get(str(x).strip().upper()) if isinstance(x, str) else None
-    if any(isinstance(x, str) for x in sc.get('aroll', [])):
-        sc = dict(sc); ar = []
-        for x in sc.get('aroll', []):
-            c = conv(x)
-            if c: ar.append({'video': c[0], 's': c[1], 'e': c[2]})
-        sc['aroll'] = ar
-        sc['broll'] = [dict(b, luc=[conv(b.get('cau'))[0], conv(b.get('cau'))[1]]) for b in sc.get('broll', []) if conv(b.get('cau'))]
-        sc['titles'] = [dict(t, video=conv(t.get('cau'))[0], t=conv(t.get('cau'))[1] + .3) for t in sc.get('titles', []) if conv(t.get('cau'))]
-    why = {}
+    def conv(x): return C.get(str(x).strip().upper()) if isinstance(x, str) else None
     def vid(x): m = re.search(r'\d+', str(x)); return int(m.group()) if m else 0
+    if any(isinstance(x, str) for x in sc.get('aroll', [])):
+        sc = dict(sc); sc['aroll'] = [{'video': c[0], 's': c[1], 'e': c[2]} for c in map(conv, sc.get('aroll', [])) if c]
+        sc['broll'] = [dict(b, luc=[conv(b.get('cau'))[0], conv(b.get('cau'))[1]]) for b in sc.get('broll', []) if conv(b.get('cau'))]
+        sc['titles'] = [dict(t, video=conv(t.get('cau'))[0], s=conv(t.get('cau'))[1], e=conv(t.get('cau'))[2]) for t in sc.get('titles', []) if conv(t.get('cau'))]
+    # ---- A-roll: câu nói nối liền, cắt ở khoảng lặng; mỗi CÂU 1 cỡ khung (rộng / cận) để nhảy cỡ che vết cắt
+    t, pieces, why, n_sent = 0.0, [], {}, 0
     for it in sc.get('aroll', []):
         a = A.get(vid(it.get('video', 0))); s, e = float(it.get('s', 0)), float(it.get('e', 0))
         if not a: why['sai số video'] = why.get('sai số video', 0) + 1; continue
         if a['vid'].get('broll'): why['chọn nhầm cảnh phụ'] = why.get('chọn nhầm cảnh phụ', 0) + 1; continue
         if e - s < .6: why['đoạn quá ngắn'] = why.get('đoạn quá ngắn', 0) + 1; continue
-        if e > a['dur'] + .5: e = a['dur']   # Gemini ước mốc quá đuôi video → cắt về cuối video
-        for x, y in tighten(a, s, min(e, a['dur'] - .05)):
-            d = y - x; k = key(a); m = 1.0 if z % 2 == 0 else 1.12; z += 1   # giật zoom che vết cắt
-            shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A', keys=[[round(t, 3), m, .5, .45, 0.0], [round(t + d, 3), m * 1.02, .5, .45, 0.0]], punch_abs=[]))
+        e = min(e, a['dur'] - .05); base = 1.0 if n_sent % 2 == 0 else 1.2; n_sent += 1
+        for j, (x, y) in enumerate(tighten(a, s, e)):
+            d = y - x; k = key(a); m = base if j % 2 == 0 else round(base * 1.1, 3)
+            shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A',
+                              keys=[[round(t, 3), m, .5, .42, 0.0], [round(t + d, 3), round(m * (1 + min(.06, .018 * d)), 4), .5, .42, 0.0]], punch_abs=[]))
             speech.append(dict(media=k, src_in=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), vol=1.0))
             pieces.append((a['i'], x, y, t)); t += d
         if t > 118: break
     if t < 15: log('  A-roll chỉ %.0fs (%d đoạn Gemini chọn, bỏ: %s)' % (t, len(sc.get('aroll', [])), why or 'không')); return None
     total = round(t, 3)
-    def tl(vi, st):   # giây video gốc → giây trên timeline
+    def tl(vi, st):
         for i, x, y, t0 in pieces:
-            if i == vi and x - .2 <= st <= y + .2: return t0 + max(0, min(y, st) - x)
+            if i == vi and x - .05 <= st <= y + .05: return t0 + max(0, min(y, st) - x)
         return None
-    used = set()
-    for b in sc.get('broll', []):   # cảnh phụ che hình (tiếng vẫn là A-roll)
+    # ---- cảnh phụ: mỗi cảnh 1 kiểu chuyển động máy khác nhau; ≤1 cảnh / 5 s; 3–4 chuyển cảnh có hiệu ứng ở chỗ đổi ý
+    used, lastB, mv = set(), -9.0, 0
+    for b in sc.get('broll', []):
         a = A.get(vid(b.get('video', 0))); at = b.get('luc') or [0, 0]
         if not a or a['i'] in used: continue
         T = tl(vid(at[0]), float(at[1])) if isinstance(at, list) and len(at) == 2 else None
-        if T is None: continue
-        s, e = float(b.get('s', 0)), float(b.get('e', 0)); d = min(3.5, max(1.5, e - s), total - T - .2)
-        if d < 1.2 or s + d > a['dur']: continue
-        k = key(a); used.add(a['i']); new = []
+        if T is None or T < 1.5 or T - lastB < 5.0: continue
+        cut = min((p[3] for p in pieces if abs(p[3] - T) < .8), key=lambda c: abs(c - T), default=None)   # bám vào chỗ cắt / ngắt câu gần nhất
+        if cut is not None and cut >= 1.5: T = cut
+        s, e = float(b.get('s', 0)), float(b.get('e', 0)); d = min(3.0, max(1.6, e - s), total - T - .3)
+        if d < 1.3 or s + d > a['dur']: continue
+        k = key(a); used.add(a['i']); lastB = T + d; new = []
         for sh in shots:
             if sh['t1'] <= T or sh['t0'] >= T + d: new.append(sh); continue
-            if sh['t0'] < T: new.append(dict(sh, t1=round(T, 3), keys=[[sh['t0']] + sh['keys'][0][1:], [round(T, 3)] + sh['keys'][-1][1:]]))
-            if sh['t1'] > T + d: new.append(dict(sh, src=round(sh['src'] + T + d - sh['t0'], 3), t0=round(T + d, 3), keys=[[round(T + d, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]]))
-        new.append(dict(media=k, src=round(s, 3), t0=round(T, 3), t1=round(T + d, 3), line='B', keys=[[round(T, 3), 1.0, .5, .5, 0.0], [round(T + d, 3), 1.06, .5, .5, 0.0]], punch_abs=[]))
-        shots = sorted(new, key=lambda x: x['t0']); sfx.append(dict(file='SFX whoosh dien anh 01.wav', t=max(0, round(T - .35, 3)), vol=.2, dur=1.334127))
-    for ti in sc.get('titles', [])[:20]:
-        T = tl(vid(ti.get('video', 0)), float(ti.get('t', 0)))
+            if sh['t0'] < T - .05: new.append(dict(sh, t1=round(T, 3), keys=[[sh['t0']] + sh['keys'][0][1:], [round(T, 3)] + sh['keys'][-1][1:]]))
+            if sh['t1'] > T + d + .05: new.append(dict(sh, src=round(sh['src'] + T + d - sh['t0'], 3), t0=round(T + d, 3), keys=[[round(T + d, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]]))
+        k0, k1 = BMOVES[mv % len(BMOVES)]; mv += 1
+        new.append(dict(media=k, src=round(s, 3), t0=round(T, 3), t1=round(T + d, 3), line='B', keys=[[round(T, 3)] + list(k0), [round(T + d, 3)] + list(k1)], punch_abs=[]))
+        shots = sorted(new, key=lambda x: x['t0'])
+        if len(trans) < 4 and (not trans or T - trans[-1]['at'] > 10):
+            nm, eid = FX_TR[len(trans) % len(FX_TR)]
+            trans.append(dict(name=nm, effect_id=eid, at=round(T, 3), dur_s=.4))
+            sfx.append(dict(file='SFX whoosh dien anh 01.wav', t=max(0, round(T - .3, 3)), vol=.14, dur=1.334127))
+            if nm == 'Glare II' and not fx: fx.append(dict(preset='effect_lens_flare.json', t0=round(T, 3), dur_s=.6))
+    # khớp chuyển cảnh với chỗ cắt thật sau khi chèn
+    cuts = {round(s_['t1'], 3) for s_ in shots}
+    trans = [x for x in trans if round(x['at'], 3) in cuts]
+    # ---- chữ nhấn: hiện ĐÚNG lúc nói từ khóa (mốc từng chữ của Whisper), 1 cụm / 4–7 s
+    def norm(x): return L.norm(x) if hasattr(L, 'norm') else x.lower()
+    for ti in sorted(sc.get('titles', [])[:25], key=lambda x: float(x.get('s', x.get('t', 0)))):
+        vi = vid(ti.get('video', 0)); a = A.get(vi)
+        if not a: continue
+        s, e = float(ti.get('s', ti.get('t', 0))), float(ti.get('e', ti.get('t', 0)) or 0) or float(ti.get('t', 0)) + 4
+        tu = [norm(w) for w in str(ti.get('tu') or ti.get('big') or '').split() if w.strip()]
+        W = words(a, s - .1, e + .1); st = None
+        if tu:
+            for j, w in enumerate(W):
+                if norm(w[2]) == tu[0] and (len(tu) == 1 or j + 1 >= len(W) or norm(W[j + 1][2]) == tu[1 if len(tu) > 1 else 0]): st = w[0]; break
+            if st is None: st = next((w[0] for w in W if norm(w[2]) in tu), None)
+        T = tl(vi, st if st is not None else s + .1)
+        if T is None or T > total - 1.2: continue
+        if titles and T < titles[-1]['t0'] + 3.0: continue
         big = safe(ti.get('big', ''), 32).upper(); small = safe(ti.get('small', ''), 48)
-        if T is None or not big: continue
-        if titles and T < titles[-1]['t0'] + 2.5: continue
-        on_b = any(s['line'] == 'B' and s['t0'] <= T < s['t1'] for s in shots)
+        if not big: continue
+        on_b = any(x['line'] == 'B' and x['t0'] <= T < x['t1'] for x in shots)
         lines = [[big, 'BIG', 6.0, '#FFD54A']] + ([[small, 'ITA', 3.2, '#FFFFFF']] if small else [])
-        titles.append(dict(t0=round(max(0, T - .05), 3), t1=round(min(total - .05, T + 2.9), 3), line='A', lines=lines, y_pct=20.0 if on_b else 62.0, bright=True))
-        sfx.append(dict(file='SFX pop chu 02.wav', t=round(T, 3), vol=.16, dur=0.180091))
-    for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .1, 3))
-    for ti in titles:   # giật zoom nhẹ ở từ khóa
-        for sh in shots:
-            x = ti['t0'] + .06
-            if sh['line'] == 'A' and sh['t0'] + .25 < x < sh['t1'] - .3:
+        titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.6), 3), line='A', lines=lines, y_pct=20.0 if on_b else 64.0, bright=True))
+        sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
+        for sh in shots:   # giật zoom đúng lúc nói từ khóa (chỉ cảnh người nói)
+            if sh['line'] == 'A' and sh['t0'] + .2 < T < sh['t1'] - .35:
                 k0, k1 = sh['keys'][0], sh['keys'][-1]; m = k0[1]
-                sh['keys'] = [k0, [round(x - .001, 3), m] + k0[2:], [round(x + .09, 3), round(m * 1.08, 4)] + k0[2:], [k1[0], round(m * 1.1, 4)] + k1[2:]]; break
-    sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.25, dur=5.144853))
+                sh['keys'] = [k0, [round(T - .001, 3), m] + k0[2:], [round(T + .08, 3), round(m * 1.14, 4)] + k0[2:], [k1[0], round(m * 1.16, 4)] + k1[2:]]; break
+    for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .1, 3))
+    sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
+    # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
+    MF = music or (('Nhac nen 06 - Rising Sun.mp3', 91.742041) if 'academy' in path_of(jb['id']).lower() or 'đào tạo' in jb['name'].lower() else ('Nhac nen 05 - Sparta.mp3', 104.045714))
     mus, mt = [], 0.0
-    MF = ('Nhac nen 06 - Rising Sun.mp3', 91.742041) if 'academy' in path_of(jb['id']).lower() or 'đào tạo' in jb['name'].lower() else ('Nhac nen 05 - Sparta.mp3', 104.045714)
     while mt < total - .5:
-        d = min(MF[1] - .1, total - mt); mus.append(dict(file=MF[0], dur=MF[1], src_in=0.0, t0=round(mt, 3), t1=round(mt + d, 3), fi=.3 if mt else 0.0, fo=1.2)); mt += d
+        d = min(MF[1] - .1, total - mt); mus.append(dict(file=MF[0], dur=MF[1], src_in=0.0, t0=round(mt, 3), t1=round(mt + d, 3), fi=.3 if mt else 0.0, fo=1.5)); mt += d
     return dict(project=proj, out_dir=os.path.join(L.TMP, 'out'), asset_dir=adir, media=media, total=total, lines=[dict(id='A', t0=0.0, t1=total)],
-                speech=speech, shots=shots, titles=titles, transitions=[], effects=[], music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
+                speech=speech, shots=shots, titles=titles, transitions=trans, effects=fx, music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
+
+
+# ---------------------------------------------------------------- nhạc nền: mỗi project 1 bài KHÁC NHAU (ưu tiên nhạc chủ để trong thư mục buổi quay, rồi tới Kho nhạc nền)
+def used_music(add=None):
+    cd = cache_dir(); f = lq("'%s' in parents and name='Nhạc đã dùng.txt'" % cd, 'id')
+    ids = [x for x in raw(f[0]['id']).decode('utf-8').splitlines() if x.strip()] if f else []   # lưu TÊN bài (bài trùng tên ở chỗ khác cũng coi là đã dùng)
+    if add and add not in ids:
+        ids.append(add); data = '\n'.join(ids).encode('utf-8')
+        if f: update(f[0]['id'], data, 'text/plain')
+        else: put('Nhạc đã dùng.txt', cd, data, 'text/plain')
+    return ids
+def pick_music(jb):
+    try:
+        AU = lambda d: [c for c in lq("'%s' in parents and mimeType contains 'audio/'" % d, 'id,name,size,mimeType') if int(c.get('size') or 0) > 800000
+                        and not re.search(r'(?i)voice|vocal|giọng|giong|sfx|whoosh|lồng tiếng', c['name'])]
+        local = [c for d in list(jb['dirs']) + [p[0] for p in jb.get('pool', [])] for c in AU(d)]
+        kho = lq("'%s' in parents and name='Kho nhạc nền' and mimeType='%s'" % (cache_dir(), L.FOLDER), 'id')
+        cands = local + (AU(kho[0]['id']) if kho else [])
+        used = set(used_music()); fresh = [c for c in cands if nf(c['name']).lower() not in used] or cands
+        if not fresh: return None
+        c = fresh[0]; fp = os.path.join(L.TMP, 'nhac_' + c['id'])
+        open(fp, 'wb').write(raw(c['id']))
+        dur = float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', fp], capture_output=True, text=True).stdout.strip() or 0)
+        if dur < 20: return None
+        ext = os.path.splitext(c['name'])[1].lower() or '.mp3'
+        nm = 'Nhac nen - ' + re.sub(r'[^A-Za-z0-9 -]+', '', unicodedata.normalize('NFKD', os.path.splitext(c['name'])[0]).encode('ascii', 'ignore').decode())[:40].strip() + ext
+        log('  nhạc nền:', c['name'], '(%.0fs)' % dur)
+        return (c['id'], nm, round(dur, 3), nf(c['name']).lower())
+    except Exception as e: log('  không chọn được nhạc riêng:', e); return None
 
 def engine():
     if os.path.exists(os.path.join(ENG, 'build.py')): return
@@ -335,7 +392,8 @@ def publish(jb, sc, n):
     a0 = jb['A'][0]; host = a0['vid']['dir'] if len(jb['dirs']) > 1 and all(x['vid']['dir'] == a0['vid']['dir'] for x in jb['A']) else jb['id']
     proj = safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)   # tên = nội dung, ngắn gọn
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + rel + '/AI tải về'
-    pl = build_plan(jb, sc, proj, adir)
+    mu = pick_music(jb)
+    pl = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
     if not 40 <= pl['total'] <= 120: bad.append('dài %.0fs (cần 40–120s)' % pl['total'])
@@ -363,7 +421,11 @@ def publish(jb, sc, n):
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
             put(fn, pf, to_m(open(os.path.join(od, fn), 'rb').read()), 'application/json')
         put('draft_cover.jpg', pf, base64.b64decode(a0['thumbs'][len(a0['thumbs']) // 2][1]), 'image/jpeg')
+        if mu:
+            try: L.drive('files/%s/copy' % mu[0], {'name': mu[1], 'parents': [af]}, params={'fields': 'id'})
+            except Exception: put(mu[1], af, raw(mu[0]), 'audio/mpeg')
         list_edit(add=[rel])
+        if mu: used_music(add=mu[3])
     except Exception:   # hỏng giữa chừng → bỏ thư mục dở, không để rác
         try: L.drive('files/' + pf, {'trashed': True}, method='PATCH')
         except Exception: pass
