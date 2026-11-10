@@ -215,6 +215,15 @@ def cli_ready():
     if _CLI: return _CLI[0]
     ok = False
     try:
+        env = os.environ.get('GEMINI_CLI_CREDS', '').strip()   # cách 2: chủ tự dán nội dung oauth_creds.json vào GitHub secret GEMINI_CLI_CREDS
+        if env:
+            gd = os.path.expanduser('~/.gemini'); os.makedirs(gd, exist_ok=True)
+            open(os.path.join(gd, 'oauth_creds.json'), 'w').write(env)
+            json.dump({'security': {'auth': {'selectedType': 'oauth-personal'}}, 'selectedAuthType': 'oauth-personal'}, open(os.path.join(gd, 'settings.json'), 'w'))
+            if not subprocess.run('command -v gemini', shell=True, capture_output=True).stdout:
+                subprocess.run('npm install -g @google/gemini-cli >/dev/null 2>&1', shell=True, timeout=300)
+            ok = bool(subprocess.run('command -v gemini', shell=True, capture_output=True).stdout)
+            log('  Gemini Pro (GitHub secret):', 'sẵn sàng' if ok else 'không cài được'); _CLI.append(ok); return ok
         f = lq("'%s' in parents and name='Khoa Gemini.bin'" % cache_dir(), 'id')
         if f:
             subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'cryptography'], capture_output=True)
