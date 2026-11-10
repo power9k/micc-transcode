@@ -229,7 +229,39 @@ def plan(jb, key, models, extra=''):
                 return json.loads(re.sub(r'^```(json)?|```$', '', txt.strip())).get('scripts') or []
             except Exception as e: last = '%s: %s' % (m, e); log('  Gemini lỗi:', last)
         time.sleep(20 * (rnd + 1))
-    raise RuntimeError('Gemini không lên được kế hoạch dựng (' + last + ')')
+    log('  Gemini hỏng hết (' + last + ') → tự chọn theo luật để vẫn ra project')
+    return rule_plan(jb)
+def rule_plan(jb):   # lớp dự phòng không cần AI: lấy câu theo thứ tự quay, câu nói lại thì giữ lần sau cùng, chữ nhấn = số liệu / từ dài
+    import difflib
+    C = jb.get('C') or {}
+    if not C: return []
+    crew = re.compile(r'(?i)\b(ba hai một|3 2 1|chuẩn bị|bắt đầu|cắt|ok rồi|được chưa|lại nhé|quay lại)\b')
+    items = [(k, C[k]) for k in sorted(C, key=lambda x: int(x[1:]))]
+    A = {a['i']: a for a in jb['A']}
+    def txt(c): a = A[c[0]]; return ' '.join(w[2] for w in words(a, c[1], c[2])).strip()
+    keep = []
+    for k, c in items:
+        t = txt(c)
+        if c[2] - c[1] < 1.0 or len(t.split()) < 3 or crew.search(t): continue
+        if keep and difflib.SequenceMatcher(None, keep[-1][2], t).ratio() > .55: keep[-1] = (k, c, t); continue   # nói lại → giữ lần sau
+        keep.append((k, c, t))
+    ar, tot = [], 0.0
+    for k, c, t in keep:
+        if tot > 100: break
+        ar.append((k, c, t)); tot += c[2] - c[1]
+    pool = [a for a in jb['A'] if a['vid'].get('broll')]
+    titles, broll, bi = [], [], 0
+    for j, (k, c, t) in enumerate(ar):
+        ws = t.split()
+        cand = [w for w in ws if re.search(r'\d', w)] or sorted(ws, key=len, reverse=True)[:2]
+        for w in cand[:2]:
+            i = ws.index(w); big = ' '.join(ws[i:i + 2]) if not re.search(r'\d', w) else ' '.join(ws[max(0, i - 1):i + 2])
+            titles.append({'cau': k, 'tu': w, 'big': big, 'small': ''})
+        if pool and j % 2 == 1:
+            b = pool[bi % len(pool)]; bi += 1; s0 = min(2.0, max(0, b['dur'] - 3.5))
+            broll.append({'video': b['i'], 's': s0, 'e': s0 + 2.6, 'cau': k})
+    if tot < 20: return []
+    return [{'ten': ' '.join(ar[0][2].split()[:6]), 'aroll': [x[0] for x in ar], 'broll': broll, 'titles': titles}]
 
 # ---------------------------------------------------------------- 3) dựng → plan cho engine
 CW, CH = 1080, 1920
