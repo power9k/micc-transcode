@@ -22,16 +22,28 @@ $set = Join-Path $gd 'settings.json'
 Set-Content -Path $set -Encoding ASCII -Value '{"security":{"auth":{"selectedType":"oauth-personal"},"folderTrust":{"enabled":false}},"selectedAuthType":"oauth-personal"}'   # chon san dang nhap Google, khong hoi tin thu muc
 Set-Location $gd
 $cred = Join-Path $gd 'oauth_creds.json'
-if (-not (Test-Path $cred)) {
+# luon dang nhap LAI tu dau (tranh dung nham tai khoan cu)
+Remove-Item -Force -ErrorAction SilentlyContinue $cred, (Join-Path $gd 'google_accounts.json')
+Write-Host ''
+Write-Host 'BUOC 1: trinh duyet se mo trang dang nhap Google (neu khong tu mo, chep duong link hien ra dan vao trinh duyet):' -ForegroundColor Green
+Write-Host '  - chon DUNG tai khoan co goi Gemini Pro / Ultra, bam Cho phep' -ForegroundColor Green
+Write-Host '  - neu cua so hoi cach dang nhap: chon "Sign in with Google" roi Enter' -ForegroundColor Green
+Write-Host '  - dang nhap xong (hoac thay dong chu do), go  /quit  roi Enter' -ForegroundColor Green
+Write-Host ''
+& npx -y @google/gemini-cli
+if (-not (Test-Path $cred)) { Write-Host 'Chua dang nhap duoc. Bam lai file nay de thu lai.' -ForegroundColor Red; return }
+# BUOC 2: thu goi Gemini that bang tai khoan vua dang nhap
+Write-Host 'BUOC 2: dang thu goi Gemini bang tai khoan vua dang nhap...' -ForegroundColor Yellow
+$o = (& npx -y @google/gemini-cli -p 'Chi tra loi dung 2 chu cai: OK' 2>&1 | Out-String)
+if ($o -notmatch '\bOK\b' -or $o -match 'no longer supported|Failed|Error|error') {
   Write-Host ''
-  Write-Host 'Trinh duyet se mo trang dang nhap Google:' -ForegroundColor Green
-  Write-Host '  - chon tai khoan tailieumkt.miccgroup@... (hoac tai khoan co goi Gemini Pro/Ultra)' -ForegroundColor Green
-  Write-Host '  - bam Cho phep / Allow' -ForegroundColor Green
-  Write-Host '  - dang nhap xong, quay lai cua so nay, go  /quit  roi Enter' -ForegroundColor Green
-  Write-Host ''
-  & npx -y @google/gemini-cli
+  Write-Host 'Google KHONG cho tai khoan nay dung Gemini qua dong lenh:' -ForegroundColor Red
+  Write-Host ($o.Trim() -split "`n" | Select-Object -Last 4 | Out-String) -ForegroundColor Red
+  Write-Host 'Hay bam lai file va dang nhap tai khoan khac (vd tai khoan Gemini Ultra ca nhan).' -ForegroundColor Red
+  Remove-Item -Force -ErrorAction SilentlyContinue $cred
+  return
 }
-if (-not (Test-Path $cred)) { Write-Host 'Chua dang nhap duoc (khong thay chia khoa dang nhap). Bam lai file nay de thu lai.' -ForegroundColor Red; return }
+Write-Host 'Goi thu thanh cong.' -ForegroundColor Green
 # 3) Khoa hoa chia khoa dang nhap (AES-256 + RSA khoa cong khai cua may dung)
 $pub = '<RSAKeyValue><Modulus>wKtpNjcKGotPKcuzJ/JhJfCzhFmRetIKi8/K3XASzNKQcOt/KsjijHBPfWaYb/ywNjOTARdwjUSbYJ+ICQD8CEG650+0b3rrZKH5jlT4H/jFISRIJnGD0umFlEgi/gS34qGmixUbpo2d/2mC7dTQwE3ePKZ5cTq4+8gHDyk9z20jegUo7QxuL7yJAsNU5pLVhpD6P9Ysvkg+lXIEnLZuzx34adrUkSYSTzOLmk22SBBgpe/kPNtoLS6+HcBEQz9Hb8+vX8vd1vWMvHA2jjZBeytu6ebXrzELwqrdEI0TXLKhWQDiXZJjwpNLyOlyCaV537jp+4C4CM7og4jUH+YG2w==</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>'
 $plain = [IO.File]::ReadAllBytes($cred)
