@@ -110,7 +110,7 @@ def scan():
                     st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name'])) and (c.get('appProperties') or {}).get('dungP') != '1']
         for sh in (kbs or kids_):
             ap = sh.get('appProperties') or {}
-            if ap.get('dungV') == DV or int(ap.get('dungFail') or 0) >= 3: continue
+            if ap.get('dungV') == DV or int(ap.get('dungN') or 0) > 0 or int(ap.get('dungFail') or 0) >= 3: continue   # đã có project trên Drive → KHÔNG tự dựng lại / rút về (chủ dặn)
             sub, st = [], [sh]
             while st:
                 d = st.pop(); sub.append(d['id'])
@@ -312,15 +312,20 @@ def publish(jb, sc, n):
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + rel + '/AI tải về'
     pl = build_plan(jb, sc, proj, adir)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
+    bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
+    if not 40 <= pl['total'] <= 120: bad.append('dài %.0fs (cần 40–120s)' % pl['total'])
+    if len(pl.get('titles') or []) < 3: bad.append('chỉ %d chữ nhấn' % len(pl.get('titles') or []))
+    if any(m.get('kind') == 'video' and not m.get('path') for m in pl['media'].values()): bad.append('thiếu file')
+    if len([x for x in pl['shots'] if x.get('line') != 'A']) < 2: bad.append('quá ít cảnh phụ')
+    if bad: log('  chưa đạt, không đẩy lên:', proj, '–', ', '.join(bad)); return None
     pp = os.path.join(L.TMP, 'plan_%d.json' % n); json.dump(pl, open(pp, 'w'), ensure_ascii=False)
     r = subprocess.run([sys.executable, os.path.join(ENG, 'build.py'), pp], capture_output=True, text=True, timeout=600)
     od = os.path.join(pl['out_dir'], proj)
     if not os.path.exists(os.path.join(od, 'draft_content.json')): raise RuntimeError('dựng lỗi: ' + (r.stderr or r.stdout)[-300:])
-    slot = '%s:%d' % (jb['id'], n)   # chỉ giữ 1 phiên bản: bỏ bản cũ cùng tên hoặc cùng kịch bản (dù tên mới khác)
-    olds = lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (host, proj.replace("'", "\\'"), L.FOLDER), 'id,name')
-    olds += lq("'%s' in parents and appProperties has { key='dungS' and value='%s' } and trashed=false" % (host, slot), 'id,name')
-    for old in {o['id']: o for o in olds}.values():
-        list_edit(remove=[path_of(host) + '/' + nf(old['name'])]); L.drive('files/' + old['id'], {'trashed': True}, method='PATCH')
+    slot = '%s:%d' % (jb['id'], n)
+    if lq("'%s' in parents and appProperties has { key='dungS' and value='%s' } and trashed=false" % (host, slot), 'id') or \
+       lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (host, proj.replace("'", "\\'"), L.FOLDER), 'id'):
+        log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return None   # chủ dặn: đã đẩy lên thì không tự rút / thay
     pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
         af = mkdir('AI tải về', pf)
