@@ -19,7 +19,8 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Host 'Khong c
 # 2) Dang nhap Google qua Gemini CLI
 $gd = Join-Path $env:USERPROFILE '.gemini'; New-Item -ItemType Directory -Force -Path $gd | Out-Null
 $set = Join-Path $gd 'settings.json'
-if (-not (Test-Path $set)) { Set-Content -Path $set -Encoding ASCII -Value '{"security":{"auth":{"selectedType":"oauth-personal"}},"selectedAuthType":"oauth-personal"}' }
+Set-Content -Path $set -Encoding ASCII -Value '{"security":{"auth":{"selectedType":"oauth-personal"},"folderTrust":{"enabled":false}},"selectedAuthType":"oauth-personal"}'   # chon san dang nhap Google, khong hoi tin thu muc
+Set-Location $gd
 $cred = Join-Path $gd 'oauth_creds.json'
 if (-not (Test-Path $cred)) {
   Write-Host ''
