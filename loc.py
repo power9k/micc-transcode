@@ -920,6 +920,8 @@ def main():
     flush_reports()
     if check:
         L = scan(); n = len(L); nq = len(qa_list()); log('Buổi quay cần lọc:', n, '· file lọc cần tự rà lại:', nq)
+        if os.environ.get('LOC_ON') != '1':  # bản 263.41: máy lọc tắt – máy chạy AI DỰNG project CapCut
+            import dung; nd = dung.pending(); log('Buổi quay chờ AI dựng:', nd); n += nd; nq = 0
         if (root_info().get('appProperties') or {}).get('locHi') != '2':  # báo trạng thái 1 lần khi lên cách báo mới
             tsay('📋 AI LỌC – TRẠNG THÁI: ' + ('đang có %d buổi quay chờ lọc, máy GitHub bắt đầu ngay:\n' % n + '\n'.join('• %s › %s (%d video)' % (j['src'], j['name'], len(j['videos'])) for j in L[:10]) if n else 'không còn buổi quay nào chờ lọc, máy GitHub đang nghỉ.') + '\nTừ giờ: bắt đầu lọc, có lỗi, lọc xong đều báo ở nhóm này.')
             mark(ROOT, locHi='2')
@@ -940,6 +942,11 @@ def main():
                 tsay('❌ AI LỌC SOURCE LỖI\n📁 %s › %s\n%s\n%s' % (jb.get('src') or '', jb['name'], str(e)[:300], 'Tự thử lại sau 20 phút.' if jb['nfail'] + 1 < FAIL_MAX else 'Đã thử %d lần, tạm bỏ qua (cần người xem).' % FAIL_MAX))
             except Exception as e2: log('  không ghi được lỗi:', e2)
     log('Hết việc lọc (%d buổi quay xong)' % done)
+    if os.environ.get('LOC_ON') != '1':
+        import dung
+        try: dung.run(key, models, T0 + (MAXMIN - 10) * 60)
+        except Exception as e: log('AI dựng hỏng:', e)
+        return
     while not L and (time.time() - T0) / 60 < MAXMIN - 45:  # bản 263: rà lại file lọc cũ từng đợt 3 phút, giữa các đợt xem có buổi quay mới không → buổi mới không phải chờ hàng giờ
         if not qa_list(): break
         try: qa_old(key, models, min(time.time() + 180, T0 + (MAXMIN - 45) * 60))
