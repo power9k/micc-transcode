@@ -99,22 +99,6 @@ foreach ($d in (Get-PSDrive -PSProvider FileSystem)) {
 '@
   if ((Test-Path -LiteralPath $bootF) -and -not ((Get-Content -LiteralPath $bootF -Raw) -match 'CapCut\.bat')) { Set-Content -LiteralPath $bootF -Value $bootT -Encoding UTF8; Log 'da chuyen bo khoi dong sang SETUP\Cài đặt đồng bộ CapCut.bat' }
 } catch {}
-      break
-    }
-  }
-}
-& $local
-'@
-  if ((Test-Path -LiteralPath $bootF) -and -not ((Get-Content -LiteralPath $bootF -Raw) -match 'CapCut\.bat')) { Set-Content -LiteralPath $bootF -Value $bootT -Encoding UTF8; Log 'da chuyen bo khoi dong sang SETUP\Cài đặt đồng bộ CapCut.bat' }
-} catch {}
-      break
-    }
-  }
-}
-& $local
-'@
-  if ((Test-Path -LiteralPath $bootF) -and -not ((Get-Content -LiteralPath $bootF -Raw) -match 'CapCut\.bat')) { Set-Content -LiteralPath $bootF -Value $bootT -Encoding UTF8; Log 'da chuyen bo khoi dong sang SETUP\Cài đặt đồng bộ CapCut.bat' }
-} catch {}
 if (-not (Test-Path -LiteralPath $list)) { Log "Chua co $list"; exit }
 # 2) thu muc ban nhap CapCut
 $drafts = Join-Path $env:LOCALAPPDATA 'CapCut\User Data\Projects\com.lveditor.draft'
