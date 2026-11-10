@@ -282,26 +282,28 @@ def claude_ready():
 def claude_plan(parts):
     if not claude_ready(): return None
     import tempfile
-    d = tempfile.mkdtemp(dir=L.TMP); txt, refs = [SYS, ''], []
-    for p in parts:
-        if 'text' in p: txt.append(p['text'])
-        elif 'inline_data' in p and len(refs) < 80:
+    d = tempfile.mkdtemp(dir=L.TMP); txt, refs, nb = [SYS, ''], [], 0
+    for p in parts:   # lời thoại + mô tả đưa thẳng vào câu hỏi (stdin); ảnh để file cho Claude tự mở (ưu tiên ảnh cảnh phụ, tối đa 30)
+        if 'text' in p: txt.append(p['text']); nb = 1 if 'KHO CẢNH PHỤ' in p['text'] else (0 if p['text'].startswith('VIDEO') else nb)
+        elif 'inline_data' in p and len(refs) < 30 and (nb or len(refs) < 12):
             fn = 'h%d.jpg' % len(refs); open(os.path.join(d, fn), 'wb').write(base64.b64decode(p['inline_data']['data'])); refs.append(fn); txt.append('(ảnh: %s)' % fn)
-    open(os.path.join(d, 'yeucau.txt'), 'w', encoding='utf-8').write('\n'.join(txt))
-    q = ('Bạn là editor video. Đọc toàn bộ file yeucau.txt trong thư mục hiện tại (đọc hết, nhiều phần), xem các ảnh h*.jpg được nhắc tới khi cần (ít nhất ảnh cảnh phụ), '
-         'rồi làm ĐÚNG yêu cầu trong đó. Câu trả lời cuối cùng CHỈ là 1 khối JSON {"scripts":[...]} đúng khung đã nêu, không giải thích.')
+    body = '\n'.join(txt)
+    q = ('Bạn là editor video. Toàn bộ yêu cầu + dữ liệu buổi quay nằm ở nội dung đầu vào. Dùng công cụ Read mở các ảnh h*.jpg trong thư mục hiện tại khi cần nhìn cảnh '
+         '(nhất là ảnh cảnh phụ để ghép đúng lời). Câu trả lời CUỐI CÙNG chỉ là 1 khối JSON {"scripts":[...]} đúng khung đã nêu, không giải thích gì thêm.')
     for k in range(2):
         try:
-            r = subprocess.run(['claude', '-p', q, '--output-format', 'json', '--allowedTools', 'Read', 'Glob', '--max-turns', '40'],
-                               cwd=d, capture_output=True, text=True, timeout=1200)
+            r = subprocess.run(['claude', '-p', q, '--output-format', 'json', '--allowedTools', 'Read'], input=body,
+                               cwd=d, capture_output=True, text=True, timeout=1500)
             out = r.stdout.strip()
             try: out = json.loads(out).get('result', out)
             except Exception: pass
-            m = re.search(r'\{.*\}', out, re.S)
+            m = re.search(r'\{.*\}', out or '', re.S)
             if m:
-                sc = json.loads(m.group(0)).get('scripts')
-                if sc is not None: log('  Claude lên kế hoạch: %d kịch bản' % len(sc)); return sc
-            log('  Claude chưa trả JSON:', (r.stderr or out)[-200:])
+                try:
+                    sc = json.loads(m.group(0)).get('scripts')
+                    if sc is not None: log('  Claude lên kế hoạch: %d kịch bản' % len(sc)); return sc
+                except Exception as e: log('  Claude trả JSON hỏng:', e)
+            log('  Claude chưa trả JSON:', (r.stderr or out or '')[-300:])
         except Exception as e: log('  Claude lỗi:', e)
     return None
 def plan(jb, key, models, extra=''):
