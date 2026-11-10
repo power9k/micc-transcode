@@ -96,6 +96,8 @@ def read(jb):
     for a in A: a['segs'] = L.transcribe(a['wav'])
     gb = sum(int(v.get('size') or 0) for v in vids) / 1e9
     log('  đọc xong %s: %d video, %.1f GB trong %.1f phút' % (jb['name'], len(A), gb, (time.time() - t0) / 60))
+    try: L.tsay('📖 AI ĐÃ ĐỌC XONG SOURCE\n📁 %s\n🎬 %d video · %.1f GB · %.0f phút đọc\n➡️ Bắt đầu chia kịch bản + dựng project' % (path_of(jb['id']), len(A), gb, (time.time() - t0) / 60))
+    except Exception as e: log('  không báo được:', e)
     jb['A'] = A; return jb
 
 # ---------------------------------------------------------------- 2) Gemini chia kịch bản + chọn cảnh
@@ -259,10 +261,11 @@ def edit(jb, key, models):
         try:
             r = publish(jb, sc, n)
             if r: done.append(r); log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
+            if r: L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id'])))
         except Exception as e: log('  ✗ kịch bản', n, e)
     L.mark(jb['id'], dungV=DV, dungN=len(done), dungT=int(time.time()), dungFail=None)
-    if done:
-        L.tsay('🎬 AI DỰNG XONG %d PROJECT CAPCUT\n📁 %s\n%s\n⏱ %.0f phút · mở CapCut là có (lối tắt tự vào máy)' % (
+    if done and len(done) > 1:
+        L.tsay('🎬 AI DỰNG XONG CẢ BUỔI QUAY: %d PROJECT CAPCUT\n📁 %s\n%s\n⏱ %.0f phút · mở CapCut là có (lối tắt tự vào máy)' % (
             len(done), path_of(jb['id']), '\n'.join('• %s (%d giây)' % (r['proj'], r['dur']) for r in done), (time.time() - t0) / 60))
     return done
 
