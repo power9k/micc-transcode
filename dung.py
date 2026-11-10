@@ -8,7 +8,7 @@
 import os, sys, json, time, re, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
 import loc as L
 
-DV = '4'                                   # đổi số này = dựng lại mọi buổi quay
+DV = '5'                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -589,7 +589,7 @@ def publish(jb, sc, n):
     slot = '%s:%d' % (jb['id'], n)
     if lq("'%s' in parents and appProperties has { key='dungS' and value='%s' } and trashed=false" % (host, slot), 'id') or \
        lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (host, proj.replace("'", "\\'"), L.FOLDER), 'id'):
-        log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return None   # chủ dặn: đã đẩy lên thì không tự rút / thay
+        log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)   # chủ dặn: đã đẩy lên thì không tự rút / thay
     pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
         af = mkdir('AI tải về', pf)
@@ -614,7 +614,10 @@ def publish(jb, sc, n):
     return dict(proj=proj, dur=pl['total'], url='https://drive.google.com/drive/folders/' + pf)
 
 def edit(jb, key, models):
-    t0 = time.time(); engine()
+    t0 = time.time()
+    if lq("appProperties has { key='dungS' and value='%s:1' } and mimeType='%s'" % (jb['id'], L.FOLDER), 'id'):   # đã có project của buổi này → không tốn lượt Claude dựng lại
+        log('  đã có project, bỏ qua:', jb['name']); L.mark(jb['id'], dungV=DV, dungFail=None); return []
+    engine()
     scs, done = plan(jb, key, models), []
     for rnd in range(2):   # lần 2: Gemini chọn thiếu câu nói → hỏi lại 1 lần, nói rõ lỗi
         log('  Gemini: %d kịch bản' % len(scs))
@@ -622,7 +625,7 @@ def edit(jb, key, models):
             try:
                 r = publish(jb, sc, n)
                 if r: done.append(r); log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
-                if r: L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id'])))
+                if r and not r.get('exists'): L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id'])))
             except Exception as e: log('  ✗ kịch bản', n, e)
         if done or not scs or rnd: break
         log('  Gemini chọn thiếu câu nói → hỏi lại')
