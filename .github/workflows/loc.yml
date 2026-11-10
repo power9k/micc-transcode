@@ -46,6 +46,7 @@ jobs:
           MICC_API: ${{ secrets.MICC_API }}
           MICC_SECRET: ${{ secrets.MICC_SECRET }}
           GEMINI_CLI_CREDS: ${{ secrets.GEMINI_CLI_CREDS }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           MAX_MIN: '330'
         run: python loc.py
       - name: Báo nhóm test nếu máy GitHub lỗi khi chuẩn bị
