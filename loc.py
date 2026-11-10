@@ -427,6 +427,8 @@ def corpora():
 
 # ---------- tìm buổi quay cần lọc (đọc thẳng Drive, không cần máy chủ) ----------
 def scan():
+    # bản 263.40 (chủ dặn 10/11): KHÔNG tạo thư mục Lọc nữa – dựng thẳng từ source gốc. Máy lọc tắt hẳn.
+    if os.environ.get('LOC_ON') != '1': log('máy lọc đã tắt (chủ dặn không tạo thư mục Lọc)'); return []
     now = time.time()
     fol = listq("mimeType='%s' and trashed=false" % FOLDER, 'id,name,parents,appProperties', corpora())
     by = {f['id']: f for f in fol}; memo = {ROOT: True}
