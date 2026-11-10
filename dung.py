@@ -4,13 +4,19 @@
 #  2) GEMINI (theo QUY TẮC DỰNG của chủ): tự chia kịch bản (mỗi video < 2 phút) nếu không có file kịch bản,
 #     chọn câu nói hay nhất (đủ ý, đúng diễn xuất), cảnh phụ khớp lời, chữ nhấn ý chính
 #  3) DỰNG: bỏ ngập ngừng / ầm à, che vết cắt bằng giật zoom, cảnh phụ, chữ, nhạc, hiệu ứng âm thanh → draft CapCut
-#  4) Đưa project vào thư mục buổi quay (1 phiên bản duy nhất) + thêm vào SETUP/CapCut projects.txt (máy nhân viên tự có lối tắt)
+#  4) Đưa project vào thư mục buổi quay (1 phiên bản duy nhất) + thêm vào Bộ nhớ đệm (không xóa)/Danh sách project CapCut.txt (máy nhân viên tự có lối tắt)
 import os, sys, json, time, re, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
 import loc as L
 
 DV = '2'                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
-SETUP_NAME, LIST_NAME, ENG_NAME = 'SETUP', 'CapCut projects.txt', 'engine.zip'
+CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'Bộ nhớ đệm (không xóa)', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # dữ liệu AI tự tạo: để trong Bộ nhớ đệm, SETUP chỉ chứa cài đặt
+_CD = []
+def cache_dir():
+    if not _CD:
+        f = lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (L.ROOT, CACHE_NAME, L.FOLDER), 'id')
+        _CD.append(f[0]['id'] if f else mkdir(CACHE_NAME, L.ROOT))
+    return _CD[0]
 LIB = '1ZIROORo_epCYmpf55Q0reoT8gOfCwyEX'  # thư mục nhạc + hiệu ứng âm thanh + font mẫu (AI tải về của Center Avenue KB2)
 LIB_SKIP = ('Phim ', 'Outro ')
 DRV = 'G:/Drive của tôi/PHÒNG TRUYỀN THÔNG MICC'
@@ -24,9 +30,8 @@ def log(*a):   # ghi log + file tiến độ trên Drive (SETUP/AI dựng – ti
         if time.time() - (_PF[1:] or [0])[0] < 20 and not re.search(r'✓|✗|xong|lỗi', _PL[-1]): return   # ghi Drive tối đa 20 s/lần
         _PF[1:] = [time.time()]
         if not _PF[0]:
-            setup = lq("'%s' in parents and name='%s'" % (L.ROOT, SETUP_NAME))[0]['id']
-            f = lq("'%s' in parents and name='AI dựng – tiến độ.txt' and trashed=false" % setup)
-            _PF[0] = f[0]['id'] if f else put('AI dựng – tiến độ.txt', setup, b' ', 'text/plain')['id']
+            cd = cache_dir(); f = lq("'%s' in parents and name='%s' and trashed=false" % (cd, PROG_NAME))
+            _PF[0] = f[0]['id'] if f else put(PROG_NAME, cd, b' ', 'text/plain')['id']
         update(_PF[0], '\r\n'.join(_PL).encode('utf-8'), 'text/plain')
     except Exception: pass
 
@@ -253,14 +258,13 @@ def build_plan(jb, sc, proj, adir):
 
 def engine():
     if os.path.exists(os.path.join(ENG, 'build.py')): return
-    setup = lq("'%s' in parents and name='%s'" % (L.ROOT, SETUP_NAME))[0]['id']; z = lq("'%s' in parents and name='%s'" % (setup, ENG_NAME))[0]['id']
+    z = lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), ENG_NAME))[0]['id']
     os.makedirs(ENG, exist_ok=True); p = os.path.join(L.TMP, 'eng.zip'); open(p, 'wb').write(raw(z)); zipfile.ZipFile(p).extractall(ENG)
     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'fonttools'], capture_output=True)
 
 # ---------------------------------------------------------------- 4) đưa project lên Drive + danh sách lối tắt
 def list_file():
-    setup = lq("'%s' in parents and name='%s'" % (L.ROOT, SETUP_NAME))[0]['id']
-    return lq("'%s' in parents and name='%s' and trashed=false" % (setup, LIST_NAME))[0]['id']
+    return lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), LIST_NAME))[0]['id']
 def list_edit(add=(), remove=()):
     fid = list_file(); lines = [x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()]
     lines = [x for x in lines if x not in remove] + [x for x in add if x not in lines]
