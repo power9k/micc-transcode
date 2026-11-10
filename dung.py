@@ -98,42 +98,35 @@ def scan():
         if fid in memo: return memo[fid]
         f = by.get(fid); r = bool(f and d < 40 and any(under(p, d + 1) for p in f.get('parents') or [])); memo[fid] = r; return r
     srcs = [f for f in fol if re.search(r'\bsources?\b', L.norm1(f['name'])) and under(f['id'])]
-    out, now = [], time.time()
+    sids = {f['id'] for f in srcs}
+    def has_src_anc(f, d=0):
+        for p in f.get('parents') or []:
+            if p in sids or (p in by and d < 40 and has_src_anc(by[p], d + 1)): return True
+        return False
+    srcs = [f for f in srcs if not has_src_anc(f)]   # thư mục source lồng trong source khác → thuộc source cha
     KB = re.compile(r'^(kịch bản|kich ban|kb)\s*\d', re.I)
-    for s in srcs:
-        kids_ = [sh for sh in ch.get(s['id'], []) if not SKIPDIR.match(nf(sh['name'])) and (sh.get('appProperties') or {}).get('dungP') != '1']
-        kbs = [sh for sh in kids_ if KB.match(nf(sh['name']))]
-        pool = []   # có thư mục "Kịch bản N" → các thư mục khác (flycam, Vid AI, Trám…) + video rời = kho cảnh phụ dùng chung, không dựng riêng
-        if kbs:
-            pool = [(s['id'], False)]
-            for o in kids_:
-                if o in kbs: continue
-                st = [o]
-                while st:
-                    d = st.pop(); pool.append((d['id'], True))
-                    st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name'])) and (c.get('appProperties') or {}).get('dungP') != '1']
-        for sh in (kbs or kids_):
-            ap = sh.get('appProperties') or {}
-            if ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3): continue   # project đã đẩy lên không bị ghi đè (publish giữ nguyên bản đã có)
-            sub, st = [], [sh]
-            while st:
-                d = st.pop(); sub.append(d['id'])
-                st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name'])) and (c.get('appProperties') or {}).get('dungP') != '1']
-            if EXCL & set(sub): continue
-            out.append(dict(id=sh['id'], name=nf(sh['name']), src=nf(s['name']), dirs=sub, ap=ap, pool=pool))
-    jobs = []
-    for j in out:   # video trong buổi quay (cả thư mục con)
+    ok = lambda c: not SKIPDIR.match(nf(c['name'])) and (c.get('appProperties') or {}).get('dungP') != '1' and c['id'] not in EXCL
+    jobs, now = [], time.time()
+    for s in srcs:   # 1 thư mục SOURCE = 1 lượt: đọc HẾT mọi thư mục con, Claude nhìn tổng thể rồi chia các kịch bản (mỗi cái < 2 phút)
+        ap = s.get('appProperties') or {}
+        if ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3): continue
+        dirs, kbtop, dn, st, hitx = [], {}, {}, [(s, None)], False
+        while st:
+            d, top = st.pop(); dirs.append(d['id']); dn[d['id']] = nf(d['name'])
+            hitx = hitx or any(c['id'] in EXCL for c in ch.get(d['id'], []))
+            if top: kbtop[d['id']] = top
+            for c in ch.get(d['id'], []):
+                if ok(c): st.append((c, top or (c['id'] if KB.match(nf(c['name'])) else None)))
         vids, docs = [], []
-        for d in j['dirs']:
+        for d in dirs:
             for c in kids(d):
-                if L.is_video(c) and not c['name'].lower().endswith('.lrf'): vids.append(dict(c, dir=d))
+                if L.is_video(c) and not c['name'].lower().endswith('.lrf'): vids.append(dict(c, dir=d, broll=bool(kbtop) and d not in kbtop))
                 elif c['mimeType'] in ('application/vnd.google-apps.document', 'text/plain') or c['name'].lower().endswith(('.docx', '.txt')): docs.append(c)
-        if not vids: continue
+        if hitx and not kbtop: continue   # source có kịch bản chủ tự làm (Center Avenue KB1/KB2) mà không còn kịch bản nào khác
+        if not [v for v in vids if not v['broll']]: continue
         last = max(L.ts(v['createdTime']) for v in vids)
         if now - last < L.SETTLE: continue   # còn đang tải lên
-        for d, _ in j['pool']:
-            vids += [dict(c, dir=d, broll=True) for c in kids(d) if L.is_video(c) and not c['name'].lower().endswith('.lrf')]
-        jobs.append(dict(j, vids=vids, docs=docs, last=last))
+        jobs.append(dict(id=s['id'], name=nf(s['name']), src=nf(s['name']), dirs=dirs, ap=ap, pool=[], kbtop=kbtop, dn=dn, vids=vids, docs=docs, last=last))
     jobs.sort(key=lambda j: -j['last'])
     return jobs
 
@@ -307,10 +300,10 @@ def claude_plan(parts):
         except Exception as e: log('  Claude lỗi:', e)
     return None
 def plan(jb, key, models, extra=''):
-    parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nThư mục tên "Kịch bản N" = đúng 1 video (1 script).' if re.match(r'(?i)(kịch bản|kich ban|kb)\s*\d', jb['name']) else '')}]
+    parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nSource có các thư mục con "Kịch bản N": MỖI thư mục Kịch bản = đúng 1 video (1 script), A-roll lấy từ chính thư mục đó; thư mục khác = kho cảnh phụ dùng chung.' if jb.get('kbtop') else '\nTự phân tích toàn bộ source để chia các kịch bản, mỗi kịch bản 1 video dưới 2 phút.')}]
     C = jb['C'] = {}
     for a in jb['A']:
-        head = L.summary(a).split('\nLời thoại:')[0]
+        head = '[thư mục: %s] ' % (jb.get('dn') or {}).get(a['vid'].get('dir'), '') + L.summary(a).split('\nLời thoại:')[0]
         if a['vid'].get('broll'):
             parts.append({'text': '[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + head})
             for t, b in a['thumbs'][:2]: parts += [{'text': '#%d lúc %.1fs:' % (a['i'], t)}, {'inline_data': {'mime_type': 'image/jpeg', 'data': b}}]   # cho AI NHÌN cảnh phụ để ghép đúng lời
@@ -570,7 +563,12 @@ def list_edit(add=(), remove=()):
     lines = [x for x in lines if x not in remove] + [x for x in add if x not in lines]
     update(fid, ('\r\n'.join(lines) + '\r\n').encode('utf-8'), 'text/plain')
 def publish(jb, sc, n):
-    a0 = jb['A'][0]; host = a0['vid']['dir'] if len(jb['dirs']) > 1 and all(x['vid']['dir'] == a0['vid']['dir'] for x in jb['A']) else jb['id']
+    a0 = jb['A'][0]; A_ = {a['i']: a for a in jb['A']}; cnt = {}
+    for it in sc.get('aroll', []):   # project nằm trong thư mục (Kịch bản N) chứa phần lớn câu nói của kịch bản
+        c = (jb.get('C') or {}).get(str(it).strip().upper()) if isinstance(it, str) else None
+        a = A_.get(c[0]) if c else A_.get(int(re.sub(r'\D', '', str(it.get('video', 0))) or 0)) if isinstance(it, dict) else None
+        if a: d = (jb.get('kbtop') or {}).get(a['vid']['dir'], a['vid']['dir']); cnt[d] = cnt.get(d, 0) + 1
+    host = max(cnt, key=cnt.get) if cnt else jb['id']
     proj = safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)   # tên = nội dung, ngắn gọn
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + rel + '/AI tải về'
     mu = pick_music(jb)
@@ -586,6 +584,8 @@ def publish(jb, sc, n):
     r = subprocess.run([sys.executable, os.path.join(ENG, 'build.py'), pp], capture_output=True, text=True, timeout=600)
     od = os.path.join(pl['out_dir'], proj)
     if not os.path.exists(os.path.join(od, 'draft_content.json')): raise RuntimeError('dựng lỗi: ' + (r.stderr or r.stdout)[-300:])
+    if host in set((jb.get('kbtop') or {}).values()) and lq("'%s' in parents and appProperties has { key='dungP' and value='1' }" % host, 'id'):
+        log('  thư mục này đã có project – giữ nguyên:', path_of(host)); return dict(proj=proj, dur=0, exists=True)   # mỗi thư mục Kịch bản 1 project
     slot = '%s:%d' % (jb['id'], n)
     if lq("'%s' in parents and appProperties has { key='dungS' and value='%s' } and trashed=false" % (host, slot), 'id') or \
        lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (host, proj.replace("'", "\\'"), L.FOLDER), 'id'):
@@ -615,7 +615,9 @@ def publish(jb, sc, n):
 
 def edit(jb, key, models):
     t0 = time.time()
-    if lq("appProperties has { key='dungS' and value='%s:1' } and mimeType='%s'" % (jb['id'], L.FOLDER), 'id'):   # đã có project của buổi này → không tốn lượt Claude dựng lại
+    tops = set((jb.get('kbtop') or {}).values())
+    if (tops and all(lq("'%s' in parents and appProperties has { key='dungP' and value='1' }" % t, 'id') for t in tops)) or \
+       lq("appProperties has { key='dungS' and value='%s:1' } and mimeType='%s'" % (jb['id'], L.FOLDER), 'id'):   # mọi kịch bản đã có project → không tốn lượt Claude
         log('  đã có project, bỏ qua:', jb['name']); L.mark(jb['id'], dungV=DV, dungFail=None); return []
     engine()
     scs, done = plan(jb, key, models), []
