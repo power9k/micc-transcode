@@ -177,8 +177,10 @@ def read(jb):
     log('  %d video, %d video đã đọc từ trước (dùng lại, không đọc lại)' % (len(A), sum(1 for v in vids if any(k.startswith(v['id'] + '_') for k in idx))))
     gb = sum(int(v.get('size') or 0) for v in vids) / 1e9
     log('  đọc xong %s: %d video, %.1f GB trong %.1f phút' % (jb['name'], len(A), gb, (time.time() - t0) / 60))
-    try: L.tsay('📖 AI ĐÃ ĐỌC XONG SOURCE\n📁 %s\n🎬 %d video · %.1f GB · %.0f phút đọc\n➡️ Bắt đầu chia kịch bản + dựng project' % (path_of(jb['id']), len(A), gb, (time.time() - t0) / 60))
-    except Exception as e: log('  không báo được:', e)
+    newly = len(A) - sum(1 for v in vids if any(k.startswith(v['id'] + '_') for k in idx))
+    if newly > 0:
+     try: L.tsay('📖 AI ĐÃ ĐỌC XONG SOURCE\n📁 %s\n🎬 %d video · %.1f GB · %.0f phút đọc\n➡️ Bắt đầu chia kịch bản + dựng project' % (path_of(jb['id']), len(A), gb, (time.time() - t0) / 60))
+     except Exception as e: log('  không báo được:', e)   # chỉ báo khi thật sự có video mới đọc (đọc lại từ bộ nhớ thì im)
     jb['A'] = A; return jb
 
 # ---------------------------------------------------------------- 2) Gemini chia kịch bản + chọn cảnh
@@ -550,4 +552,4 @@ def run(key, models, until):
         try: edit(jb, key, models)
         except Exception as e:
             log('✗ AI dựng lỗi:', e); L.mark(jb['id'], dungFail=int(jb['ap'].get('dungFail') or 0) + 1, dungErr=str(e)[:100])
-            L.tsay('❌ AI DỰNG LỖI\n📁 %s\n%s' % (jb['name'], str(e)[:300]))
+            if int(jb['ap'].get('dungFail') or 0) + 1 >= 3: L.tsay('❌ AI DỰNG LỖI (đã thử 3 lần)\n📁 %s\n%s' % (jb['name'], str(e)[:300]))   # lỗi tạm thời tự thử lại, không báo ồn
