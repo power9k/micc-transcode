@@ -8,7 +8,7 @@ Set-Content -Path (Join-Path $gd 'oauth_creds.json') -Value '{"access_token":"TH
 $bat = 'Y:\Drive của tôi\PHÒNG TRUYỀN THÔNG MICC\SETUP\Kết nối Gemini Pro.bat'
 Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'capcut\thu\ket-noi-gemini.bat') -Destination $bat
 cmd.exe /c "`"$bat`" < NUL"
-$f = Get-ChildItem -Recurse -Filter 'Khoa Gemini.bin' 'Y:\' -ErrorAction SilentlyContinue | Select-Object -First 1
+$f = Get-ChildItem -Recurse -Filter 'Khoa Gemini.bin' 'C:\gd', 'C:\gd2' -ErrorAction SilentlyContinue | Select-Object -First 1   # bước trước cũng gắn một Drive giả (X:), file có thể nằm ở đó
 if (-not $f) { Write-Host 'LOI: khong tao duoc Khoa Gemini.bin'; exit 1 }
 Write-Host ('DAT: tao ' + $f.FullName + ' (' + $f.Length + ' byte)')
 Write-Host ('MAU=' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($f.FullName)))
