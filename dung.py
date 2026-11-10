@@ -192,7 +192,7 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 SYS = '''Bạn là editor video ngắn (TikTok/Reels dọc 9:16) chuyên nghiệp của team truyền thông MICC (bất động sản + đào tạo).
 Bạn nhận toàn bộ source của 1 buổi quay: lời thoại có mốc thời gian, chất lượng hình, ảnh khung hình. Hãy lên kế hoạch DỰNG các video ngắn.
 ''' + RULES + '''
-Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi CapCut / Kịch bản / số thứ tự","aroll":["C12","C13","C20",...],"broll":[{"video":<số # cảnh phụ>,"s":giây,"e":giây,"cau":"C13"}],"titles":[{"cau":"C12","tu":"đúng 1–3 chữ người nói trong câu đó (chép y nguyên)","big":"TỪ KHÓA","small":"dòng phụ"}]}]}
+Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi CapCut / Kịch bản / số thứ tự","aroll":["C12","C13","C20",...],"broll":[{"video":<số # cảnh phụ>,"s":giây,"e":giây,"cau":"C13"}],"titles":[{"cau":"C12","tu":"đúng 1–3 chữ người nói trong câu đó (chép y nguyên)","big":"TỪ KHÓA (chữ đậm chính, ≤3 từ)","small":"câu dẫn viết tay ngắn ≤5 từ đặt TRÊN chữ chính, vd \"Khi kết nối tốt hơn\" / big \"DÒNG TIỀN\" (có thể để trống)"}]}]}
 - Lời thoại đã được máy chia sẵn thành CÂU có mã (C1, C2, …). "aroll" = DANH SÁCH MÃ CÂU theo đúng thứ tự phát (KHÔNG ghi giây – máy tự lấy mốc chính xác). Mỗi câu nói lại nhiều lần → chọn 1 mã hay nhất. Tổng độ dài các câu chọn 45–110 giây (độ dài mỗi câu ghi trong ngoặc).
 - broll "cau" = mã câu A-roll mà cảnh phụ bắt đầu che hình (tiếng vẫn là A-roll); "s","e" = giây trong video cảnh phụ, mỗi cảnh 1.5–3.5 giây.
 - titles "cau" = mã câu có từ khóa đó.
@@ -310,7 +310,7 @@ def build_plan(jb, sc, proj, adir, music=None):
         if len(trans) < 4 and (not trans or T - trans[-1]['at'] > 10):
             nm, eid = FX_TR[len(trans) % len(FX_TR)]
             trans.append(dict(name=nm, effect_id=eid, at=round(T, 3), dur_s=.4))
-            sfx.append(dict(file='SFX whoosh dien anh 01.wav', t=max(0, round(T - .3, 3)), vol=.14, dur=1.334127))
+            sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(T - .25, 3)), vol=.3, dur=0.58))
             if nm == 'Glare II' and not fx: fx.append(dict(preset='effect_lens_flare.json', t0=round(T, 3), dur_s=.6))
     # khớp chuyển cảnh với chỗ cắt thật sau khi chèn
     cuts = {round(s_['t1'], 3) for s_ in shots}
@@ -334,14 +334,18 @@ def build_plan(jb, sc, proj, adir, music=None):
         big = safe(ti.get('big', ''), 32).upper(); small = safe(ti.get('small', ''), 48)
         if not big: continue
         n = len(titles); num = bool(re.search(r'\d', big))
-        c1, c2, sz = STY[5] if num else STY[n % 5]
-        if num: sz = 7.0
         on_b = any(x['line'] == 'B' and x['t0'] <= T < x['t1'] for x in shots)
-        if n % 4 == 3 and not num: lines = [[big.capitalize() if len(big) > 3 else big, 'ITA', 4.6, '#FFE08A']]   # kiểu chữ nghiêng sang trọng, đổi nhịp
-        else: lines = [[big, 'BIG', sz, c1]] + ([[small, 'ITA', 3.0, c2]] if small and c2 and n % 2 == 0 else [])
-        y = (18.0 + (n % 3) * 4) if on_b else (58.0 + (n % 3) * 4)
-        titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=True, anim=n))
-        if num or n % 3 == 0: sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
+        # chữ 2 tầng (theo bộ mẫu BĐS): dòng viết tay dẫn ý + dòng chữ đậm chính, tối đa 2 dòng; màu nhấn đổi theo cụm, quầng sáng mềm
+        COL = ['#FFD54A', '#7FE3FF', '#FF9A6B', '#FFFFFF', '#FFB3D1']
+        c1 = '#FFD54A' if num else COL[n % len(COL)]
+        main = 'BEB' if n % 3 != 2 else 'BIG'
+        lead = small if small and len(small.split()) <= 6 else ''
+        if lead and n % 2 == 0: lines = [[lead[:1].upper() + lead[1:].lower(), 'SCR', 3.6, '#FFFFFF'], [big, main, 7.6 if main == 'BEB' else 6.2, c1]]
+        else: lines = [[big, main, 8.2 if main == 'BEB' else 6.6, c1]]
+        y = (19.0 + (n % 3) * 4) if on_b else (57.0 + (n % 3) * 4)   # vùng an toàn TikTok: trên ≥15 %, dưới ≤75 %
+        titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=False, anim=n))
+        if num: sfx.append(dict(file='SFX tit thong tin.wav', t=round(max(0, T - .02), 3), vol=.2, dur=0.34))   # tiếng "tít" khi thông tin / số liệu hiện
+        elif n % 3 == 0: sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
         if n % 2 == 0 or num:
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh['t0'] + .2 < T < sh['t1'] - .35:
