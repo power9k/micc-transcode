@@ -37,7 +37,13 @@ def get(fid, f='id,name,parents,appProperties'): return L.drive('files/' + fid, 
 def raw(fid):
     req = urllib.request.Request(L.durl(fid), headers={'Authorization': 'Bearer ' + L.tok()})
     with urllib.request.urlopen(req, timeout=300) as r: return r.read()
-def put(name, parent, data, mime):  # tải file nhỏ lên Drive (multipart)
+def put(name, parent, data, mime):  # tải file nhỏ lên Drive (multipart), thử lại khi Drive báo quá hạn mức
+    for k in range(4):
+        try: return _put(name, parent, data, mime)
+        except Exception as e:
+            if k == 3 or not re.search(r'403|429|5\d\d|rate', str(e)): raise
+            time.sleep(15 * (k + 1))
+def _put(name, parent, data, mime):
     b = '----micc%d' % time.time()
     body = ('--%s\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n%s\r\n--%s\r\nContent-Type: %s\r\n\r\n' % (
         b, json.dumps({'name': name, 'parents': [parent]}), b, mime)).encode() + data + ('\r\n--%s--' % b).encode()
@@ -271,17 +277,23 @@ def publish(jb, sc, n):
     if not os.path.exists(os.path.join(od, 'draft_content.json')): raise RuntimeError('dựng lỗi: ' + (r.stderr or r.stdout)[-300:])
     for old in lq("'%s' in parents and name='%s' and mimeType='%s'" % (host, proj.replace("'", "\\'"), L.FOLDER), 'id'):   # chỉ giữ 1 phiên bản
         list_edit(remove=[rel]); L.drive('files/' + old['id'], {'trashed': True}, method='PATCH')
-    pf = mkdir(proj, host); af = mkdir('AI tải về', pf)
-    for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):
-        if f['name'].startswith(LIB_SKIP) or f.get('mimeType') == L.FOLDER: continue
-        try: L.drive('files/%s/copy' % f['id'], {'name': f['name'], 'parents': [af]}, params={'fields': 'id'})
-        except Exception:   # file bị chặn sao chép → tải về rồi đưa lên lại
-            try: put(f['name'], af, raw(f['id']), f.get('mimeType') or 'application/octet-stream')
-            except Exception as e: log('  bỏ file thư viện', f['name'], e)
-    for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
-        put(fn, pf, open(os.path.join(od, fn), 'rb').read(), 'application/json')
-    put('draft_cover.jpg', pf, base64.b64decode(a0['thumbs'][len(a0['thumbs']) // 2][1]), 'image/jpeg')
-    list_edit(add=[rel])
+    pf = mkdir(proj, host)
+    try:
+        af = mkdir('AI tải về', pf)
+        for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):
+            if f['name'].startswith(LIB_SKIP) or f.get('mimeType') == L.FOLDER: continue
+            try: L.drive('files/%s/copy' % f['id'], {'name': f['name'], 'parents': [af]}, params={'fields': 'id'})
+            except Exception:   # file bị chặn sao chép → tải về rồi đưa lên lại
+                try: put(f['name'], af, raw(f['id']), f.get('mimeType') or 'application/octet-stream')
+                except Exception as e: log('  bỏ file thư viện', f['name'], e)
+        for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
+            put(fn, pf, open(os.path.join(od, fn), 'rb').read(), 'application/json')
+        put('draft_cover.jpg', pf, base64.b64decode(a0['thumbs'][len(a0['thumbs']) // 2][1]), 'image/jpeg')
+        list_edit(add=[rel])
+    except Exception:   # hỏng giữa chừng → bỏ thư mục dở, không để rác
+        try: L.drive('files/' + pf, {'trashed': True}, method='PATCH')
+        except Exception: pass
+        raise
     return dict(proj=proj, dur=pl['total'], url='https://drive.google.com/drive/folders/' + pf)
 
 def edit(jb, key, models):
