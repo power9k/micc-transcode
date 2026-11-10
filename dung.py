@@ -184,7 +184,7 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 - A-roll: chỉ lấy câu người nói ĐÚNG lời thoại, nói trôi chảy, diễn xuất tốt (không đứng nhẩm, không nói lại, không nhăn mặt). Mỗi câu nói lại nhiều lần → chọn 1 bản hay nhất. Giữ TRỌN câu, không cắt giữa câu.
 - Cảnh phụ (B-roll) phải KHỚP lời đang nói. Không dùng cảnh có người đang nói câu khác. Mỗi cảnh dùng 1 lần, không lặp cảnh giống nhau.
 - Không cố nhét cảnh: ít cảnh đẹp thì dùng ít.
-- Chữ: KHÔNG chạy phụ đề theo lời. Chỉ 1 cụm nhấn ý chính mỗi 4–7 giây (video 60 s ≈ 10 cụm), hiện đúng lúc người nói nói chữ đó ("tu"): "big" = TỪ KHÓA viết hoa ≤ 3 từ (số liệu, tên dự án, lợi ích), "small" = 1 dòng phụ ≤ 6 từ. Đúng chính tả tiếng Việt, trọn nghĩa.'''
+- Chữ: KHÔNG chạy phụ đề theo lời. Cứ 1–3 giây phải có 1 cụm chữ nhấn (video 60 s ≈ 25–35 cụm), hiện đúng lúc người nói nói chữ đó ("tu"); chọn chữ ĐẮT (số liệu, tên riêng, tính từ mạnh, lợi ích), không chép cả câu: "big" = TỪ KHÓA viết hoa ≤ 3 từ (số liệu, tên dự án, lợi ích), "small" = 1 dòng phụ ≤ 6 từ. Đúng chính tả tiếng Việt, trọn nghĩa.'''
 SYS = '''Bạn là editor video ngắn (TikTok/Reels dọc 9:16) chuyên nghiệp của team truyền thông MICC (bất động sản + đào tạo).
 Bạn nhận toàn bộ source của 1 buổi quay: lời thoại có mốc thời gian, chất lượng hình, ảnh khung hình. Hãy lên kế hoạch DỰNG các video ngắn.
 ''' + RULES + '''
@@ -313,7 +313,8 @@ def build_plan(jb, sc, proj, adir, music=None):
     trans = [x for x in trans if round(x['at'], 3) in cuts]
     # ---- chữ nhấn: hiện ĐÚNG lúc nói từ khóa (mốc từng chữ của Whisper), 1 cụm / 4–7 s
     def norm(x): return L.norm(x) if hasattr(L, 'norm') else x.lower()
-    for ti in sorted(sc.get('titles', [])[:25], key=lambda x: float(x.get('s', x.get('t', 0)))):
+    STY = [('#FFD54A', '#FFFFFF', 6.0), ('#FFFFFF', '#FFD54A', 5.4), ('#7FE3FF', '#FFFFFF', 5.6), ('#FFE08A', None, 6.4), ('#FFFFFF', None, 5.0), ('#FF6B5E', '#FFFFFF', 6.2)]
+    for ti in sorted(sc.get('titles', [])[:70], key=lambda x: float(x.get('s', x.get('t', 0)))):
         vi = vid(ti.get('video', 0)); a = A.get(vi)
         if not a: continue
         s, e = float(ti.get('s', ti.get('t', 0))), float(ti.get('e', ti.get('t', 0)) or 0) or float(ti.get('t', 0)) + 4
@@ -321,22 +322,28 @@ def build_plan(jb, sc, proj, adir, music=None):
         W = words(a, s - .1, e + .1); st = None
         if tu:
             for j, w in enumerate(W):
-                if norm(w[2]) == tu[0] and (len(tu) == 1 or j + 1 >= len(W) or norm(W[j + 1][2]) == tu[1 if len(tu) > 1 else 0]): st = w[0]; break
+                if norm(w[2]) == tu[0] and (len(tu) == 1 or j + 1 >= len(W) or norm(W[j + 1][2]) == tu[1]): st = w[0]; break
             if st is None: st = next((w[0] for w in W if norm(w[2]) in tu), None)
         T = tl(vi, st if st is not None else s + .1)
-        if T is None or T > total - 1.2: continue
-        if titles and T < titles[-1]['t0'] + 3.0: continue
+        if T is None or T > total - .8: continue
+        if titles and T < titles[-1]['t0'] + 1.2: continue   # chữ dày: 1 cụm mỗi 1–3 s
         big = safe(ti.get('big', ''), 32).upper(); small = safe(ti.get('small', ''), 48)
         if not big: continue
+        n = len(titles); num = bool(re.search(r'\d', big))
+        c1, c2, sz = STY[5] if num else STY[n % 5]
+        if num: sz = 7.0
         on_b = any(x['line'] == 'B' and x['t0'] <= T < x['t1'] for x in shots)
-        lines = [[big, 'BIG', 6.0, '#FFD54A']] + ([[small, 'ITA', 3.2, '#FFFFFF']] if small else [])
-        titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.6), 3), line='A', lines=lines, y_pct=20.0 if on_b else 64.0, bright=True))
-        sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
-        for sh in shots:   # giật zoom đúng lúc nói từ khóa (chỉ cảnh người nói)
-            if sh['line'] == 'A' and sh['t0'] + .2 < T < sh['t1'] - .35:
-                k0, k1 = sh['keys'][0], sh['keys'][-1]; m = k0[1]
-                sh['keys'] = [k0, [round(T - .001, 3), m] + k0[2:], [round(T + .08, 3), round(m * 1.14, 4)] + k0[2:], [k1[0], round(m * 1.16, 4)] + k1[2:]]; break
-    for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .1, 3))
+        if n % 4 == 3 and not num: lines = [[big.capitalize() if len(big) > 3 else big, 'ITA', 4.6, '#FFE08A']]   # kiểu chữ nghiêng sang trọng, đổi nhịp
+        else: lines = [[big, 'BIG', sz, c1]] + ([[small, 'ITA', 3.0, c2]] if small and c2 and n % 2 == 0 else [])
+        y = (18.0 + (n % 3) * 4) if on_b else (58.0 + (n % 3) * 4)
+        titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=True, anim=n))
+        if num or n % 3 == 0: sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
+        if n % 2 == 0 or num:
+            for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
+                if sh['line'] == 'A' and sh['t0'] + .2 < T < sh['t1'] - .35:
+                    k0, k1 = sh['keys'][0], sh['keys'][-1]; m = k0[1]
+                    sh['keys'] = [k0, [round(T - .001, 3), m] + k0[2:], [round(T + .08, 3), round(m * 1.14, 4)] + k0[2:], [k1[0], round(m * 1.16, 4)] + k1[2:]]; break
+    for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
     sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
     MF = music or (('Nhac nen 06 - Rising Sun.mp3', 91.742041) if 'academy' in path_of(jb['id']).lower() or 'đào tạo' in jb['name'].lower() else ('Nhac nen 05 - Sparta.mp3', 104.045714))
@@ -397,7 +404,7 @@ def publish(jb, sc, n):
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
     if not 40 <= pl['total'] <= 120: bad.append('dài %.0fs (cần 40–120s)' % pl['total'])
-    if len(pl.get('titles') or []) < 3: bad.append('chỉ %d chữ nhấn' % len(pl.get('titles') or []))
+    if len(pl.get('titles') or []) < pl['total'] / 4.5: bad.append('chỉ %d chữ nhấn / %.0fs (cần ~1 cụm mỗi 1–3 s)' % (len(pl.get('titles') or []), pl['total']))
     if any(m.get('kind') == 'video' and not m.get('path') for m in pl['media'].values()): bad.append('thiếu file')
     if len([x for x in pl['shots'] if x.get('line') != 'A']) < 2: bad.append('quá ít cảnh phụ')
     if bad: log('  chưa đạt, không đẩy lên:', proj, '–', ', '.join(bad)); return None
