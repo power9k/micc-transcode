@@ -50,7 +50,11 @@ def log(*a):   # ghi log + file tiến độ trên Drive (SETUP/AI dựng – ti
     except Exception: pass
 
 def lq(q, f='id,name,mimeType,size,createdTime,parents,appProperties,videoMediaMetadata(width,height,durationMillis)'):
-    return L.listq(q + ' and trashed=false', f, L.corpora())
+    for k in range(6):   # Drive báo "quá hạn mức" → chờ rồi thử lại, không bỏ cả lượt
+        try: return L.listq(q + ' and trashed=false', f, L.corpora())
+        except Exception as e:
+            if k == 5 or not re.search(r'403|429|rate|5\d\d', str(e)): raise
+            time.sleep(15 * (k + 1))
 def kids(fid): return lq("'%s' in parents" % fid)
 def get(fid, f='id,name,parents,appProperties'): return L.drive('files/' + fid, params={'fields': f})
 def raw(fid):
@@ -462,8 +466,10 @@ def edit(jb, key, models):
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
 def pending():
-    try: return len(scan())
-    except Exception as e: log('AI dựng: không quét được', e); return 0
+    for k in range(3):
+        try: return len(scan())
+        except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
+    return 1   # quét lỗi mãi → vẫn giữ lượt chạy để run() thử lại, không bỏ việc
 def run(key, models, until):
     if not key: log('AI dựng: không có khóa Gemini'); return
     try: migrate_m()
