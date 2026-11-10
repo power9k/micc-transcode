@@ -45,6 +45,7 @@ jobs:
         env:
           MICC_API: ${{ secrets.MICC_API }}
           MICC_SECRET: ${{ secrets.MICC_SECRET }}
+          GEMINI_CLI_CREDS: ${{ secrets.GEMINI_CLI_CREDS }}
           MAX_MIN: '330'
         run: python loc.py
       - name: Báo nhóm test nếu máy GitHub lỗi khi chuẩn bị
