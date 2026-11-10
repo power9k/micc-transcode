@@ -74,7 +74,11 @@ function Map-M {
     if (Test-Path -LiteralPath 'M:\') { Log 'CHU Y: o M dang dung cho viec khac (o that / o mang) - project khong tim thay file. Hay doi chu o do sang chu khac.'; return }
     & subst.exe M: $want | Out-Null; Log "subst M: -> $want"
   }
-  try { Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'MICC o M' -Value ('subst.exe M: "' + $want + '"') } catch {}
+  try {
+    $rk = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    if (-not (Test-Path $rk)) { New-Item -Path $rk -Force | Out-Null }
+    New-ItemProperty -Path $rk -Name 'MICC o M' -Value ('subst.exe M: "' + $want + '"') -PropertyType String -Force -ErrorAction Stop | Out-Null
+  } catch { Log ('khong dat duoc tu gan o M khi dang nhap: ' + $_.Exception.Message) }
 }
 Map-M
 $cache = Join-Path $root 'MICC media · Hệ thống (không xóa)\AI dựng CapCut'   # moi thu web / AI tu tao; SETUP chi cho nguoi dung
