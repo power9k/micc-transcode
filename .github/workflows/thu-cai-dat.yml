@@ -1,0 +1,14 @@
+name: Thử file cài đồng bộ CapCut trên Windows
+on:
+  workflow_dispatch:
+  push:
+    paths: ['capcut/thu/**']
+jobs:
+  thu:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cài + kiểm tra ổ M, lối tắt CapCut
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File capcut\thu\thu-cai-dat.ps1
