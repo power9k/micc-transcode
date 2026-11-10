@@ -260,7 +260,7 @@ def engine():
 # ---------------------------------------------------------------- 4) đưa project lên Drive + danh sách lối tắt
 def list_file():
     setup = lq("'%s' in parents and name='%s'" % (L.ROOT, SETUP_NAME))[0]['id']
-    return lq("'%s' in parents and name='%s'" % (setup, LIST_NAME))[0]['id']
+    return lq("'%s' in parents and name='%s' and trashed=false" % (setup, LIST_NAME))[0]['id']
 def list_edit(add=(), remove=()):
     fid = list_file(); lines = [x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()]
     lines = [x for x in lines if x not in remove] + [x for x in add if x not in lines]
