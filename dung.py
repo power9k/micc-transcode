@@ -268,6 +268,42 @@ def cli_plan(parts):
             log('  Gemini Pro (tài khoản) chưa trả JSON:', (r.stderr or out)[-200:])
         except Exception as e: log('  Gemini Pro (tài khoản) lỗi:', e)
     return None
+# ---------------------------------------------------------------- Claude Code chạy không người bấm, dùng gói Claude Max (không tốn tiền API)
+_CL = []
+def claude_ready():
+    if _CL: return _CL[0]
+    ok = False
+    if os.environ.get('CLAUDE_CODE_OAUTH_TOKEN', '').strip():
+        if not subprocess.run('command -v claude', shell=True, capture_output=True).stdout:
+            subprocess.run('npm install -g @anthropic-ai/claude-code >/dev/null 2>&1', shell=True, timeout=300)
+        ok = bool(subprocess.run('command -v claude', shell=True, capture_output=True).stdout)
+        log('  Claude (gói Max):', 'sẵn sàng' if ok else 'không cài được')
+    _CL.append(ok); return ok
+def claude_plan(parts):
+    if not claude_ready(): return None
+    import tempfile
+    d = tempfile.mkdtemp(dir=L.TMP); txt, refs = [SYS, ''], []
+    for p in parts:
+        if 'text' in p: txt.append(p['text'])
+        elif 'inline_data' in p and len(refs) < 80:
+            fn = 'h%d.jpg' % len(refs); open(os.path.join(d, fn), 'wb').write(base64.b64decode(p['inline_data']['data'])); refs.append(fn); txt.append('(ảnh: %s)' % fn)
+    open(os.path.join(d, 'yeucau.txt'), 'w', encoding='utf-8').write('\n'.join(txt))
+    q = ('Bạn là editor video. Đọc toàn bộ file yeucau.txt trong thư mục hiện tại (đọc hết, nhiều phần), xem các ảnh h*.jpg được nhắc tới khi cần (ít nhất ảnh cảnh phụ), '
+         'rồi làm ĐÚNG yêu cầu trong đó. Câu trả lời cuối cùng CHỈ là 1 khối JSON {"scripts":[...]} đúng khung đã nêu, không giải thích.')
+    for k in range(2):
+        try:
+            r = subprocess.run(['claude', '-p', q, '--output-format', 'json', '--allowedTools', 'Read', 'Glob', '--max-turns', '40'],
+                               cwd=d, capture_output=True, text=True, timeout=1200)
+            out = r.stdout.strip()
+            try: out = json.loads(out).get('result', out)
+            except Exception: pass
+            m = re.search(r'\{.*\}', out, re.S)
+            if m:
+                sc = json.loads(m.group(0)).get('scripts')
+                if sc is not None: log('  Claude lên kế hoạch: %d kịch bản' % len(sc)); return sc
+            log('  Claude chưa trả JSON:', (r.stderr or out)[-200:])
+        except Exception as e: log('  Claude lỗi:', e)
+    return None
 def plan(jb, key, models, extra=''):
     parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nThư mục tên "Kịch bản N" = đúng 1 video (1 script).' if re.match(r'(?i)(kịch bản|kich ban|kb)\s*\d', jb['name']) else '')}]
     C = jb['C'] = {}
@@ -284,8 +320,10 @@ def plan(jb, key, models, extra=''):
         for t, b in a['thumbs'][:3]: parts += [{'text': '#%d lúc %.1fs:' % (a['i'], t)}, {'inline_data': {'mime_type': 'image/jpeg', 'data': b}}]
     body = {'systemInstruction': {'parts': [{'text': SYS}]}, 'contents': [{'role': 'user', 'parts': parts}],
             'generationConfig': {'temperature': .3, 'maxOutputTokens': 30000, 'responseMimeType': 'application/json'}}
-    r = cli_plan(parts)   # ưu tiên Gemini Pro qua tài khoản đã kết nối (Kết nối Gemini Pro.bat); không có / lỗi → dùng khóa API như cũ
+    r = claude_plan(parts)   # 1) Claude (gói Claude Max của chủ, mã CLAUDE_CODE_OAUTH_TOKEN) – đọc lời + khung hình, chọn câu, viết chữ
     if r is not None: return r
+    log('  Claude không lên được kế hoạch → tự chọn theo luật (chủ dặn: chỉ dùng Claude, không dùng Gemini)')
+    return rule_plan(jb)
     last = ''
     for rnd in range(3):
         for m in models:
