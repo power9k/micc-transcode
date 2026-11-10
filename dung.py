@@ -177,8 +177,8 @@ def doc_text(jb):
             elif d['name'].lower().endswith('.txt'): out.append('FILE KỊCH BẢN "%s":\n%s' % (d['name'], raw(d['id']).decode('utf-8', 'replace')[:12000]))
         except Exception as e: log('  không đọc được file kịch bản', d['name'], e)
     return '\n\n'.join(out)
-def plan(jb, key, models):
-    parts = [{'text': 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nThư mục tên "Kịch bản N" = đúng 1 video (1 script).' if re.match(r'(?i)(kịch bản|kich ban|kb)\s*\d', jb['name']) else '')}]
+def plan(jb, key, models, extra=''):
+    parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nThư mục tên "Kịch bản N" = đúng 1 video (1 script).' if re.match(r'(?i)(kịch bản|kich ban|kb)\s*\d', jb['name']) else '')}]
     for a in jb['A']:
         parts.append({'text': ('[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + L.summary(a)[:1500]) if a['vid'].get('broll') else L.summary(a)[:6000]})
         for t, b in a['thumbs'][:3]: parts += [{'text': '#%d lúc %.1fs:' % (a['i'], t)}, {'inline_data': {'mime_type': 'image/jpeg', 'data': b}}]
@@ -216,16 +216,21 @@ def build_plan(jb, sc, proj, adir):
                             kind='video', has_audio=bool(a.get('wav')), name=nf(a['name']), S0=s0(a))
         return k
     t, pieces, z = 0.0, [], 0
+    why = {}
+    def vid(x): m = re.search(r'\d+', str(x)); return int(m.group()) if m else 0
     for it in sc.get('aroll', []):
-        a = A.get(int(it.get('video', 0))); s, e = float(it.get('s', 0)), float(it.get('e', 0))
-        if not a or e - s < .6 or e > a['dur'] + .5: continue
+        a = A.get(vid(it.get('video', 0))); s, e = float(it.get('s', 0)), float(it.get('e', 0))
+        if not a: why['sai số video'] = why.get('sai số video', 0) + 1; continue
+        if a['vid'].get('broll'): why['chọn nhầm cảnh phụ'] = why.get('chọn nhầm cảnh phụ', 0) + 1; continue
+        if e - s < .6: why['đoạn quá ngắn'] = why.get('đoạn quá ngắn', 0) + 1; continue
+        if e > a['dur'] + .5: e = a['dur']   # Gemini ước mốc quá đuôi video → cắt về cuối video
         for x, y in tighten(a, s, min(e, a['dur'] - .05)):
             d = y - x; k = key(a); m = 1.0 if z % 2 == 0 else 1.12; z += 1   # giật zoom che vết cắt
             shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A', keys=[[round(t, 3), m, .5, .45, 0.0], [round(t + d, 3), m * 1.02, .5, .45, 0.0]], punch_abs=[]))
             speech.append(dict(media=k, src_in=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), vol=1.0))
             pieces.append((a['i'], x, y, t)); t += d
         if t > 118: break
-    if t < 15: return None
+    if t < 15: log('  A-roll chỉ %.0fs (%d đoạn Gemini chọn, bỏ: %s)' % (t, len(sc.get('aroll', [])), why or 'không')); return None
     total = round(t, 3)
     def tl(vi, st):   # giây video gốc → giây trên timeline
         for i, x, y, t0 in pieces:
@@ -233,9 +238,9 @@ def build_plan(jb, sc, proj, adir):
         return None
     used = set()
     for b in sc.get('broll', []):   # cảnh phụ che hình (tiếng vẫn là A-roll)
-        a = A.get(int(b.get('video', 0))); at = b.get('luc') or [0, 0]
+        a = A.get(vid(b.get('video', 0))); at = b.get('luc') or [0, 0]
         if not a or a['i'] in used: continue
-        T = tl(int(at[0]), float(at[1])) if isinstance(at, list) and len(at) == 2 else None
+        T = tl(vid(at[0]), float(at[1])) if isinstance(at, list) and len(at) == 2 else None
         if T is None: continue
         s, e = float(b.get('s', 0)), float(b.get('e', 0)); d = min(3.5, max(1.5, e - s), total - T - .2)
         if d < 1.2 or s + d > a['dur']: continue
@@ -247,7 +252,7 @@ def build_plan(jb, sc, proj, adir):
         new.append(dict(media=k, src=round(s, 3), t0=round(T, 3), t1=round(T + d, 3), line='B', keys=[[round(T, 3), 1.0, .5, .5, 0.0], [round(T + d, 3), 1.06, .5, .5, 0.0]], punch_abs=[]))
         shots = sorted(new, key=lambda x: x['t0']); sfx.append(dict(file='SFX whoosh dien anh 01.wav', t=max(0, round(T - .35, 3)), vol=.2, dur=1.334127))
     for ti in sc.get('titles', [])[:20]:
-        T = tl(int(ti.get('video', 0)), float(ti.get('t', 0)))
+        T = tl(vid(ti.get('video', 0)), float(ti.get('t', 0)))
         big = safe(ti.get('big', ''), 32).upper(); small = safe(ti.get('small', ''), 48)
         if T is None or not big: continue
         if titles and T < titles[-1]['t0'] + 2.5: continue
@@ -319,14 +324,18 @@ def publish(jb, sc, n):
 
 def edit(jb, key, models):
     t0 = time.time(); engine()
-    scs = plan(jb, key, models); done = []
-    log('  Gemini: %d kịch bản' % len(scs))
-    for n, sc in enumerate(scs, 1):
-        try:
-            r = publish(jb, sc, n)
-            if r: done.append(r); log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
-            if r: L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id'])))
-        except Exception as e: log('  ✗ kịch bản', n, e)
+    scs, done = plan(jb, key, models), []
+    for rnd in range(2):   # lần 2: Gemini chọn thiếu câu nói → hỏi lại 1 lần, nói rõ lỗi
+        log('  Gemini: %d kịch bản' % len(scs))
+        for n, sc in enumerate(scs, 1):
+            try:
+                r = publish(jb, sc, n)
+                if r: done.append(r); log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
+                if r: L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id'])))
+            except Exception as e: log('  ✗ kịch bản', n, e)
+        if done or not scs or rnd: break
+        log('  Gemini chọn thiếu câu nói → hỏi lại')
+        scs = plan(jb, key, models, 'LẦN TRƯỚC KẾ HOẠCH HỎNG: tổng A-roll dưới 15 giây. Lần này BẮT BUỘC chọn đủ 45–110 giây câu nói (số # của video CÓ LỜI THOẠI của buổi quay, không phải KHO CẢNH PHỤ; mốc giây nằm trong độ dài video).\n\n')
     if scs and not done: raise RuntimeError('không dựng được kịch bản nào – thử lại lượt sau')
     L.mark(jb['id'], dungV=DV, dungN=len(done), dungT=int(time.time()), dungFail=None)
     if done and len(done) > 1:
