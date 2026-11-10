@@ -4,18 +4,21 @@
 #  2) GEMINI (theo QUY TẮC DỰNG của chủ): tự chia kịch bản (mỗi video < 2 phút) nếu không có file kịch bản,
 #     chọn câu nói hay nhất (đủ ý, đúng diễn xuất), cảnh phụ khớp lời, chữ nhấn ý chính
 #  3) DỰNG: bỏ ngập ngừng / ầm à, che vết cắt bằng giật zoom, cảnh phụ, chữ, nhạc, hiệu ứng âm thanh → draft CapCut
-#  4) Đưa project vào thư mục buổi quay (1 phiên bản duy nhất) + thêm vào Bộ nhớ đệm (không xóa)/Danh sách project CapCut.txt (máy nhân viên tự có lối tắt)
+#  4) Đưa project vào thư mục buổi quay (1 phiên bản duy nhất) + thêm vào MICC media · Hệ thống (không xóa)/AI dựng CapCut/Danh sách project CapCut.txt (máy nhân viên tự có lối tắt)
 import os, sys, json, time, re, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
 import loc as L
 
 DV = '2'                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
-CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'Bộ nhớ đệm (không xóa)', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # dữ liệu AI tự tạo: để trong Bộ nhớ đệm, SETUP chỉ chứa cài đặt
+SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
 def cache_dir():
     if not _CD:
-        f = lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (L.ROOT, CACHE_NAME, L.FOLDER), 'id')
-        _CD.append(f[0]['id'] if f else mkdir(CACHE_NAME, L.ROOT))
+        par = L.ROOT
+        for nm in (SYS_NAME, CACHE_NAME):
+            f = lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (par, nm, L.FOLDER), 'id')
+            par = f[0]['id'] if f else mkdir(nm, par)
+        _CD.append(par)
     return _CD[0]
 LIB = '1ZIROORo_epCYmpf55Q0reoT8gOfCwyEX'  # thư mục nhạc + hiệu ứng âm thanh + font mẫu (AI tải về của Center Avenue KB2)
 LIB_SKIP = ('Phim ', 'Outro ')
