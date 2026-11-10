@@ -249,6 +249,28 @@ def tighten(a, s, e):   # bỏ ngập ngừng: cắt ĐÚNG khoảng lặng gi�
         x2, y2 = max(lo, x - .12), min(hi, y + .2)
         if y2 - x2 > .3: out.append((max(0.0, x2), min(y2, a['dur'] - .05)))
     return out
+def grade_of(a):   # đo màu gốc của từng cảnh (khung mẫu) → thông số Điều chỉnh CapCut để ra màu điện ảnh: ấm nhẹ, tương phản, highlight dịu
+    try:
+        import numpy as np, io
+        from PIL import Image
+        px = []
+        for t, b in a.get('thumbs', [])[:6]:
+            im = Image.open(io.BytesIO(base64.b64decode(b))).convert('RGB').resize((96, 170)); px.append(np.asarray(im, dtype=np.float32) / 255.0)
+        if not px: return {}
+        x = np.concatenate([p.reshape(-1, 3) for p in px]); R, G, B = x[:, 0], x[:, 1], x[:, 2]
+        Y = .2126 * R + .7152 * G + .0722 * B; m, sd = float(Y.mean()), float(Y.std())
+        hi, lo = float((Y > .92).mean()), float((Y < .06).mean())
+        sat = float((x.max(1) - x.min(1)).mean()); cast = float(R.mean() - B.mean()); gm = float(G.mean() - (R.mean() + B.mean()) / 2)
+        c = lambda v, a_, b_: round(max(a_, min(b_, v)), 3)
+        g = dict(brightness=c((.47 - m) * 1.1, -.25, .3),
+                 contrast=c((.23 - sd) * 2.2 + .12, -.1, .5),                 # cảnh phẳng (log / trời mù) tăng tương phản mạnh hơn
+                 highlight=c(-.12 - hi * 3, -.45, 0),                        # dịu vùng cháy sáng
+                 shadow=c(-.08 if lo < .03 else .06, -.2, .2),               # đổ bóng sâu cho có khối, trừ khi đã quá tối
+                 temperature=c(.1 - cast * 1.6, -.35, .35),                  # khử ám màu rồi đẩy ấm nhẹ kiểu điện ảnh
+                 tone=c(-gm * 2.0, -.25, .25))                               # khử ám xanh lá / tím
+        if sat < .12: g['white'] = c(.05, 0, .1)
+        return g
+    except Exception as e: log('  không đo được màu', a.get('name'), e); return {}
 FX_TR = [('Pull in', '6724226861666144779'), ('Glare II', '6952697917563998722'), ('Flash', '6987208055511323137'), ('Pull out', '6724226338418332167')]
 BMOVES = [((1.0, .5, .5, 0.0), (1.09, .5, .5, 0.0)), ((1.1, .5, .5, 0.0), (1.0, .5, .5, 0.0)), ((1.08, .44, .5, 0.0), (1.08, .56, .5, 0.0)),
           ((1.08, .56, .5, 0.0), (1.08, .44, .5, 0.0)), ((1.05, .5, .5, -1.2), (1.1, .5, .5, 1.2)), ((1.0, .5, .56, 0.0), (1.08, .5, .46, 0.0))]
@@ -258,7 +280,7 @@ def build_plan(jb, sc, proj, adir, music=None):
         k = 'V%d' % a['i']
         if k not in media:
             media[k] = dict(path=DRV + '/' + path_of(a['vid']['dir']) + '/' + nf(a['name']), dur=a['dur'], w=a.get('w') or 1080, h=a.get('h') or 1920,
-                            kind='video', has_audio=bool(a.get('wav')), name=nf(a['name']), S0=s0(a))
+                            kind='video', has_audio=bool(a.get('wav')), name=nf(a['name']), S0=s0(a), grade=grade_of(a))
         return k
     C = jb.get('C') or {}
     def conv(x): return C.get(str(x).strip().upper()) if isinstance(x, str) else None
