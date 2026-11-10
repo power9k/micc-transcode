@@ -209,12 +209,65 @@ def doc_text(jb):
             elif d['name'].lower().endswith('.txt'): out.append('FILE KỊCH BẢN "%s":\n%s' % (d['name'], raw(d['id']).decode('utf-8', 'replace')[:12000]))
         except Exception as e: log('  không đọc được file kịch bản', d['name'], e)
     return '\n\n'.join(out)
+# ---------------------------------------------------------------- Gemini Pro qua Gemini CLI (đăng nhập tài khoản có gói Pro/Ultra, chìa khóa khóa hóa trên Drive)
+_CLI = []
+def cli_ready():
+    if _CLI: return _CLI[0]
+    ok = False
+    try:
+        f = lq("'%s' in parents and name='Khoa Gemini.bin'" % cache_dir(), 'id')
+        if f:
+            subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'cryptography'], capture_output=True)
+            from cryptography.hazmat.primitives import serialization, hashes, padding as P
+            from cryptography.hazmat.primitives.asymmetric import padding
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            b = raw(f[0]['id']); assert b[:4] == b'MGC1'
+            n = int.from_bytes(b[4:6], 'big'); ek, iv, ct = b[6:6 + n], b[6 + n:22 + n], b[22 + n:]
+            pk = serialization.load_der_private_key(base64.b64decode(re.search(r"GEMINI_CLI_PRIV\s*=\s*'([^']+)'", L.cfg()['src']).group(1)), None)
+            k = pk.decrypt(ek, padding.OAEP(mgf=padding.MGF1(hashes.SHA1()), algorithm=hashes.SHA1(), label=None))
+            d = Cipher(algorithms.AES(k), modes.CBC(iv)).decryptor(); u = P.PKCS7(128).unpadder()
+            cred = u.update(d.update(ct) + d.finalize()) + u.finalize()
+            gd = os.path.expanduser('~/.gemini'); os.makedirs(gd, exist_ok=True)
+            open(os.path.join(gd, 'oauth_creds.json'), 'wb').write(cred)
+            json.dump({'security': {'auth': {'selectedType': 'oauth-personal'}}, 'selectedAuthType': 'oauth-personal'}, open(os.path.join(gd, 'settings.json'), 'w'))
+            if not subprocess.run('command -v gemini', shell=True, capture_output=True).stdout:
+                subprocess.run('npm install -g @google/gemini-cli >/dev/null 2>&1', shell=True, timeout=300)
+            ok = bool(subprocess.run('command -v gemini', shell=True, capture_output=True).stdout)
+            log('  Gemini Pro (tài khoản đã kết nối):', 'sẵn sàng' if ok else 'không cài được')
+    except Exception as e: log('  không dùng được Gemini Pro đã kết nối:', e)
+    _CLI.append(ok); return ok
+def cli_plan(parts):
+    if not cli_ready(): return None
+    import tempfile
+    d = tempfile.mkdtemp(dir=L.TMP); txt, refs = [SYS, ''], []
+    for p in parts:
+        if 'text' in p: txt.append(p['text'])
+        elif 'inline_data' in p and len(refs) < 60:
+            fn = 'h%d.jpg' % len(refs); open(os.path.join(d, fn), 'wb').write(base64.b64decode(p['inline_data']['data'])); refs.append(fn); txt.append('(ảnh %s)' % fn)
+    open(os.path.join(d, 'yeucau.txt'), 'w', encoding='utf-8').write('\n'.join(txt))
+    q = 'Đọc yêu cầu trong @yeucau.txt, xem các ảnh ' + ' '.join('@' + r for r in refs) + ' rồi làm đúng yêu cầu. CHỈ trả về JSON, không giải thích.'
+    for args in (['--output-format', 'json'], []):
+        try:
+            r = subprocess.run(['gemini', '-p', q] + args, cwd=d, capture_output=True, text=True, timeout=900)
+            out = r.stdout.strip()
+            try: out = json.loads(out).get('response', out)
+            except Exception: pass
+            m = re.search(r'\{.*\}', out, re.S)
+            if m:
+                sc = json.loads(m.group(0)).get('scripts')
+                if sc is not None: log('  Gemini Pro (tài khoản) lên kế hoạch: %d kịch bản' % len(sc)); return sc
+            log('  Gemini Pro (tài khoản) chưa trả JSON:', (r.stderr or out)[-200:])
+        except Exception as e: log('  Gemini Pro (tài khoản) lỗi:', e)
+    return None
 def plan(jb, key, models, extra=''):
     parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nThư mục tên "Kịch bản N" = đúng 1 video (1 script).' if re.match(r'(?i)(kịch bản|kich ban|kb)\s*\d', jb['name']) else '')}]
     C = jb['C'] = {}
     for a in jb['A']:
         head = L.summary(a).split('\nLời thoại:')[0]
-        if a['vid'].get('broll'): parts.append({'text': '[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + head}); continue
+        if a['vid'].get('broll'):
+            parts.append({'text': '[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + head})
+            for t, b in a['thumbs'][:2]: parts += [{'text': '#%d lúc %.1fs:' % (a['i'], t)}, {'inline_data': {'mime_type': 'image/jpeg', 'data': b}}]   # cho AI NHÌN cảnh phụ để ghép đúng lời
+            continue
         ln = []
         for sg in a['segs']:
             k = 'C%d' % (len(C) + 1); C[k] = (a['i'], float(sg['s']), float(sg['e'])); ln.append('%s (%.1fs) %s' % (k, sg['e'] - sg['s'], sg['t'].strip()))
@@ -222,6 +275,8 @@ def plan(jb, key, models, extra=''):
         for t, b in a['thumbs'][:3]: parts += [{'text': '#%d lúc %.1fs:' % (a['i'], t)}, {'inline_data': {'mime_type': 'image/jpeg', 'data': b}}]
     body = {'systemInstruction': {'parts': [{'text': SYS}]}, 'contents': [{'role': 'user', 'parts': parts}],
             'generationConfig': {'temperature': .3, 'maxOutputTokens': 30000, 'responseMimeType': 'application/json'}}
+    r = cli_plan(parts)   # ưu tiên Gemini Pro qua tài khoản đã kết nối (Kết nối Gemini Pro.bat); không có / lỗi → dùng khóa API như cũ
+    if r is not None: return r
     last = ''
     for rnd in range(3):
         for m in models:
