@@ -5,10 +5,11 @@
 #     chọn câu nói hay nhất (đủ ý, đúng diễn xuất), cảnh phụ khớp lời, chữ nhấn ý chính
 #  3) DỰNG: bỏ ngập ngừng / ầm à, che vết cắt bằng giật zoom, cảnh phụ, chữ, nhạc, hiệu ứng âm thanh → draft CapCut
 #  4) Đưa project vào thư mục buổi quay (1 phiên bản duy nhất) + thêm vào MICC media · Hệ thống (không xóa)/AI dựng CapCut/Danh sách project CapCut.txt (máy nhân viên tự có lối tắt)
-import os, sys, json, time, re, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
+import os, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
 import loc as L
+import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '5'                                   # đổi số này = dựng lại mọi buổi quay
+DV = '6'                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -109,6 +110,7 @@ def scan():
     jobs, now = [], time.time()
     for s in srcs:   # 1 thư mục SOURCE = 1 lượt: đọc HẾT mọi thư mục con, Claude nhìn tổng thể rồi chia các kịch bản (mỗi cái < 2 phút)
         ap = s.get('appProperties') or {}
+        if ONLY and ONLY not in L.norm1(path_of(s['id'])): continue   # chạy thử bản nâng cấp trên 1 dự án trước
         if ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3): continue
         dirs, kbtop, dn, st, hitx = [], {}, {}, [(s, None)], False
         while st:
@@ -149,7 +151,7 @@ def read(jb):
     try: ad, idx = ana_dir()
     except Exception as e: ad, idx = None, {}; log('  không mở được kho phân tích:', e)
     def one(iv):
-        i, v = iv; br = bool(v.get('broll')); nm = '%s_%s%s.json' % (v['id'], v.get('size') or 0, '' if br else '_loi')
+        i, v = iv; br = bool(v.get('broll')); nm = '%s_%s%s_v2.json' % (v['id'], v.get('size') or 0, '' if br else '_loi')   # v2 = có tờ ảnh mọi khung chính + mặt + nhãn âm thanh
         a = _MEM.get(nm)
         if a is None and nm in idx:
             try: a = json.loads(raw(idx[nm]).decode('utf-8'))
@@ -157,7 +159,8 @@ def read(jb):
         if a is None:
             try: a = L.analyze(i + 1, dict(id=v['id'], name=v['name'], size=int(v.get('size') or 0), dur=float((v.get('videoMediaMetadata') or {}).get('durationMillis') or 0) / 1000))
             except Exception as e: log('  bỏ video đọc lỗi:', v['name'], e); return None
-            a['segs'] = [] if br else L.transcribe(a['wav']); a['wav'] = bool(a.get('wav'))
+            a['segs'] = [] if br else L.transcribe(a['wav'])
+            a['see'] = X.perceive(a, a['segs']); a['wav'] = bool(a.get('wav'))
             a = json.loads(json.dumps(a, default=jdef))
             if ad:
                 try: put(nm, ad, json.dumps(a, ensure_ascii=False).encode('utf-8'), 'application/json')
@@ -174,15 +177,43 @@ def read(jb):
     if newly > 0:
      try: L.tsay('📖 AI ĐÃ ĐỌC XONG SOURCE\n📁 %s\n🎬 %d video · %.1f GB · %.0f phút đọc\n➡️ Bắt đầu chia kịch bản + dựng project' % (path_of(jb['id']), len(A), gb, (time.time() - t0) / 60))
      except Exception as e: log('  không báo được:', e)   # chỉ báo khi thật sự có video mới đọc (đọc lại từ bộ nhớ thì im)
-    jb['A'] = A; return jb
+    jb['A'] = A; look(jb, ad, idx); return jb
 
-# ---------------------------------------------------------------- 2) Gemini chia kịch bản + chọn cảnh
+def look(jb, ad, idx):   # Claude Sonnet XEM tờ ảnh mẫu (mọi khung chính) của từng video → nhật ký hình; lưu Drive, video đã xem không xem lại
+    need = []
+    for a in jb['A']:
+        nm = '%s_%s_xem.json' % (a['vid']['id'], a['vid'].get('size') or 0)
+        if nm in _MEM: a['vlog'] = _MEM[nm]; continue
+        if nm in idx:
+            try: a['vlog'] = _MEM[nm] = json.loads(raw(idx[nm]).decode('utf-8')); continue
+            except Exception: pass
+        if (a.get('see') or {}).get('sheets'): need.append((a, nm))
+    if not need: return
+    t0 = time.time(); bat, n = [], 0
+    def go(bat):
+        r = N.see([(a['i'], a['name'], a['dur'], not a['vid'].get('broll'), a['see']['sheets'][:30]) for a, _ in bat], log=log)
+        for a, nm in bat:
+            if a['i'] in r:
+                a['vlog'] = _MEM[nm] = r[a['i']]
+                if ad:
+                    try: put(nm, ad, json.dumps(r[a['i']], ensure_ascii=False).encode('utf-8'), 'application/json')
+                    except Exception as e: log('  không lưu nhật ký hình', a['name'], e)
+    for a, nm in need:   # gom ~24 tờ ảnh / lượt gọi để đỡ tốn token khởi động
+        k = min(30, len(a['see']['sheets']))
+        if bat and n + k > 24: go(bat); bat, n = [], 0
+        bat.append((a, nm)); n += k
+    if bat: go(bat)
+    log('  Claude đã xem %d video (%.1f phút)' % (sum(1 for a, _ in need if a.get('vlog')), (time.time() - t0) / 60))
+
+# ---------------------------------------------------------------- 2) Claude chia kịch bản + chọn cảnh
 RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 - Mỗi kịch bản = 1 video DƯỚI 2 PHÚT (tổng A-roll 45–110 giây). Buổi quay dài (đào tạo, hội thảo) → tách thành nhiều tập, mỗi tập 1 ý trọn vẹn, có câu mở hút (hook) và kết.
 - Nếu có file kịch bản: theo đúng kịch bản. Nếu thư mục con đặt tên "Kịch bản 1/2" thì mỗi thư mục con là 1 kịch bản.
 - A-roll: chỉ lấy câu người nói ĐÚNG lời thoại, nói trôi chảy, diễn xuất tốt (không đứng nhẩm, không nói lại, không nhăn mặt). Mỗi câu nói lại nhiều lần → chọn 1 bản hay nhất. Giữ TRỌN câu, không cắt giữa câu.
 - Cảnh phụ (B-roll) phải KHỚP lời đang nói. Không dùng cảnh có người đang nói câu khác. Mỗi cảnh dùng 1 lần, không lặp cảnh giống nhau.
 - Không cố nhét cảnh: ít cảnh đẹp thì dùng ít.
+- Đã có NHẬT KÝ HÌNH (Claude xem mọi khung hình chính) + nhãn âm thanh cho từng video: A-roll tránh đoạn ghi "ngập ngừng / quay đi / ra hiệu cắt / mờ / rung"; cảnh phụ chọn đoạn điểm ≥ 7, máy chạy mượt, nội dung KHỚP lời; tránh đoạn có gió/ù, ồn nếu lấy tiếng.
+- Câu đầu = câu hút (hook) mạnh nhất; câu cuối = kết trọn ý / kêu gọi.
 - Chữ: KHÔNG chạy phụ đề theo lời. Cứ 1–3 giây phải có 1 cụm chữ nhấn (video 60 s ≈ 25–35 cụm), hiện đúng lúc người nói nói chữ đó ("tu"); chọn chữ ĐẮT (số liệu, tên riêng, tính từ mạnh, lợi ích), không chép cả câu: "big" = TỪ KHÓA viết hoa ≤ 3 từ (số liệu, tên dự án, lợi ích), "small" = 1 dòng phụ ≤ 6 từ. Đúng chính tả tiếng Việt, trọn nghĩa.'''
 SYS = '''Bạn là editor video ngắn (TikTok/Reels dọc 9:16) chuyên nghiệp của team truyền thông MICC (bất động sản + đào tạo).
 Bạn nhận toàn bộ source của 1 buổi quay: lời thoại có mốc thời gian, chất lượng hình, ảnh khung hình. Hãy lên kế hoạch DỰNG các video ngắn.
@@ -192,6 +223,14 @@ Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi C
 - broll "cau" = mã câu A-roll mà cảnh phụ bắt đầu che hình (tiếng vẫn là A-roll); "s","e" = giây trong video cảnh phụ, mỗi cảnh 1.5–3.5 giây.
 - titles "cau" = mã câu có từ khóa đó.
 - Không có kịch bản dựng được (source hỏng / chỉ thử máy) → {"scripts":[]}.'''
+_RX = []
+def rules_extra():   # quy tắc chủ dặn thêm (file "Quy tắc dựng AI.md" trong AI dựng CapCut – sửa file là AI làm theo, không cần sửa code)
+    if not _RX:
+        try:
+            f = lq("'%s' in parents and name='Quy tắc dựng AI.md' and trashed=false" % cache_dir(), 'id')
+            _RX.append(('\n\nQUY TẮC CHỦ DẶN THÊM (bắt buộc):\n' + raw(f[0]['id']).decode('utf-8')[:9000]) if f else '')
+        except Exception as e: log('  không đọc được Quy tắc dựng AI.md', e); _RX.append('')
+    return _RX[0]
 def doc_text(jb):
     out = []
     for d in jb['docs'][:3]:
@@ -262,7 +301,7 @@ def cli_plan(parts):
         except Exception as e: log('  Gemini Pro (tài khoản) lỗi:', e)
     return None
 # ---------------------------------------------------------------- Claude Code chạy không người bấm, dùng gói Claude Max (không tốn tiền API)
-class ClaudeWait(Exception): pass
+ClaudeWait = N.ClaudeWait
 _CL = []
 def claude_ready():
     if _CL: return _CL[0]
@@ -305,18 +344,20 @@ def plan(jb, key, models, extra=''):
     C = jb['C'] = {}
     for a in jb['A']:
         head = '[thư mục: %s] ' % (jb.get('dn') or {}).get(a['vid'].get('dir'), '') + L.summary(a).split('\nLời thoại:')[0]
+        head += '\n' + N.vlog_text(a.get('vlog')) + '\n' + N.sound_text((a.get('see') or {}).get('sound'))   # Claude đã XEM mọi khung hình + nghe âm thanh
         if a['vid'].get('broll'):
             parts.append({'text': '[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + head})
-            for t, b in a['thumbs'][:2]: parts += [{'text': '#%d lúc %.1fs:' % (a['i'], t)}, {'inline_data': {'mime_type': 'image/jpeg', 'data': b}}]   # cho AI NHÌN cảnh phụ để ghép đúng lời
             continue
         ln = []
         for sg in a['segs']:
             k = 'C%d' % (len(C) + 1); C[k] = (a['i'], float(sg['s']), float(sg['e'])); ln.append('%s (%.1fs) %s' % (k, sg['e'] - sg['s'], sg['t'].strip()))
-        parts.append({'text': head + '\nCÁC CÂU NÓI:\n' + ('\n'.join(ln)[:7000] or '(không có lời)')})
-        for t, b in a['thumbs'][:3]: parts += [{'text': '#%d lúc %.1fs:' % (a['i'], t)}, {'inline_data': {'mime_type': 'image/jpeg', 'data': b}}]
+        parts.append({'text': head + '\nCÁC CÂU NÓI:\n' + ('\n'.join(ln)[:9000] or '(không có lời)')})
     body = {'systemInstruction': {'parts': [{'text': SYS}]}, 'contents': [{'role': 'user', 'parts': parts}],
             'generationConfig': {'temperature': .3, 'maxOutputTokens': 30000, 'responseMimeType': 'application/json'}}
-    r = claude_plan(parts)   # 1) Claude (gói Claude Max của chủ, mã CLAUDE_CODE_OAUTH_TOKEN) – đọc lời + khung hình, chọn câu, viết chữ
+    j = N.ask_json('\n\n'.join(p['text'] for p in parts if 'text' in p) + '\n\nTrả đúng 1 khối JSON {"scripts":[...]} theo khung đã nêu.', model='opus', key='scripts', sys_p=SYS + rules_extra(), log=log)
+    if j is not None: log('  Claude Opus lên kế hoạch: %d kịch bản' % len(j['scripts'])); return j['scripts']
+    r = None   # (cách gọi cũ claude_plan bỏ: tốn token khung Claude Code + đọc ảnh từng lượt)
+    if r is not None: return r  # 1) Claude (gói Claude Max của chủ, mã CLAUDE_CODE_OAUTH_TOKEN) – đọc lời + khung hình, chọn câu, viết chữ
     if r is not None: return r
     raise ClaudeWait('Claude chưa trả lời được (có thể đang hết hạn mức) – dừng, đợi lượt sau')   # chủ dặn: chỉ dùng bộ não Claude, hết hạn mức thì đợi, KHÔNG tự chọn theo luật
     last = ''
@@ -405,7 +446,8 @@ def grade_of(a):   # đo màu gốc của từng cảnh (khung mẫu) → thông
 FX_TR = [('Pull in', '6724226861666144779'), ('Glare II', '6952697917563998722'), ('Flash', '6987208055511323137'), ('Pull out', '6724226338418332167')]
 BMOVES = [((1.0, .5, .5, 0.0), (1.09, .5, .5, 0.0)), ((1.1, .5, .5, 0.0), (1.0, .5, .5, 0.0)), ((1.08, .44, .5, 0.0), (1.08, .56, .5, 0.0)),
           ((1.08, .56, .5, 0.0), (1.08, .44, .5, 0.0)), ((1.05, .5, .5, -1.2), (1.1, .5, .5, 1.2)), ((1.0, .5, .56, 0.0), (1.08, .5, .46, 0.0))]
-def build_plan(jb, sc, proj, adir, music=None):
+def build_plan(jb, sc, proj, adir, music=None, mmap=None):
+    mmap = mmap or {}; beats = sorted((mmap.get('kicks') or []) + (mmap.get('snares') or [])) or (mmap.get('beats') or [])
     A = {a['i']: a for a in jb['A']}; media, shots, speech, titles, sfx, trans, fx = {}, [], [], [], [], [], []
     def key(a):
         k = 'V%d' % a['i']
@@ -418,8 +460,8 @@ def build_plan(jb, sc, proj, adir, music=None):
     def vid(x): m = re.search(r'\d+', str(x)); return int(m.group()) if m else 0
     if any(isinstance(x, str) for x in sc.get('aroll', [])):
         sc = dict(sc); sc['aroll'] = [{'video': c[0], 's': c[1], 'e': c[2]} for c in map(conv, sc.get('aroll', [])) if c]
-        sc['broll'] = [dict(b, luc=[conv(b.get('cau'))[0], conv(b.get('cau'))[1]]) for b in sc.get('broll', []) if conv(b.get('cau'))]
-        sc['titles'] = [dict(t, video=conv(t.get('cau'))[0], s=conv(t.get('cau'))[1], e=conv(t.get('cau'))[2]) for t in sc.get('titles', []) if conv(t.get('cau'))]
+        sc['broll'] = [dict(b, luc=[conv(b.get('cau'))[0], conv(b.get('cau'))[1]]) if conv(b.get('cau')) else dict(b, video=0) for b in sc.get('broll', [])]   # giữ đúng số thứ tự (Claude kiểm duyệt gọi theo số)
+        sc['titles'] = [dict(t, video=conv(t.get('cau'))[0], s=conv(t.get('cau'))[1], e=conv(t.get('cau'))[2]) if conv(t.get('cau')) else dict(t, video=0) for t in sc.get('titles', [])]
     # ---- A-roll: câu nói nối liền, cắt ở khoảng lặng; mỗi CÂU 1 cỡ khung (rộng / cận) để nhảy cỡ che vết cắt
     t, pieces, why, n_sent = 0.0, [], {}, 0
     for it in sc.get('aroll', []):
@@ -430,8 +472,12 @@ def build_plan(jb, sc, proj, adir, music=None):
         e = min(e, a['dur'] - .05); base = 1.0 if n_sent % 2 == 0 else 1.2; n_sent += 1
         for j, (x, y) in enumerate(tighten(a, s, e)):
             d = y - x; k = key(a); m = base if j % 2 == 0 else round(base * 1.1, 3)
-            shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A',
-                              keys=[[round(t, 3), m, .5, .42, 0.0], [round(t + d, 3), round(m * (1 + min(.06, .018 * d)), 4), .5, .42, 0.0]], punch_abs=[]))
+            f0, f1 = N.face_span(a, x, x + min(d, 1.5)), N.face_span(a, max(x, y - 1.5), y)   # bám mặt người nói (YuNet theo từng khung chính)
+            m1 = round(m * (1 + min(.06, .018 * d)), 4)
+            uv = lambda f, mm: (round(f[0], 3), round(min(.75, f[1] + .1 / mm), 3)) if f else (.5, .42)   # mặt nằm ở 1/3 trên khung
+            u0, v0 = uv(f0, m); u1, v1 = uv(f1 or f0, m1)
+            shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A', face=f0 or f1,
+                              keys=[[round(t, 3), m, u0, v0, 0.0], [round(t + d, 3), m1, u1, v1, 0.0]], punch_abs=[]))
             speech.append(dict(media=k, src_in=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), vol=1.0))
             pieces.append((a['i'], x, y, t)); t += d
         if t > 118: break
@@ -443,14 +489,20 @@ def build_plan(jb, sc, proj, adir, music=None):
         return None
     # ---- cảnh phụ: mỗi cảnh 1 kiểu chuyển động máy khác nhau; ≤1 cảnh / 5 s; 3–4 chuyển cảnh có hiệu ứng ở chỗ đổi ý
     used, lastB, mv = set(), -9.0, 0
-    for b in sc.get('broll', []):
+    for bi, b in enumerate(sc.get('broll', [])):
         a = A.get(vid(b.get('video', 0))); at = b.get('luc') or [0, 0]
         if not a or a['i'] in used: continue
         T = tl(vid(at[0]), float(at[1])) if isinstance(at, list) and len(at) == 2 else None
         if T is None or T < 1.5 or T - lastB < 5.0: continue
         cut = min((p[3] for p in pieces if abs(p[3] - T) < .8), key=lambda c: abs(c - T), default=None)   # bám vào chỗ cắt / ngắt câu gần nhất
         if cut is not None and cut >= 1.5: T = cut
+        cuts_ = [p[3] for p in pieces] + [p[3] + p[2] - p[1] for p in pieces]
+        def on_beat(x):   # đổi cảnh đúng phách nhạc (kick / snare), nhưng không để lại mẩu hình < 0.35 s cạnh chỗ cắt
+            y = N.snap(x, beats, .3) if beats else x
+            return y if all(abs(y - c) < .01 or abs(y - c) >= .35 for c in cuts_) else x
+        T = on_beat(T)
         s, e = float(b.get('s', 0)), float(b.get('e', 0)); d = min(3.0, max(1.6, e - s), total - T - .3)
+        e2 = on_beat(T + d); d = e2 - T if 1.3 <= e2 - T <= 3.3 and e2 < total - .3 else d   # cảnh phụ kết thúc cũng rơi vào phách
         if d < 1.3 or s + d > a['dur']: continue
         k = key(a); used.add(a['i']); lastB = T + d; new = []
         for sh in shots:
@@ -458,7 +510,7 @@ def build_plan(jb, sc, proj, adir, music=None):
             if sh['t0'] < T - .05: new.append(dict(sh, t1=round(T, 3), keys=[[sh['t0']] + sh['keys'][0][1:], [round(T, 3)] + sh['keys'][-1][1:]]))
             if sh['t1'] > T + d + .05: new.append(dict(sh, src=round(sh['src'] + T + d - sh['t0'], 3), t0=round(T + d, 3), keys=[[round(T + d, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]]))
         k0, k1 = BMOVES[mv % len(BMOVES)]; mv += 1
-        new.append(dict(media=k, src=round(s, 3), t0=round(T, 3), t1=round(T + d, 3), line='B', keys=[[round(T, 3)] + list(k0), [round(T + d, 3)] + list(k1)], punch_abs=[]))
+        new.append(dict(media=k, src=round(s, 3), t0=round(T, 3), t1=round(T + d, 3), line='B', bi=bi, keys=[[round(T, 3)] + list(k0), [round(T + d, 3)] + list(k1)], punch_abs=[]))
         shots = sorted(new, key=lambda x: x['t0'])
         if len(trans) < 4 and (not trans or T - trans[-1]['at'] > 10):
             nm, eid = FX_TR[len(trans) % len(FX_TR)]
@@ -471,7 +523,7 @@ def build_plan(jb, sc, proj, adir, music=None):
     # ---- chữ nhấn: hiện ĐÚNG lúc nói từ khóa (mốc từng chữ của Whisper), 1 cụm / 4–7 s
     def norm(x): return L.norm(x) if hasattr(L, 'norm') else x.lower()
     STY = [('#FFD54A', '#FFFFFF', 6.0), ('#FFFFFF', '#FFD54A', 5.4), ('#7FE3FF', '#FFFFFF', 5.6), ('#FFE08A', None, 6.4), ('#FFFFFF', None, 5.0), ('#FF6B5E', '#FFFFFF', 6.2)]
-    for ti in sorted(sc.get('titles', [])[:70], key=lambda x: float(x.get('s', x.get('t', 0)))):
+    for si, ti in sorted(enumerate(sc.get('titles', [])[:80]), key=lambda x: float(x[1].get('s', x[1].get('t', 0)))):
         vi = vid(ti.get('video', 0)); a = A.get(vi)
         if not a: continue
         s, e = float(ti.get('s', ti.get('t', 0))), float(ti.get('e', ti.get('t', 0)) or 0) or float(ti.get('t', 0)) + 4
@@ -497,20 +549,45 @@ def build_plan(jb, sc, proj, adir, music=None):
         c1 = '#FFD54A' if num else COL[n % len(COL)]
         main = 'BEB' if n % 3 != 2 else 'BIG'
         lead = small if small and len(small.split()) <= 6 else ''
-        if lead and n % 2 == 0: lines = [[lead[:1].upper() + lead[1:].lower(), 'SCR', 3.6, '#FFFFFF'], [big, main, 7.6 if main == 'BEB' else 6.2, c1]]
+        if lead and n % 2 == 0: lines = [[lead[:1].upper() + lead[1:], 'SCR', 3.6, '#FFFFFF'], [big, main, 7.6 if main == 'BEB' else 6.2, c1]]
         else: lines = [[big, main, 8.2 if main == 'BEB' else 6.6, c1]]
         y = (19.0 + (n % 3) * 4) if on_b else (68.0 + (n % 2) * 3)   # cảnh người nói: chữ dưới ngực, không đè mặt; vùng an toàn TikTok ≤75 %
-        titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=False, anim=n))
+        if ti.get('y'): y = max(12.0, min(80.0, float(ti['y'])))   # vị trí Claude kiểm duyệt yêu cầu
+        titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=False, anim=n, si=si))
         if num: sfx.append(dict(file='SFX tit thong tin.wav', t=round(max(0, T - .02), 3), vol=.2, dur=0.34))   # tiếng "tít" khi thông tin / số liệu hiện
         elif n % 3 == 0: sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
         if n % 2 == 0 or num:
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh['t0'] + .2 < T < sh['t1'] - .35:
+                    T = N.snap(T, beats, .12) if beats else T   # giật zoom trùng phách nếu phách ở rất gần từ khóa
                     k0, k1 = sh['keys'][0], sh['keys'][-1]; m = k0[1]
                     sh['keys'] = [k0, [round(T - .001, 3), m] + k0[2:], [round(T + .08, 3), round(m * 1.14, 4)] + k0[2:], [k1[0], round(m * 1.16, 4)] + k1[2:]]; break
     # (bỏ phần tự thêm chữ từ lời nói: chủ phản ánh ra cụm vô nghĩa như "NINH VÀ", "TRƯỜNG SỐNG" – chữ chỉ lấy từ AI, có kiểm tra trọn nghĩa)
     titles.sort(key=lambda z: z['t0'])
     for n, z in enumerate(titles): z['anim'] = n
+    # ---- chữ né mặt: tính vị trí mặt trên khung 9:16 (sau zoom) lúc chữ hiện → chữ đè mặt thì dời xuống dưới cằm / lên trên đầu
+    AK = {key(a): a for a in A.values() if 'V%d' % a['i'] in media}
+    def face_canvas(T):
+        sh = next((x for x in shots if x['t0'] <= T < x['t1'] and x['line'] != 'A'), None) or next((x for x in shots if x['t0'] <= T < x['t1']), None)
+        if not sh: return None
+        a = AK.get(sh['media']); f = N.face_at(a, sh['src'] + T - sh['t0']) if a else None
+        if not f: return None
+        k = sh['keys'][0]; m = k[1]; lim = max(0.0, (m - 1) / (2 * m)); v = max(.5 - lim, min(.5 + lim, k[3]))   # engine giới hạn khung không lộ viền
+        return (.5 + (f[1] - f[3] / 2 - v) * m) * 100, (.5 + (f[1] + f[3] / 2 - v) * m) * 100
+    for z in titles:
+        hh = sum(l[2] for l in z['lines']) * .75 + 2
+        for T in (z['t0'] + .05, (z['t0'] + z['t1']) / 2):
+            fc = face_canvas(T)
+            if not fc or fc[1] < z['y_pct'] - hh / 2 - 1 or fc[0] > z['y_pct'] + hh / 2 + 1: continue
+            below, above = fc[1] + hh / 2 + 3, fc[0] - hh / 2 - 3
+            z['y_pct'] = round(below if below <= 76 else (above if above >= 14 else 76), 1); z['ne_mat'] = 1; break
+    # ---- điểm dồn của nhạc (drop) → giật zoom mạnh đúng lúc nhạc dồn
+    for dp in (mmap.get('drops') or [])[:2]:
+        if 2 < dp < total - 2:
+            sh = next((x for x in shots if x['t0'] + .2 < dp < x['t1'] - .3 and x['line'] == 'A' and len(x['keys']) == 2), None)
+            if sh:
+                k0, k1 = sh['keys']; m = k0[1]
+                sh['keys'] = [k0, [round(dp - .001, 3), m] + k0[2:], [round(dp + .06, 3), round(m * 1.18, 4)] + k0[2:], [k1[0], round(m * 1.2, 4)] + k1[2:]]
     for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
     sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
@@ -546,8 +623,10 @@ def pick_music(jb):
         if dur < 20: return None
         ext = os.path.splitext(c['name'])[1].lower() or '.mp3'
         nm = 'Nhac nen - ' + re.sub(r'[^A-Za-z0-9 -]+', '', unicodedata.normalize('NFKD', os.path.splitext(c['name'])[0]).encode('ascii', 'ignore').decode())[:40].strip() + ext
-        log('  nhạc nền:', c['name'], '(%.0fs)' % dur)
-        return (c['id'], nm, round(dur, 3), nf(c['name']).lower())
+        try: mm = X.music_map(fp)   # BPM, kick, snare, đoạn lắng / sôi, điểm dồn → cắt cảnh theo nhịp
+        except Exception as e: mm = {}; log('  không phân tích được nhịp nhạc:', e)
+        log('  nhạc nền:', c['name'], '(%.0fs, %s BPM, %d kick, %d snare)' % (dur, mm.get('bpm', '?'), len(mm.get('kicks') or []), len(mm.get('snares') or [])))
+        return (c['id'], nm, round(dur, 3), nf(c['name']).lower(), mm)
     except Exception as e: log('  không chọn được nhạc riêng:', e); return None
 
 def engine():
@@ -563,6 +642,51 @@ def list_edit(add=(), remove=()):
     fid = list_file(); lines = [x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()]
     lines = [x for x in lines if x not in remove] + [x for x in add if x not in lines]
     update(fid, ('\r\n'.join(lines) + '\r\n').encode('utf-8'), 'text/plain')
+def timeline(jb, sc, pl):   # dòng thời gian bằng chữ cho Claude kiểm duyệt
+    A = {a['i']: a for a in jb['A']}; AK = {'V%d' % i: a for i, a in A.items()}; out = []
+    for sh in pl['shots']:
+        a = AK.get(sh['media']); src = sh['src']
+        seg = []   # lời ĐANG PHÁT trên dòng thời gian (cả khi đang chiếu cảnh phụ – tiếng vẫn là A-roll)
+        for sp in pl['speech']:
+            lo, hi = max(sp['t0'], sh['t0']), min(sp['t1'], sh['t1'])
+            if hi - lo > .05: seg += [w[2] for w in words(AK.get(sp['media']), sp['src_in'] + lo - sp['t0'], sp['src_in'] + hi - sp['t0'])]
+        seg = ' '.join(seg)
+        vl = next((d for d in ((a or {}).get('vlog') or {}).get('doan', []) if float(d.get('s', 0)) - .3 <= src <= float(d.get('e', 0)) + .3), None)
+        tag = ('[B%d] CẢNH PHỤ' % sh.get('bi', -1)) if sh['line'] != 'A' else 'NGƯỜI NÓI'
+        out.append('%5.1f–%5.1fs %s (video #%d từ giây gốc %.1f) zoom %.2f→%.2f%s | hình: %s | lời đang phát: %s' % (sh['t0'], sh['t1'], tag, a['i'] if a else 0, src, sh['keys'][0][1], sh['keys'][-1][1],
+                   ' (có giật zoom)' if len(sh['keys']) > 2 else '', (vl or {}).get('noi_dung', '?') + ' / ' + (vl or {}).get('chat_luong', ''), seg[:160]))
+    for z in pl['titles']:
+        out.append('%5.1f–%5.1fs [T%d] CHỮ y=%.0f%%: %s' % (z['t0'], z['t1'], z['si'], z['y_pct'], ' / '.join(l[0] for l in z['lines'])))
+    out.sort(key=lambda r: float(r.split('–')[0]))
+    out.append('Chuyển cảnh: ' + ', '.join('%s@%.1fs' % (x['name'], x['at']) for x in pl['transitions']) + ' · tổng %.1fs' % pl['total'])
+    return '\n'.join(out)
+def review(jb, sc, pl, proj, adir, mu):
+    A = {'V%d' % a['i']: a for a in jb['A']}
+    for rnd in range(3):
+        ts = sorted({round((z['t0'] + z['t1']) / 2, 2) for z in pl['titles']} | {round(x['t0'] + .3, 2) for x in pl['shots'] if x['line'] != 'A'})
+        if len(ts) > 24: ts = ts[::math.ceil(len(ts) / 24)]
+        try: pv = N.preview(pl, A, ts, os.path.join(ENG, 'fonts'))
+        except Exception as e: pv = []; log('  không dựng được ảnh xem trước:', e)
+        r = N.qa(pl, timeline(jb, sc, pl), pv, log=log)
+        if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
+        log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
+        if r.get('dat'): return pl
+        if rnd == 2: break
+        fx = r.get('sua') or {}; sc = json.loads(json.dumps(sc)); T = sc.get('titles') or []
+        for d in fx.get('doi_chu') or []:
+            try: T[int(d['T'])].update(big=d.get('big', T[int(d['T'])].get('big')), small=d.get('small', ''))
+            except Exception: pass
+        for d in fx.get('doi_vi_tri') or []:
+            try: T[int(d['T'])]['y'] = float(d['y'])
+            except Exception: pass
+        drop = {int(x) for x in fx.get('bo_chu') or [] if str(x).lstrip('-').isdigit()}
+        sc['titles'] = [t for i, t in enumerate(T) if i not in drop] + [t for t in fx.get('them_chu') or [] if isinstance(t, dict) and t.get('cau')]
+        bdrop = {int(x) for x in fx.get('bo_canh_phu') or [] if str(x).lstrip('-').isdigit()}
+        sc['broll'] = [b for i, b in enumerate(sc.get('broll') or []) if i not in bdrop]
+        pl2 = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None, mu[4] if mu else None)
+        if not pl2: break
+        pl = pl2
+    log('  ✗ Claude kiểm tra chưa đạt sau 2 vòng sửa – KHÔNG giao project này:', proj); return None
 def publish(jb, sc, n):
     a0 = jb['A'][0]; A_ = {a['i']: a for a in jb['A']}; cnt = {}
     for it in sc.get('aroll', []):   # project nằm trong thư mục (Kịch bản N) chứa phần lớn câu nói của kịch bản
@@ -573,8 +697,10 @@ def publish(jb, sc, n):
     proj = safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)   # tên = nội dung, ngắn gọn
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + rel + '/AI tải về'
     mu = pick_music(jb)
-    pl = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None)
+    pl = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None, mu[4] if mu else None)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
+    pl = review(jb, sc, pl, proj, adir, mu)   # Claude Opus tự kiểm tra (xem ảnh xem trước + dòng thời gian), sửa tối đa 2 vòng
+    if not pl: return None
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
     if not 40 <= pl['total'] <= 120: bad.append('dài %.0fs (cần 40–120s)' % pl['total'])
     if len(pl.get('titles') or []) < pl['total'] / 8.0: bad.append('chỉ %d chữ nhấn / %.0fs (cần ~1 cụm mỗi 1–3 s)' % (len(pl.get('titles') or []), pl['total']))
@@ -623,7 +749,7 @@ def edit(jb, key, models):
     engine()
     scs, done = plan(jb, key, models), []
     for rnd in range(2):   # lần 2: Gemini chọn thiếu câu nói → hỏi lại 1 lần, nói rõ lỗi
-        log('  Gemini: %d kịch bản' % len(scs))
+        log('  Claude: %d kịch bản' % len(scs))
         for n, sc in enumerate(scs, 1):
             try:
                 r = publish(jb, sc, n)
@@ -634,7 +760,7 @@ def edit(jb, key, models):
                     L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n📊 Tổng đã hoàn thành: %d project\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id']), tot))
             except Exception as e: log('  ✗ kịch bản', n, e)
         if done or not scs or rnd: break
-        log('  Gemini chọn thiếu câu nói → hỏi lại')
+        log('  Claude chọn thiếu câu nói → hỏi lại')
         scs = plan(jb, key, models, 'LẦN TRƯỚC KẾ HOẠCH HỎNG: tổng A-roll dưới 15 giây. Lần này BẮT BUỘC chọn đủ 45–110 giây câu nói (số # của video CÓ LỜI THOẠI của buổi quay, không phải KHO CẢNH PHỤ; chỉ ghi MÃ CÂU C…).\n\n')
     if scs and not done: raise RuntimeError('không dựng được kịch bản nào – thử lại lượt sau')
     L.mark(jb['id'], dungV=DV, dungN=len(done), dungT=int(time.time()), dungFail=None)
@@ -650,10 +776,10 @@ def pending():
         try: return len(scan())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
     return 1   # quét lỗi mãi → vẫn giữ lượt chạy để run() thử lại, không bỏ việc
-PAUSE = True   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+ONLY = 'king park'   # bỏ trống ('') = chạy mọi thư mục source
+PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
-    if not key: log('AI dựng: không có khóa Gemini'); return
     try: migrate_m()
     except Exception as e: log('AI dựng: đổi ổ M lỗi', e)
     q, busy = queue.Queue(maxsize=1), set()
@@ -664,6 +790,7 @@ def run(key, models, until):
             if not J: q.put(None); return
             jb = J[0]; busy.add(jb['id']); log('AI dựng – đọc:', jb['src'], '›', jb['name'], '(%d video)' % len(jb['vids']))
             try: q.put(read(jb))
+            except ClaudeWait as e: log('⏸ đọc:', e); busy.discard(jb['id']); q.put(None); return   # hết hạn mức Claude → dừng, lượt sau đọc tiếp
             except Exception as e:
                 log('  đọc lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
         q.put(None)
