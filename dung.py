@@ -60,7 +60,7 @@ def _put(name, parent, data, mime):
 def update(fid, data, mime):
     return L.http(L.G + '/upload/drive/v3/files/' + fid + '?uploadType=media&supportsAllDrives=true', data,
                   {'Authorization': 'Bearer ' + L.tok(), 'Content-Type': mime}, method='PATCH')
-def mkdir(name, parent): return L.drive('files', {'name': name, 'parents': [parent], 'mimeType': L.FOLDER}, params={'fields': 'id'})['id']
+def mkdir(name, parent, ap=None): return L.drive('files', dict({'name': name, 'parents': [parent], 'mimeType': L.FOLDER}, **({'appProperties': ap} if ap else {})), params={'fields': 'id'})['id']
 def safe(s, k=70): return re.sub(r'\s+', ' ', re.sub(r'[\\/:*?"<>|\n\r\t]+', ' ', str(s))).strip()[:k].strip()
 def nf(s): return unicodedata.normalize('NFC', s or '')
 
@@ -86,7 +86,7 @@ def scan():
     out, now = [], time.time()
     KB = re.compile(r'^(kịch bản|kich ban|kb)\s*\d', re.I)
     for s in srcs:
-        kids_ = [sh for sh in ch.get(s['id'], []) if not SKIPDIR.match(nf(sh['name']))]
+        kids_ = [sh for sh in ch.get(s['id'], []) if not SKIPDIR.match(nf(sh['name'])) and (sh.get('appProperties') or {}).get('dungP') != '1']
         kbs = [sh for sh in kids_ if KB.match(nf(sh['name']))]
         pool = []   # có thư mục "Kịch bản N" → các thư mục khác (flycam, Vid AI, Trám…) + video rời = kho cảnh phụ dùng chung, không dựng riêng
         if kbs:
@@ -96,14 +96,14 @@ def scan():
                 st = [o]
                 while st:
                     d = st.pop(); pool.append((d['id'], True))
-                    st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name']))]
+                    st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name'])) and (c.get('appProperties') or {}).get('dungP') != '1']
         for sh in (kbs or kids_):
             ap = sh.get('appProperties') or {}
             if ap.get('dungV') == DV or int(ap.get('dungFail') or 0) >= 3: continue
             sub, st = [], [sh]
             while st:
                 d = st.pop(); sub.append(d['id'])
-                st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name']))]
+                st += [c for c in ch.get(d['id'], []) if not SKIPDIR.match(nf(c['name'])) and (c.get('appProperties') or {}).get('dungP') != '1']
             if EXCL & set(sub): continue
             out.append(dict(id=sh['id'], name=nf(sh['name']), src=nf(s['name']), dirs=sub, ap=ap, pool=pool))
     jobs = []
@@ -152,7 +152,7 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 SYS = '''Bạn là editor video ngắn (TikTok/Reels dọc 9:16) chuyên nghiệp của team truyền thông MICC (bất động sản + đào tạo).
 Bạn nhận toàn bộ source của 1 buổi quay: lời thoại có mốc thời gian, chất lượng hình, ảnh khung hình. Hãy lên kế hoạch DỰNG các video ngắn.
 ''' + RULES + '''
-Trả về JSON: {"scripts":[{"ten":"tên video ngắn gọn","aroll":[{"video":<số #>,"s":giây,"e":giây}],"broll":[{"video":<số #>,"s":giây,"e":giây,"luc":<giây của A-roll video nào đó: dạng [số #, giây]>}],"titles":[{"video":<số #>,"t":giây (lúc nói từ khóa, theo video gốc),"big":"TỪ KHÓA","small":"dòng phụ"}]}]}
+Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi CapCut / Kịch bản / số thứ tự","aroll":[{"video":<số #>,"s":giây,"e":giây}],"broll":[{"video":<số #>,"s":giây,"e":giây,"luc":<giây của A-roll video nào đó: dạng [số #, giây]>}],"titles":[{"video":<số #>,"t":giây (lúc nói từ khóa, theo video gốc),"big":"TỪ KHÓA","small":"dòng phụ"}]}]}
 - aroll theo đúng thứ tự phát. "s","e" theo giây của video gốc, bao trọn câu.
 - broll "luc" = [số video A-roll, giây trong video đó] lúc cảnh phụ bắt đầu che hình (tiếng vẫn là A-roll); mỗi cảnh phụ 1.5–3.5 giây.
 - Không có kịch bản dựng được (source hỏng / chỉ thử máy) → {"scripts":[]}.'''
@@ -274,7 +274,7 @@ def list_edit(add=(), remove=()):
     update(fid, ('\r\n'.join(lines) + '\r\n').encode('utf-8'), 'text/plain')
 def publish(jb, sc, n):
     a0 = jb['A'][0]; host = a0['vid']['dir'] if len(jb['dirs']) > 1 and all(x['vid']['dir'] == a0['vid']['dir'] for x in jb['A']) else jb['id']
-    proj = safe('CapCut - %s - %s' % (safe(jb['name'], 40), safe(sc.get('ten') or 'Video %d' % n, 50)), 110)
+    proj = safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)   # tên = nội dung, ngắn gọn
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + rel + '/AI tải về'
     pl = build_plan(jb, sc, proj, adir)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
@@ -282,9 +282,12 @@ def publish(jb, sc, n):
     r = subprocess.run([sys.executable, os.path.join(ENG, 'build.py'), pp], capture_output=True, text=True, timeout=600)
     od = os.path.join(pl['out_dir'], proj)
     if not os.path.exists(os.path.join(od, 'draft_content.json')): raise RuntimeError('dựng lỗi: ' + (r.stderr or r.stdout)[-300:])
-    for old in lq("'%s' in parents and name='%s' and mimeType='%s'" % (host, proj.replace("'", "\\'"), L.FOLDER), 'id'):   # chỉ giữ 1 phiên bản
-        list_edit(remove=[rel]); L.drive('files/' + old['id'], {'trashed': True}, method='PATCH')
-    pf = mkdir(proj, host)
+    slot = '%s:%d' % (jb['id'], n)   # chỉ giữ 1 phiên bản: bỏ bản cũ cùng tên hoặc cùng kịch bản (dù tên mới khác)
+    olds = lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (host, proj.replace("'", "\\'"), L.FOLDER), 'id,name')
+    olds += lq("'%s' in parents and appProperties has { key='dungS' and value='%s' } and trashed=false" % (host, slot), 'id,name')
+    for old in {o['id']: o for o in olds}.values():
+        list_edit(remove=[path_of(host) + '/' + nf(old['name'])]); L.drive('files/' + old['id'], {'trashed': True}, method='PATCH')
+    pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
         af = mkdir('AI tải về', pf)
         for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):
