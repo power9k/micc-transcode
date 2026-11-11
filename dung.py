@@ -1162,6 +1162,34 @@ def claude_grades(jb, sc):   # Claude Sonnet NHÌN khung hình từng video dùn
     except ClaudeWait: raise
     except Exception as e: log('  Claude chưa đặt được màu (dùng thông số máy đo):', e)
 
+XM = '❌ '   # project cũ đang được AI dựng lại (sẽ bị thay khi bản mới lên xong)
+def user_edited(c):   # người dùng đã mở CapCut và lưu chỉnh sửa → project là của họ, AI không thay / không xóa
+    try:
+        f = lq("'%s' in parents and name='draft_content.json'" % c['id'], 'id')
+        ut = float(json.loads(raw(f[0]['id']).decode('utf-8')).get('update_time') or 0) if f else 0
+        ut = ut / 1e6 if ut > 1e11 else ut
+        return ut > L.ts(c['createdTime']) + 300
+    except Exception: return True   # không chắc → coi như đã sửa, giữ lại cho an toàn
+def ren(c, par, new):   # đổi tên thư mục project + đường dẫn bên trong + danh sách CapCut
+    old = nf(c['name']); oldrel, newrel = path_of(par) + '/' + old, path_of(par) + '/' + new
+    for f in lq("'%s' in parents and (name='draft_content.json' or name='draft_info.json' or name='draft_meta_info.json')" % c['id'], 'id,name'):
+        try:
+            t = unicodedata.normalize('NFC', raw(f['id']).decode('utf-8'))
+            t2 = t.replace('/' + old + '/', '/' + new + '/').replace('\\' + old + '\\', '\\' + new + '\\').replace('"' + old + '"', '"' + new + '"')
+            if t2 != t: update(f['id'], t2.encode('utf-8'), 'application/json')
+        except Exception as e: log('  đổi tên: không sửa được', f['name'], e)
+    L.drive('files/' + c['id'], {'name': new}, method='PATCH')
+    list_edit(add=[newrel], remove=[oldrel]); c['name'] = new
+def mark_old(host, slot, on=True):   # gắn / bỏ ❌ ở project cũ (chưa bị người dùng sửa) của đúng kịch bản này
+    for c in lq("'%s' in parents and appProperties has { key='dungP' and value='1' } and trashed=false" % host, 'id,name,appProperties,createdTime'):
+        ap = c.get('appProperties') or {}
+        if ap.get('dungS') != slot or ap.get('dungL') == LV: continue
+        nm = nf(c['name'])
+        try:
+            if on and not nm.startswith(XM) and not user_edited(c): ren(c, host, XM + nm); log('  đánh dấu ❌ project cũ đang được dựng lại:', nm)
+            elif not on and nm.startswith(XM): ren(c, host, nm[len(XM):]); log('  bỏ ❌ (dựng lại chưa xong):', nm)
+        except Exception as e: log('  không đổi được dấu ❌', nm, e)
+
 def publish(jb, sc, n):
     a0 = jb['A'][0]; A_ = {a['i']: a for a in jb['A']}; cnt = {}
     for it in sc.get('aroll', []):   # project nằm trong thư mục (Kịch bản N) chứa phần lớn câu nói của kịch bản
@@ -1171,6 +1199,14 @@ def publish(jb, sc, n):
     host = max(cnt, key=cnt.get) if cnt else jb['id']
     proj = safe(full_name(path_of(host), safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)), 110)   # 🤖 dự án - nội dung
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + kho()['rel']   # tài nguyên dựng lấy từ kho chung SETUP/Kho AI tải về
+    slot0 = '%s:%d' % (jb['id'], n); mark_old(host, slot0, True)
+    try: r_ = _publish(jb, sc, n, host, proj, rel, adir)
+    except Exception: mark_old(host, slot0, False); raise
+    if not r_ or r_.get('exists'): mark_old(host, slot0, False)
+    return r_
+
+def _publish(jb, sc, n, host, proj, rel, adir):
+    a0 = jb['A'][0]
     mu = pick_mix(jb, sc); claude_grades(jb, sc)
     pl = build_plan(jb, sc, proj, adir, mu, None)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
@@ -1194,13 +1230,8 @@ def publish(jb, sc, n):
     slot = '%s:%d' % (jb['id'], n)
     if any((c.get('appProperties') or {}).get('dungS') == slot or c['name'] == proj for c in new_):
         log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)
-    def user_edited(c):   # người dùng đã mở CapCut và lưu chỉnh sửa → project là của họ, AI không thay / không xóa
-        try:
-            f = lq("'%s' in parents and name='draft_content.json'" % c['id'], 'id')
-            ut = float(json.loads(raw(f[0]['id']).decode('utf-8')).get('update_time') or 0) if f else 0
-            ut = ut / 1e6 if ut > 1e11 else ut
-            return ut > L.ts(c['createdTime']) + 300
-        except Exception: return True   # không chắc → coi như đã sửa, giữ lại cho an toàn
+    bare = lambda nm: nf(nm)[len(XM):] if nf(nm).startswith(XM) else nf(nm)
+    old_ = [c for c in old_ if (c.get('appProperties') or {}).get('dungS') == slot or bare(c['name']) == proj]   # chỉ bản cũ của ĐÚNG kịch bản này (không đụng project khác cùng thư mục)
     keep_ = [c for c in old_ if user_edited(c)]
     old_ = [c for c in old_ if c not in keep_]
     if any(c['name'] == proj for c in keep_):   # bản người dùng đã sửa trùng tên → bản AI mới đặt tên khác, đứng cạnh
@@ -1499,18 +1530,10 @@ def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên
 def rename_old():   # chủ dặn: mọi project AI dựng đổi tên "🤖 Tên dự án - Nội dung" (cả các project đã giao)
     try:
         for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,parents,appProperties'):
-            if c['name'].startswith(AI_ICON): continue
+            if c['name'].startswith((AI_ICON, XM)): continue
             par = (c.get('parents') or [''])[0]; new = safe(full_name(path_of(par), c['name']), 110)
             if not lock(c['id'], 'dungRN'): continue
-            old = nf(c['name']); oldrel, newrel = path_of(par) + '/' + old, path_of(par) + '/' + new
-            for f in lq("'%s' in parents and (name='draft_content.json' or name='draft_info.json' or name='draft_meta_info.json')" % c['id'], 'id,name'):
-                try:
-                    t = unicodedata.normalize('NFC', raw(f['id']).decode('utf-8'))
-                    t2 = t.replace('/' + old + '/', '/' + new + '/').replace('\\' + old + '\\', '\\' + new + '\\').replace('"' + old + '"', '"' + new + '"')
-                    if t2 != t: update(f['id'], t2.encode('utf-8'), 'application/json')
-                except Exception as e: log('  đổi tên: không sửa được', f['name'], e)
-            L.drive('files/' + c['id'], {'name': new}, method='PATCH')
-            list_edit(add=[newrel], remove=[oldrel]); unlock(c['id'], 'dungRN')
+            old = nf(c['name']); ren(c, par, new); unlock(c['id'], 'dungRN')
             log('  đổi tên project:', old, '→', new)
     except Exception as e: log('  không đổi được tên project cũ:', e)
 
