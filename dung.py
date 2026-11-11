@@ -1475,6 +1475,12 @@ def mark_root():   # file đánh dấu ở gốc "Drive của tôi" của tài k
         if not lq("'root' in parents and name='%s'" % MARK, 'id'):
             put(MARK, 'root', 'Ổ Drive có file này = Drive của tài khoản MICC (tailieumkt). Công cụ đồng bộ CapCut dùng nó để nối video vào project. Đừng xóa.'.encode('utf-8'), 'text/plain')
     except Exception as e: log('  không tạo được file nhận diện ổ Drive:', e)
+def fix_public():   # project dựng lúc thử đường dẫn C:/Users/Public/MICC Drive → về đường dẫn Drive chuẩn (công cụ đồng bộ đổi tiếp theo ổ từng máy)
+    try:
+        for f in lq("(name='draft_content.json' or name='draft_info.json') and fullText contains 'MICC Drive'", 'id,name'):
+            t = raw(f['id']).decode('utf-8')
+            if 'C:/Users/Public/MICC Drive' in t: update(f['id'], t.replace('C:/Users/Public/MICC Drive', DRV).encode('utf-8'), 'application/json'); log('  sửa đường dẫn project (bỏ C:/Users/Public)')
+    except Exception as e: log('  không sửa được đường dẫn cũ:', e)
 def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên SETUP (máy người dùng tự lấy bản mới mỗi 2 phút)
     try:
         import hashlib
@@ -1546,7 +1552,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    mark_root(); rename_old(); fix_vol(); heal_list(); setup_bat()
+    mark_root(); fix_public(); rename_old(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
