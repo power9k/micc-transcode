@@ -1548,11 +1548,6 @@ def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên
             try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
             except Exception: pass
         put('Cài đặt đồng bộ CapCut.bat', st[0]['id'], data, 'application/octet-stream')
-        time.sleep(5)   # nhiều máy cùng đưa lên → giữ đúng 1 bản (bản tạo sau cùng), xoá bản trùng
-        f = sorted(lq("'%s' in parents and name='Cài đặt đồng bộ CapCut.bat'" % st[0]['id'], 'id,createdTime'), key=lambda x: (x['createdTime'], x['id']))
-        for x in f[:-1]:
-            try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
-            except Exception: pass
         log('  đã cập nhật công cụ đồng bộ CapCut trong SETUP')
     except Exception as e: log('  không cập nhật được công cụ đồng bộ:', e)
 
@@ -1616,7 +1611,7 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
     except Exception as e: log('  không làm mới được danh sách CapCut:', e)
 
 def pending():
-    if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
+    if PAUSE: heal_list(); setup_bat(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
