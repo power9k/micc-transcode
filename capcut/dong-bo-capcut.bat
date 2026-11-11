@@ -87,17 +87,9 @@ try {
   if ($cur -and $cur -eq $want) { & subst.exe M: /D | Out-Null; Log 'da go o M cu (khong can nua)' }
   Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'MICC o M' -ErrorAction SilentlyContinue
 } catch {}
-# LOI TAT CHUNG: C:\Users\Public\MICC Drive -> Drive that cua may nay (o G, H, I... tu do theo dung tai khoan). Moi project tro duong dan chung nay
-# -> may nao mo cung dung, cac may KHONG sua de len nhau nua (file project dung chung tren Drive)
-$link = 'C:\Users\Public\MICC Drive'
-try {
-  $real = (Get-Item -LiteralPath $root).FullName.TrimEnd('\')
-  $li = Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue
-  if ($li -and $li.Target -and (($li.Target | Select-Object -First 1).TrimEnd('\') -ne $real)) { cmd /c rmdir "$link" | Out-Null; $li = $null; Log 'tao lai loi tat MICC Drive (Drive doi o)' }
-  if (-not $li) { New-Item -ItemType Junction -Path $link -Target $real -ErrorAction Stop | Out-Null; Log "loi tat MICC Drive -> $real" }
-} catch { Log ('khong tao duoc loi tat MICC Drive: ' + $_.Exception.Message) }
-$rootF = 'C:/Users/Public/MICC Drive'
-$rxRoot = '"(?:M:|[A-Za-z]:[/\\]+(?:Drive của tôi|My Drive)[/\\]+PHÒNG TRUYỀN THÔNG MICC)(?=[/\\])'   # duong dan cu (o bat ky / o M) -> duong dan chung
+# duong dan that cua Drive TREN MAY NAY (o G, H, I... tu do theo dung mail) - project nao tro o khac / o M thi sua lai cho dung may nay
+$rootF = ((Get-Item -LiteralPath $root).FullName.TrimEnd('\')) -replace '\\', '/'
+$rxRoot = '"(?:M:|[A-Za-z]:[/\\]+(?:Drive của tôi|My Drive)[/\\]+PHÒNG TRUYỀN THÔNG MICC)(?=[/\\])'
 # cai font cua team (Nexa Rush, Bebas, Dancing Script...) vao may nay cho rieng nguoi dung -> CapCut luon dung dung font, khong bao gio ra font he thong
 $fontsDone = $false
 function Install-TeamFonts($dir) {
@@ -177,7 +169,7 @@ function Fix-Media($dir) {
         if (-not $LooseCache.ContainsKey($p)) {
           $pc = $p.Normalize([Text.NormalizationForm]::FormC); $rc = $rootF.Normalize([Text.NormalizationForm]::FormC); $hit = $null
           if ($pc.StartsWith($rc, [StringComparison]::OrdinalIgnoreCase)) { $hit = Resolve-LooseFile $root ($pc.Substring($rc.Length).TrimStart('/')) }
-          $LooseCache[$p] = if ($hit) { $rootF + (($hit.Substring($real.Length)) -replace '\\', '/') } else { '' }   # giu duong dan chung, chi sua phan ten that
+          $LooseCache[$p] = if ($hit) { $hit -replace '\\', '/' } else { '' }
         }
         if ($LooseCache[$p]) { $n = $n.Replace('"' + $p + '"', '"' + $LooseCache[$p] + '"'); $fix++ } else { $miss++ }
       }
