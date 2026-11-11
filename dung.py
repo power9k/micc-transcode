@@ -1246,7 +1246,6 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)   # nhạc dùng → vào Kho/Nhạc nền
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
             put(fn, pf, open(os.path.join(od, fn), 'rb').read(), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
-        put('draft_cover.jpg', pf, base64.b64decode(a0['thumbs'][len(a0['thumbs']) // 2][1]), 'image/jpeg')
         list_edit(add=[rel])
         for p_ in (mu or []): used_music(add=p_['key'])
         for c in old_:   # bản mới đã lên xong → mới bỏ bản cũ (vào thùng rác Drive, khôi phục được)
