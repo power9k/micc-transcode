@@ -1370,7 +1370,7 @@ def edit(jb, key, models):
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
 ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
-PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+PAUSE = True   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 # ================================================================ HÀNG VIỆC CHUNG cho mọi máy GitHub (chủ dặn 11/11)
 # mọi máy = 1 cỗ máy: việc chia nhỏ (ĐỌC 1 video · LÊN KỊCH BẢN 1 source · DỰNG 1 kịch bản); máy rảnh nhận việc gần xong nhất trước
 # (dựng → lên kịch bản → đọc) → project ra lần lượt, các máy còn lại vẫn đọc song song các source khác. Khóa từng việc trên Drive.
@@ -1537,6 +1537,7 @@ def fix_public():   # project dựng lúc thử đường dẫn C:/Users/Public/
 def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên SETUP (máy người dùng tự lấy bản mới mỗi 2 phút)
     try:
         import hashlib
+        if os.environ.get('WORKER', '1') != '1': return   # chỉ 1 máy đưa lên → không ra 2 bản trùng
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'capcut', 'dong-bo-capcut.bat')
         if not os.path.exists(src): return
         data = open(src, 'rb').read(); md = hashlib.md5(data).hexdigest()
@@ -1548,11 +1549,6 @@ def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên
             try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
             except Exception: pass
         put('Cài đặt đồng bộ CapCut.bat', st[0]['id'], data, 'application/octet-stream')
-        time.sleep(5)   # nhiều máy cùng đưa lên → giữ đúng 1 bản (bản tạo sau cùng), xoá bản trùng
-        f = sorted(lq("'%s' in parents and name='Cài đặt đồng bộ CapCut.bat'" % st[0]['id'], 'id,createdTime'), key=lambda x: (x['createdTime'], x['id']))
-        for x in f[:-1]:
-            try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
-            except Exception: pass
         log('  đã cập nhật công cụ đồng bộ CapCut trong SETUP')
     except Exception as e: log('  không cập nhật được công cụ đồng bộ:', e)
 
