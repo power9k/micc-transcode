@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '20'
-LV = '14'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '21'
+LV = '15'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -1263,7 +1263,7 @@ VRE = re.compile(r'(?: \(AI dựng lại\)| v(\d+))\s*$')   # chủ dặn 11/11:
 def vnum(nm): m = VRE.search(bare_nm(nm)); return (int(m.group(1)) if m.group(1) else 2) if m else 1
 def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
 def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
-LVT = 1794437808   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
+LVT = 1794438178   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
 def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG KỊCH BẢN (gồm cả chờ máy, tải cảnh phụ / nhạc, dựng motion graphic…)
     try:
         f = idx_now()[1].get('%s_kichban.json' % jb['id'])
@@ -1393,6 +1393,11 @@ def lite(fid):   # bản nhẹ 480p/720p của video (máy chuyển đổi tạo
             xs.sort(key=lambda x: -int((x.get('videoMediaMetadata') or {}).get('height') or 0)); _LITE[fid] = xs[0]['id'] if xs else None
         except Exception: _LITE[fid] = None
     return _LITE[fid]
+def thumb(fid, out):   # ảnh đại diện Drive của video (không tính hạn mức tải) – dùng khi video bị Google chặn tải
+    req = urllib.request.Request('https://drive.google.com/thumbnail?id=%s&sz=w1920' % fid, headers={'User-Agent': 'Mozilla/5.0'})
+    b = urllib.request.urlopen(req, timeout=60).read()
+    if len(b) < 3000 or b[:1] == b'<': raise RuntimeError('không có ảnh đại diện')
+    open(out, 'wb').write(b); return out
 def ffgrab(fid, ss, t, outargs, timeout=400):   # đọc 1 đoạn / 1 khung từ video: thử bản gốc, bị chặn thì dùng bản nhẹ
     err = None
     for f in [fid, lite(fid)]:
@@ -1423,7 +1428,9 @@ def add_mg(jb, sc, pl, proj, host, adir):
             if a:
                 g = float(p.get('giay') if p.get('giay') is not None else (best_seg(a, 0) or 0)); g = max(0.0, min(g, a['dur'] - (e_ - s_) - .1))
                 os.makedirs(MGW, exist_ok=True); clip = os.path.join(MGW, 'mgsrc%d.mp4' % len(out))
-                ffgrab(a['vid']['id'], g, e_ - s_ + .3, ['-an', '-vf', 'scale=1280:-2', '-c:v', 'libx264', '-crf', '21', '-pix_fmt', 'yuv420p', clip])
+                try: ffgrab(a['vid']['id'], g, e_ - s_ + .3, ['-an', '-vf', 'scale=1280:-2', '-c:v', 'libx264', '-crf', '21', '-pix_fmt', 'yuv420p', clip])
+                except Exception as e0:   # video bị chặn tải → dùng ảnh đại diện của cảnh (vẫn trôi / zoom trong mặt nạ)
+                    clip = thumb(a['vid']['id'], clip[:-4] + '.jpg'); mlog('motion: dùng ảnh đại diện thay video (%s)' % str(e0)[:80])
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
             os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
             MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_))
@@ -1487,11 +1494,15 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
         a = AK.get(sh['media'])
         if a and sh['t1'] - sh['t0'] > .8: cand.append((0 if sh.get('line') == 'A' and N.face_span(a, sh['src'], sh['src'] + .8) else 1, sh['t0'], a, sh['src'] + .4))
     cand.sort(key=lambda x: (x[0], abs(x[1] - pl['total'] * .3)))
-    best = None
-    for k, (_, _, a, t) in enumerate(cand[:8]):
+    best = None; tried_ = set()
+    for k, (_, _, a, t) in enumerate(cand[:12]):
         os.makedirs(MGW, exist_ok=True); f = os.path.join(MGW, 'cover%d.jpg' % k)
         try:
-            ffgrab(a['vid']['id'], t, None, ['-frames:v', '1', '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-q:v', '3', f], timeout=200)
+            try: ffgrab(a['vid']['id'], t, None, ['-frames:v', '1', '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-q:v', '3', f], timeout=200)
+            except Exception:   # video bị chặn tải → ảnh đại diện Drive của video đó (mỗi video 1 ảnh khác nhau)
+                if a['vid']['id'] in tried_: continue
+                tried_.add(a['vid']['id']); tj = thumb(a['vid']['id'], f + '.src.jpg')
+                L.run(['ffmpeg', '-y', '-v', 'error', '-i', tj, '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-q:v', '3', f], timeout=60)
             h = int(_dh(f), 16); dmin = min([bin(h ^ o).count('1') for o in others] or [64])
             if not best or dmin > best[0]: best = (dmin, f, h)
             if dmin >= 14: break

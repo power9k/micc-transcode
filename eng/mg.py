@@ -149,7 +149,10 @@ def _enter(r, sel):   # kiểu xuất hiện của khối chính (mặt nạ / t
         "tl.fromTo('%s',{y:1500},{y:0,duration:1,ease:'power4.out'},0);" % sel,
     ])
 
-def _vid(clip, dur): return '<video id="v1" src="clip.mp4" muted playsinline data-start="0" data-duration="%s"></video>' % dur if clip else ''
+def _vid(clip, dur):
+    if not clip: return ''
+    if clip.lower().endswith('.jpg'): return '<img id="v1" src="clip.jpg" style="width:100%;height:100%;object-fit:cover;display:block">'   # ảnh tĩnh (video bị chặn tải) – vẫn trôi / zoom
+    return '<video id="v1" src="clip.mp4" muted playsinline data-start="0" data-duration="%s"></video>' % dur
 
 def scene(loai, dur, clip, n, r):
     v = _vid(clip, dur); js = ''; body = ''
@@ -300,7 +303,7 @@ def render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None):
     r = random.Random(int(hashlib.md5(('%s|%s|%s' % (seed or out, loai, dur)).encode()).hexdigest()[:8], 16))
     work = work or out + '.d'; shutil.rmtree(work, ignore_errors=True); os.makedirs(work)
     shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gsap.min.js'), work)
-    if clip: shutil.copy(clip, os.path.join(work, 'clip.mp4'))
+    if clip: shutil.copy(clip, os.path.join(work, 'clip.jpg' if clip.lower().endswith('.jpg') else 'clip.mp4'))
     bgfill, pat, patop, patmove = _bg(r)
     body, js = scene(loai, round(dur, 2), clip, n, r)
     dbody, djs = _decor(r); body = dbody + body; js = djs + js   # chi tiết trang trí nằm dưới khối chính
