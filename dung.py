@@ -976,7 +976,7 @@ def lock(fid, k):
     try:
         cur = (get(fid, 'appProperties').get('appProperties') or {}).get(k) or ''
         if cur and not cur.startswith(WID + ':') and _fresh(cur): return False
-        L.mark(fid, **{k: '%s:%d' % (WID, time.time())}); time.sleep(4)
+        L.mark(fid, **{k: '%s:%d' % (WID, time.time())}); time.sleep(2.5)
         return ((get(fid, 'appProperties').get('appProperties') or {}).get(k) or '').startswith(WID + ':')
     except Exception as e: log('  khóa lỗi', e); return False
 def unlock(fid, k):
@@ -1021,8 +1021,13 @@ def load(jb):   # nạp đủ dữ liệu 1 source (đã đọc hết → chỉ 
     if jb['id'] not in _JB: _JB[jb['id']] = read(jb)
     return _JB[jb['id']]
 
+def names_in(ad, names):   # hỏi đúng vài file cần (không liệt kê cả kho phân tích hàng nghìn file)
+    q = ' or '.join("name='%s'" % n for n in names)
+    return {x['name']: x['id'] for x in lq("'%s' in parents and (%s)" % (ad, q), 'id,name')}
 def do_read(jb, v):
-    ad, idx = idx_now(); t0 = time.time()
+    ad, _ = ana_dir(); t0 = time.time()
+    idx = names_in(ad, [ana_name(v), xem_name(v), hong_name(v)])
+    if hong_name(v) in idx or (ana_name(v) in idx and xem_name(v) in idx): return   # máy khác vừa làm xong
     a = read_video(0, v, 1, ad, idx, t0)
     if a is None: jput(hong_name(v), {'loi': 'không đọc được'}, ad, idx); return
     if xem_name(v) not in idx:
@@ -1044,6 +1049,7 @@ def do_plan(jb, key, models):
 def do_build(jb, n):
     t0 = time.time(); jb = load(jb); ad, idx = idx_now(); engine(); codes(jb)
     book = jget('%s_kichban.json' % jb['id'], idx) or {}; stt = jget(st_name(jb, n), idx) or {}
+    if stt.get('done') or int(stt.get('tries') or 0) >= MAXT: return   # máy khác vừa làm xong
     sc = stt.get('sc') or next(x for x in book['scripts'] if x['_n'] == n)
     jb['fixed'] = None; jb['qa_rej'] = 0
     try: r = publish(jb, sc, n)
@@ -1075,15 +1081,18 @@ def run(key, models, until):
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     try: migrate_m()
     except Exception as e: log('AI dựng: đổi ổ M lỗi', e)
-    idle, done_n = 0, 0
+    idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
-        try: T = tasks()
-        except Exception as e: log('AI dựng: quét lỗi', e); time.sleep(60); continue
+        if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
+            try: T = tasks(); tT = time.time()
+            except Exception as e: log('AI dựng: quét lỗi', e); time.sleep(60); continue
         got = None
-        for pr, kind, jb, x in T[:12]:
+        while T:
+            pr, kind, jb, x = T.pop(0)
             fid, k = (jb['id'], 'dungLock') if kind == 'plan' else ((x['id'], 'dungRL') if kind == 'read' else (idx_now()[1]['%s_kichban.json' % jb['id']], 'L%d' % x))
             if lock(fid, k): got = (kind, jb, x, fid, k); break
         if not got:
+            T = []
             idle += 1
             if idle >= 2: log('AI dựng: hết việc cho máy này'); break
             time.sleep(60); continue
