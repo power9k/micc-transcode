@@ -198,7 +198,6 @@ QA_LIST = '''DANH SÁCH KIỂM TRA (chủ đã dặn, lỗi nào cũng phải s�
 7. Mở đầu không có câu hút (hook), kết thúc cụt / không có đoạn kết → gắn câu kết bằng them_cau (chọn trong danh sách CÂU KẾT); hook yếu → gắn câu hút lên đầu. Đổi nhân vật chính giữa chừng (người nói khác) là lỗi NẶNG → cat_doan đoạn đó.
 8. Đè tiếng: 2 giọng nói cùng lúc, tiếng cảnh phụ lẫn vào lời, nhạc / SFX át giọng.
 9. Lỗi font: ký tự hiện thành ô vuông / khối chữ nhỏ lạ, mất dấu tiếng Việt.
-12. KHUNG HÌNH XẤU (lỗi NẶNG): khung cắt mất mặt / chỉ thấy cằm, ngực, cổ áo, tay; zoom quá cận; cảnh phụ là cận bộ phận cơ thể, bị cây lá che; ghép 2 khung chồng nhau rối mắt → bo_canh_phu (cảnh phụ) hoặc khung_rong [{"s":giây,"e":giây}] (cảnh người nói: về khung rộng, không zoom).
 11. Bố cục chữ: chữ đè lên người / ngực trong khi phía trên đầu hoặc bên cạnh còn khoảng trống (phải đặt chữ vào khoảng trống); nhạc nền không hợp phong thái người nói / giọng kịch bản (vd nhạc da diết cho video năng động).
 10. Video chán: ít hiệu ứng, cảnh đứng yên lâu, cảnh phụ không đa dạng, nhịp cắt đều đều không theo nhạc.'''
 def qa(pl, timeline, pv_imgs, log=print, extra=''):
@@ -206,7 +205,7 @@ def qa(pl, timeline, pv_imgs, log=print, extra=''):
          '\n\nẢnh kèm theo = khung xem trước 9:16 của bản dựng tại các mốc (đúng vị trí chữ + khung hình đã zoom). '
          'Xem kỹ rồi trả JSON: {"dat":true/false,"loi":["mô tả ngắn từng lỗi"],'
          '"sua":{"bo_chu":[số T],"doi_chu":[{"T":số,"big":"chữ mới","small":"dòng phụ mới hoặc rỗng"}],"doi_vi_tri":[{"T":số,"y":phần trăm chiều cao 12–80}],'
-         '"bo_canh_phu":[số B],"doi_canh_phu":[{"B":số,"video":số # trong KHO CẢNH PHỤ,"s":giây bắt đầu}],"doi_canh_tu_phu":[{"video":số # nguồn,"giay":giây gốc}],"cat_doan":[{"s":giây timeline,"e":giây timeline}],"them_cau":[{"cau":"mã câu C…","vi_tri":"cuoi" hoặc "dau"}],"khung_rong":[{"s":giây timeline,"e":giây timeline}],"them_chu":[{"cau":"mã câu C…","tu":"chữ người nói (chép y nguyên)","big":"TỪ KHÓA","small":""}]}}\n'
+         '"bo_canh_phu":[số B],"doi_canh_phu":[{"B":số,"video":số # trong KHO CẢNH PHỤ,"s":giây bắt đầu}],"doi_canh_tu_phu":[{"video":số # nguồn,"giay":giây gốc}],"cat_doan":[{"s":giây timeline,"e":giây timeline}],"them_cau":[{"cau":"mã câu C…","vi_tri":"cuoi" hoặc "dau"}],"them_chu":[{"cau":"mã câu C…","tu":"chữ người nói (chép y nguyên)","big":"TỪ KHÓA","small":""}]}}\n'
          'Mỗi lỗi ghi mở đầu bằng [NẶNG] hoặc [NHẸ]. NẶNG = chữ sai nghĩa / sai chính tả / cụt nghĩa, chữ đè mặt, đang có lời mà hình không có người cũng không có cảnh phụ, '
          'cắt mất chữ / lặp câu / nói hỏng còn sót, cảnh hỏng (mờ, rung mạnh, đen) dài > 1 s, khoảng trống không chữ > 6 s, không có mở đầu hoặc kết cụt. '
          'Còn lại (hook có thể mạnh hơn, trống chữ 3–6 s, cảnh phụ chưa thật đẹp, chưa đa dạng…) là NHẸ. '
