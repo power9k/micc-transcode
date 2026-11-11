@@ -172,7 +172,7 @@ def preview(pl, A_by_key, times, fontdir=None):
 
 # ---------------------------------------------------------------- 5) Opus KIỂM TRA bản dựng trước khi giao
 QA_LIST = '''DANH SÁCH KIỂM TRA (chủ đã dặn, lỗi nào cũng phải sửa):
-1. Chữ sai chính tả / cụm vô nghĩa / không trọn nghĩa (vd "NINH VÀ", "TRƯỜNG SỐNG") / chữ không khớp lời đang nói / hiện sai lúc.
+1. Chữ sai tên riêng / tên dự án (so với tên dự án chuẩn ở đầu dòng thời gian), sai chính tả / cụm vô nghĩa / không trọn nghĩa (vd "NINH VÀ", "TRƯỜNG SỐNG") / chữ không khớp lời đang nói / hiện sai lúc.
 2. Chữ đè lên mặt người, chữ tràn khung, chữ chồng chữ.
 3. Thiếu chữ (khoảng trống > 3 giây không có chữ) hoặc thừa (chữ dồn dập khó đọc, chép nguyên câu).
 4. Cảnh phụ không khớp lời đang nói, cảnh phụ xấu (rung, mờ, lóa), cảnh lặp lại.

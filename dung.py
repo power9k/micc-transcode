@@ -369,7 +369,7 @@ def codes(jb):   # mã câu C1, C2… (cùng thứ tự với lúc lên kế ho�
     return C
 
 def plan(jb, key, models, extra=''):
-    parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nSource có các thư mục con "Kịch bản N": MỖI thư mục Kịch bản = đúng 1 video (1 script), A-roll lấy từ chính thư mục đó; thư mục khác = kho cảnh phụ dùng chung.' if jb.get('kbtop') else '\nTự phân tích toàn bộ source để chia các kịch bản, mỗi kịch bản 1 video dưới 2 phút.')}]
+    parts = [{'text': '⚠ TÊN RIÊNG: lời thoại do máy nghe nên hay sai tên riêng (vd "Kinh Bắc" thực ra là "King Park"). Tên dự án / địa danh CHUẨN lấy theo tên thư mục: %s. Chữ trên hình, tên video, dòng phụ phải viết ĐÚNG tên chuẩn, đúng chính tả – không chép nguyên lỗi của máy nghe; "tu" vẫn chép đúng như lời thoại (để bắt đúng lúc nói).\n\n' % path_of(jb['id']) + extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nSource có các thư mục con "Kịch bản N": MỖI thư mục Kịch bản = đúng 1 video (1 script), A-roll lấy từ chính thư mục đó; thư mục khác = kho cảnh phụ dùng chung.' if jb.get('kbtop') else '\nTự phân tích toàn bộ source để chia các kịch bản, mỗi kịch bản 1 video dưới 2 phút.')}]
     C = jb['C'] = {}
     for a in jb['A']:
         head = '[thư mục: %s] ' % (jb.get('dn') or {}).get(a['vid'].get('dir'), '') + L.summary(a).split('\nLời thoại:')[0]
@@ -779,7 +779,7 @@ def timeline(jb, sc, pl):   # dòng thời gian bằng chữ cho Claude kiểm d
         out.append('%5.1f–%5.1fs [T%d] CHỮ y=%.0f%%: %s' % (z['t0'], z['t1'], z['si'], z['y_pct'], ' / '.join(l[0] for l in z['lines'])))
     out.sort(key=lambda r: float(r.split('–')[0]))
     out.append('Chuyển cảnh: ' + ', '.join('%s@%.1fs' % (x['name'], x['at']) for x in pl['transitions']) + ' · tổng %.1fs' % pl['total'])
-    return '\n'.join(out)
+    return ('DỰ ÁN (tên chuẩn theo thư mục): %s – lời thoại do máy nghe có thể sai tên riêng (vd "Kinh Bắc" = "King Park"); chữ trên hình sai tên dự án / địa danh là lỗi NẶNG, sửa bằng doi_chu.\n' % path_of(jb['id'])) + '\n'.join(out)
 def review(jb, sc, pl, proj, adir, mu):
     sc0 = sc
     A = {'V%d' % a['i']: a for a in jb['A']}
