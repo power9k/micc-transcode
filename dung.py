@@ -1906,18 +1906,34 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
 
 def pending():
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
+    if not drive_ok(): return 0   # Google đang chặn tải → không khởi động máy dựng
     share_sys(); restore_r6(); dedupe_proj()   # dọn trùng ngay cả khi không có việc dựng
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
     return 1
 
+def drive_ok():   # tài khoản MICC còn tải được không (thử 1 file nhỏ của tài khoản) – bị chặn thì máy ngưng chờ thay vì dựng ra project thiếu
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(L.aurl(LISTF), headers={'Range': 'bytes=0-200'}), timeout=30).read(300)
+        if b'Quota exceeded' in r or b'Too many users' in r:
+            log('⏸ Google đang chặn hạn mức tải của tài khoản MICC – máy ngưng, 10 phút sau lượt mới tự thử lại')
+            try:   # báo Zalo tối đa 3 tiếng 1 lần (16 máy cùng thấy → không gửi trùng)
+                q_ = float((L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungQ') or 0)
+                if time.time() - q_ > 3 * 3600 and os.environ.get('WORKER') == '1':
+                    L.mark(LISTF, dungQ=str(int(time.time()))); L.tsay('⏸ Google tạm chặn tải Drive (tải quá nhiều) – máy dựng tự ngưng, tự chạy lại khi Google mở')
+            except Exception: pass
+            return False
+    except Exception: pass
+    return True
+LISTF = '1wp8d6QDy9vkjrJPols3esmh9ORFMXY97'   # file danh sách CapCut (của tài khoản MICC)
 def run(key, models, until):
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     mark_root(); fix_public(); retract_all(); share_sys(); restore_r6(); free_stale(); rename_old(); dedupe_proj(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
+        if not drive_ok(): break   # chủ dặn 12/11: Google chặn hạn mức tải → ngưng, lượt sau (10 phút) tự thử lại
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
             try: T = tasks(); tT = time.time()
             except Exception as e: log('AI dựng: quét lỗi', e); time.sleep(60); continue
