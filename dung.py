@@ -339,12 +339,17 @@ def claude_plan(parts):
             log('  Claude chưa trả JSON:', (r.stderr or out or '')[-300:])
         except Exception as e: log('  Claude lỗi:', e)
     return None
+def faceless(a):   # bản thu tiếng (không thấy người nói) → phải phủ kín cảnh phụ
+    fc = (a.get('see') or {}).get('faces'); kt = a.get('kt') or []
+    return fc is not None and len(kt) >= 3 and len(fc) < .2 * len(kt)
+
 def plan(jb, key, models, extra=''):
     parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nSource có các thư mục con "Kịch bản N": MỖI thư mục Kịch bản = đúng 1 video (1 script), A-roll lấy từ chính thư mục đó; thư mục khác = kho cảnh phụ dùng chung.' if jb.get('kbtop') else '\nTự phân tích toàn bộ source để chia các kịch bản, mỗi kịch bản 1 video dưới 2 phút.')}]
     C = jb['C'] = {}
     for a in jb['A']:
         head = '[thư mục: %s] ' % (jb.get('dn') or {}).get(a['vid'].get('dir'), '') + L.summary(a).split('\nLời thoại:')[0]
-        head += '\n' + N.vlog_text(a.get('vlog')) + '\n' + N.sound_text((a.get('see') or {}).get('sound'))   # Claude đã XEM mọi khung hình + nghe âm thanh
+        head += '\n' + N.vlog_text(a.get('vlog')) + '\n' + N.sound_text((a.get('see') or {}).get('sound'))
+        if not a['vid'].get('broll') and faceless(a): head += '\n⚠ VIDEO NÀY KHÔNG THẤY MẶT NGƯỜI NÓI (chỉ là bản thu tiếng) → chỉ lấy tiếng, mọi câu của video này phải có broll phủ kín (máy sẽ tự phủ cảnh phụ).'   # Claude đã XEM mọi khung hình + nghe âm thanh
         if a['vid'].get('broll'):
             parts.append({'text': '[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + head})
             continue
@@ -517,6 +522,39 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             trans.append(dict(name=nm, effect_id=eid, at=round(T, 3), dur_s=.4))
             sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(T - .25, 3)), vol=.3, dur=0.58))
             if nm == 'Glare II' and not fx: fx.append(dict(preset='effect_lens_flare.json', t0=round(T, 3), dur_s=.6))
+    # ---- bản thu tiếng không thấy người: phủ kín cảnh phụ (mỗi cảnh ≤3 s, đổi video liên tục, ưu tiên đoạn Claude chấm điểm cao)
+    keyA = {'V%d' % a['i']: a for a in A.values()}
+    poolB = [A[vid(b.get('video', 0))] for b in sc.get('broll', []) if A.get(vid(b.get('video', 0)))]
+    poolB += [a for a in A.values() if (a['vid'].get('broll') or not a.get('segs')) and a not in poolB]
+    def segs_of(a):
+        d = [x for x in ((a.get('vlog') or {}).get('doan') or []) if float(x.get('e', 0)) - float(x.get('s', 0)) >= 1.4]
+        d.sort(key=lambda x: -float(x.get('diem') or 0))
+        return [(float(x['s']), float(x['e'])) for x in d] or [(min(1.0, a['dur'] / 4), a['dur'] - .2)]
+    cur = {id(a): 0 for a in poolB}; pi = [0]
+    def next_b(dmin):
+        for _ in range(len(poolB)):
+            a = poolB[pi[0] % len(poolB)]; pi[0] += 1; sg = segs_of(a); j = cur[id(a)]
+            if j < len(sg) and sg[j][1] - sg[j][0] >= dmin: cur[id(a)] += 1; return a, sg[j]
+        if any(cur.values()):   # hết đoạn mới → dùng lại từ đầu (source ít cảnh phụ), vẫn hơn để lộ cảnh không người
+            for k_ in cur: cur[k_] = 0
+            return next_b(dmin)
+        return None
+    if poolB:
+        out = []
+        for sh in shots:
+            a = keyA.get(sh['media'])
+            if sh['line'] != 'A' or not a or not faceless(a) or sh['t1'] - sh['t0'] < .5: out.append(sh); continue
+            t = sh['t0']
+            while t < sh['t1'] - .05:
+                d = min(2.6, sh['t1'] - t)
+                if sh['t1'] - (t + d) < .9: d = sh['t1'] - t
+                nb = next_b(min(d, 1.4))
+                if not nb: out.append(dict(sh, t0=round(t, 3), keys=[[round(t, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]])); break
+                b, (bs, be) = nb; d = min(d, be - bs) if be - bs > .9 else d
+                k0, k1 = BMOVES[mv % len(BMOVES)]; mv += 1
+                out.append(dict(media=key(b), src=round(bs, 3), t0=round(t, 3), t1=round(t + d, 3), line='B', bi=-1, phu=1, keys=[[round(t, 3)] + list(k0), [round(t + d, 3)] + list(k1)], punch_abs=[]))
+                t += d
+        shots = sorted(out, key=lambda x: x['t0'])
     # khớp chuyển cảnh với chỗ cắt thật sau khi chèn
     cuts = {round(s_['t1'], 3) for s_ in shots}
     trans = [x for x in trans if round(x['at'], 3) in cuts]
@@ -655,7 +693,7 @@ def timeline(jb, sc, pl):   # dòng thời gian bằng chữ cho Claude kiểm d
             if hi - lo > .05: seg += [w[2] for w in words(AK.get(sp['media']), sp['src_in'] + lo - sp['t0'], sp['src_in'] + hi - sp['t0'])]
         seg = ' '.join(seg)
         vl = next((d for d in ((a or {}).get('vlog') or {}).get('doan', []) if float(d.get('s', 0)) - .3 <= src <= float(d.get('e', 0)) + .3), None)
-        tag = ('[B%d] CẢNH PHỤ' % sh.get('bi', -1)) if sh['line'] != 'A' else 'NGƯỜI NÓI'
+        tag = ('CẢNH PHỤ tự phủ lên bản thu tiếng (không bỏ được)' if sh.get('phu') else '[B%d] CẢNH PHỤ' % sh.get('bi', -1)) if sh['line'] != 'A' else 'NGƯỜI NÓI'
         out.append('%5.1f–%5.1fs %s (video #%d từ giây gốc %.1f) zoom %.2f→%.2f%s | hình: %s | lời đang phát: %s' % (sh['t0'], sh['t1'], tag, a['i'] if a else 0, src, sh['keys'][0][1], sh['keys'][-1][1],
                    ' (có giật zoom)' if len(sh['keys']) > 2 else '', (vl or {}).get('noi_dung', '?') + ' / ' + (vl or {}).get('chat_luong', ''), seg[:160]))
     for z in pl['titles']:
