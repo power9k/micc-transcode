@@ -459,6 +459,11 @@ def kat(keys, t):   # khung máy [t, zoom, u, v, xoay] tại thời điểm t (n
         if a_[0] <= t <= b_[0]:
             f = (t - a_[0]) / max(1e-6, b_[0] - a_[0]); return [t] + [x + (y - x) * f for x, y in zip(a_[1:], b_[1:])]
     return list(keys[-1])
+def punch2(keys, T, cap=9.0):   # giật zoom KỊCH TÍNH (giật 2 nhịp) cho cú nhấn mạnh / số liệu
+    kv = kat(keys, T); z = kv[1]; c = lambda v: round(min(v, cap), 4)
+    if c(z * 1.16) - z < .06: return keys
+    return [k for k in keys if k[0] < T - .002] + [[round(T - .001, 3)] + kv[1:], [round(T + .06, 3), c(z * 1.10)] + kv[2:], [round(T + .14, 3), c(z * 1.04)] + kv[2:],
+            [round(T + .22, 3), c(z * 1.16)] + kv[2:]] + [[k[0], c(k[1] * 1.17)] + list(k[2:]) for k in keys if k[0] > T + .22]
 def punch(keys, T, k1=1.14, k2=1.16, cap=9.0):   # giật zoom tại T mà vẫn giữ đường bám mặt; không vượt mức cận tối đa của cảnh
     kv = kat(keys, T); z1 = min(kv[1] * k1, cap)
     if z1 - kv[1] < .05: return keys   # đã cận sẵn → không giật thêm (tránh cận cằm)
@@ -558,6 +563,12 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
                 su, sv = su + (fu - su) * .6, sv + (fv - sv) * .6   # làm mượt, không giật theo từng khung
                 if abs(su - kp[-1][2]) > .01 or abs(sv - kp[-1][3]) > .01: kp.append([round(t + fr[0] - x, 3), round(mm, 4), round(su, 3), round(sv, 3), 0.0])
             kp.append([round(t + d, 3), m1, u1 if len(kp) == 1 else su, v1 if len(kp) == 1 else sv, 0.0])
+            mv_ = (n_sent + j) % 4   # chuyển động máy kiểu điện ảnh, đổi liên tục: đẩy vào / lia ngang / xoay vòng nhẹ (orbit) / dolly lùi
+            for kk_ in kp:
+                fr_ = (kk_[0] - t) / max(d, 1e-6)
+                if mv_ == 1: kk_[2] = round(kk_[2] + (fr_ - .5) * .06 * (1 if n_sent % 2 else -1), 3)
+                elif mv_ == 2: kk_[4] = round((-1.2 + 2.4 * fr_) * (1 if n_sent % 2 else -1), 3); kk_[1] = round(min(zc * 1.06, max(kk_[1], 1.04)), 4)   # xoay cần phóng nhẹ để không lộ viền
+                elif mv_ == 3: kk_[1] = round(max(1.0, min(zc, kk_[1] * (1.05 - .05 * fr_))), 4)
             shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A', face=f0 or f1, keys=kp, punch_abs=[], zc=zc))
             speech.append(dict(media=k, src_in=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), vol=1.0))
             pieces.append((a['i'], x, y, t, ai)); t += d
@@ -701,7 +712,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh.get('face') and sh['t0'] + .2 < T < sh['t1'] - .35:
                     T = N.snap(T, beats, .12) if beats else T   # giật zoom trùng phách nếu phách ở rất gần từ khóa
-                    sh['keys'] = punch(sh['keys'], T, cap=sh.get('zc', 1.3) * 1.1); lastp = T; break
+                    sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=sh.get('zc', 1.3) * 1.12); lastp = T; break
     # (bỏ phần tự thêm chữ từ lời nói: chủ phản ánh ra cụm vô nghĩa như "NINH VÀ", "TRƯỜNG SỐNG" – chữ chỉ lấy từ AI, có kiểm tra trọn nghĩa)
     titles.sort(key=lambda z: z['t0'])
     for n, z in enumerate(titles): z['anim'] = n
@@ -781,6 +792,23 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
                 ashots.append(dict(media=sp['media'], src=round(sp['src_in'] + s_ - sp['t0'], 3), t0=round(s_, 3), t1=round(e_, 3), line='A',
                                    keys=[[round(s_, 3)] + lastk, [round(e_, 3)] + lastk], punch_abs=[]))
     ashots.sort(key=lambda x: x['t0'])
+    # KHUNG NỔI: cứ khoảng 1/3 cảnh phụ (dài ≥ 2 s, video người nói có mặt) → người nói thu nhỏ ở góc dưới, cảnh phụ to phía sau
+    pips, kb_ = [], 0
+    for b in bshots:
+        if b['t1'] - b['t0'] < 2.0: continue
+        kb_ += 1
+        if kb_ % 3 != 2: continue
+        sp = next((x for x in speech if x['t0'] <= b['t0'] + .05 and x['t1'] >= b['t1'] - .05), None)
+        a_ = AK.get(sp['media']) if sp else None
+        if not a_ or faceless(a_): continue
+        f_ = N.face_span(a_, sp['src_in'] + b['t0'] - sp['t0'], sp['src_in'] + b['t1'] - sp['t0'])
+        if not f_: continue
+        side = 1 if kb_ % 2 else -1; md_ = media.get(sp['media']) or {}
+        Sw = md_.get('S0', 1.0) if (md_.get('w') or 1) > (md_.get('h') or 1) else 1.0
+        sc_ = round(min(.36, .42 / max(Sw, 1e-3)), 4); w_, h_ = Sw * sc_, sc_   # khung rộng ~42 % (video ngang) / cao 36 % (video dọc)
+        X = round(side * (.95 - w_ / 2 - .5) * 2, 4); Y = round(-((1 - .15 - h_ / 2) - .5) * 2, 4)   # góc dưới, chừa vùng nút TikTok
+        pips.append(dict(media=sp['media'], src=round(sp['src_in'] + b['t0'] - sp['t0'] + .1, 3), t0=round(b['t0'] + .1, 3), t1=round(b['t1'] - .05, 3),
+                         keys=[[round(b['t0'] + .1, 3), sc_, X, Y, -2.0 * side], [round(b['t1'] - .05, 3), sc_ * 1.06, X, Y + .02, 0.0]]))
     for a_, b_ in zip(ashots, ashots[1:]):   # khít liền, không hở
         if abs(a_['t1'] - b_['t0']) < .02: a_['t1'] = b_['t0']; a_['keys'][-1][0] = b_['t0']
     # SFX sinh động: whoosh khi cảnh phụ vào (cách nhau ≥ 2 s), "tách" nhẹ khi đổi cảnh phụ liền nhau
@@ -790,7 +818,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         if prev is not None and abs(prev['t1'] - b['t0']) < .01: continue
         if all(abs(b['t0'] - w) >= 2.0 for w in wt): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(b['t0'] - .22, 3)), vol=.22, dur=0.58)); wt.append(b['t0'])
     return dict(project=proj, out_dir=os.path.join(L.TMP, 'out'), asset_dir=adir, media=media, total=total, lines=[dict(id='A', t0=0.0, t1=total)],
-                apieces=[[p[4], round(p[3], 3), round(p[3] + p[2] - p[1], 3)] for p in pieces], ashots=ashots, bshots=bshots, speech=speech, shots=shots, titles=titles, transitions=trans, effects=fx, music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
+                apieces=[[p[4], round(p[3], 3), round(p[3] + p[2] - p[1], 3)] for p in pieces], ashots=ashots, bshots=bshots, pips=pips, speech=speech, shots=shots, titles=titles, transitions=trans, effects=fx, music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
 
 
 # ---------------------------------------------------------------- nhạc nền: mỗi project 1 bài KHÁC NHAU (ưu tiên nhạc chủ để trong thư mục buổi quay, rồi tới Kho nhạc nền)
