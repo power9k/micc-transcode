@@ -1030,17 +1030,11 @@ def engine():
 # ---------------------------------------------------------------- 4) đưa project lên Drive + danh sách lối tắt
 def list_file():
     return lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), LIST_NAME))[0]['id']
-def list_edit(add=(), remove=()):   # nhiều máy cùng sửa danh sách → giữ khóa ngắn để không ghi đè mất dòng của nhau
-    fid = list_file(); got = False
-    for _ in range(12):
-        if lock(fid, 'dungLE'): got = True; break
-        time.sleep(5)
-    try:
-        lines = [x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()]
-        lines = [x for x in lines if x not in remove] + [x for x in add if x not in lines]
-        update(fid, ('\r\n'.join(lines) + '\r\n').encode('utf-8'), 'text/plain')
-    finally:
-        if got: unlock(fid, 'dungLE')
+def list_edit(add=(), remove=()):   # danh sách lối tắt = TÍNH LẠI từ thông tin thư mục trên Drive (không cần đọc nội dung file → không bị chặn hạn mức tải, không ghi đè mất dòng)
+    fid = list_file()
+    lines = sorted({path_of((c.get('parents') or [''])[0]) + '/' + nf(c['name'])
+                    for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,parents')})
+    update(fid, ('\r\n'.join(lines) + '\r\n').encode('utf-8'), 'text/plain')
 def timeline(jb, sc, pl):   # dòng thời gian bằng chữ cho Claude kiểm duyệt
     A = {a['i']: a for a in jb['A']}; AK = {'V%d' % i: a for i, a in A.items()}; out = []
     for sh in pl['shots']:
@@ -1372,7 +1366,7 @@ def edit(jb, key, models):
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
 ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
-PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+PAUSE = True   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 # ================================================================ HÀNG VIỆC CHUNG cho mọi máy GitHub (chủ dặn 11/11)
 # mọi máy = 1 cỗ máy: việc chia nhỏ (ĐỌC 1 video · LÊN KỊCH BẢN 1 source · DỰNG 1 kịch bản); máy rảnh nhận việc gần xong nhất trước
 # (dựng → lên kịch bản → đọc) → project ra lần lượt, các máy còn lại vẫn đọc song song các source khác. Khóa từng việc trên Drive.
@@ -1608,25 +1602,19 @@ def retract_all():
         except Exception: pass
     except Exception as e: log('  không thu hồi được:', e)
 
-def heal_list():   # mọi project đã giao (kiểu mới) phải có trong danh sách CapCut – tự bù dòng thiếu
-    try:
-        fid = list_file(); have = {x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()}
-        add = []
-        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,parents'):   # mọi project AI dựng đang còn trên Drive
-            rel = path_of((c.get('parents') or [''])[0]) + '/' + c['name']
-            if rel not in have: add.append(rel)
-        if add: list_edit(add=add); log('  đã bù vào danh sách CapCut:', '; '.join(add))
-    except Exception as e: log('  không rà được danh sách CapCut:', e)
+def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng đang có trên Drive
+    try: list_edit(); log('  đã làm mới danh sách CapCut')
+    except Exception as e: log('  không làm mới được danh sách CapCut:', e)
 
 def pending():
-    if PAUSE: return 0
+    if PAUSE: heal_list(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
     return 1
 
 def run(key, models, until):
-    if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
+    if PAUSE: heal_list(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     mark_root(); fix_public(); retract_all(); rename_old(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
