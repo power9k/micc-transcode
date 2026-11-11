@@ -24,7 +24,7 @@ def cache_dir():
     return _CD[0]
 LIB = '1ZIROORo_epCYmpf55Q0reoT8gOfCwyEX'  # thư mục nhạc + hiệu ứng âm thanh + font mẫu (AI tải về của Center Avenue KB2)
 LIB_SKIP = ('Phim ', 'Outro ')
-DRV = 'G:/Drive của tôi/PHÒNG TRUYỀN THÔNG MICC'   # đường dẫn lúc dựng; khi đưa lên Drive đổi sang ổ M: (máy nào công cụ đồng bộ cũng gán M: = thư mục này)
+DRV = 'C:/Users/Public/MICC Drive'   # đường dẫn chung cho MỌI máy: công cụ đồng bộ tạo lối tắt thư mục này trỏ vào Drive thật của từng máy (ổ nào cũng được)
 MROOT = re.compile(r'[A-Za-z]:(?:/|\\\\)+(?:Drive của tôi|My Drive)(?:/|\\\\)+PHÒNG TRUYỀN THÔNG MICC')
 def to_m(b): return MROOT.sub('M:', unicodedata.normalize('NFC', b.decode('utf-8'))).encode('utf-8')
 def migrate_m():   # project cũ (G:/Drive của tôi/...) → M:/... để máy nào mở cũng thấy file
