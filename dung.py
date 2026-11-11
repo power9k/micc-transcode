@@ -5,7 +5,7 @@
 #     chọn câu nói hay nhất (đủ ý, đúng diễn xuất), cảnh phụ khớp lời, chữ nhấn ý chính
 #  3) DỰNG: bỏ ngập ngừng / ầm à, che vết cắt bằng giật zoom, cảnh phụ, chữ, nhạc, hiệu ứng âm thanh → draft CapCut
 #  4) Đưa project vào thư mục buổi quay (1 phiên bản duy nhất) + thêm vào MICC media · Hệ thống (không xóa)/AI dựng CapCut/Danh sách project CapCut.txt (máy nhân viên tự có lối tắt)
-import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
+import os, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
@@ -482,7 +482,6 @@ def tighten(a, s, e):   # bỏ ngập ngừng: cắt ĐÚNG khoảng lặng gi�
         if y2 - x2 > .3: out.append((max(0.0, x2), min(y2, a['dur'] - .05)))
     return out
 def grade_of(a):   # đo màu gốc từng cảnh → thông số lớp Điều chỉnh để ra ĐÚNG màu mẫu chủ gửi
-    if a.get('mau'): return a['mau']   # Claude đã XEM khung hình video này và đặt thông số
     try:
         import numpy as np, io
         from PIL import Image
@@ -496,7 +495,7 @@ def grade_of(a):   # đo màu gốc từng cảnh → thông số lớp Điều 
         sat = float((x.max(1) - x.min(1)).mean()); cast = float(R.mean() - B.mean()); gm = float(G.mean() - (R.mean() + B.mean()) / 2)
         c = lambda v, a_, b_: round(max(a_, min(b_, v)), 3)
         # MÀU MẪU CỦA CHỦ (ảnh mẫu 10/11 + 2 video mẫu BĐS): sáng trong, trắng sạch, ấm nhẹ, xanh lá tươi, da hồng hào, tương phản vừa
-        TG = dict(m=.50, sd=.25, sat=.16, cast=.045, gm=.015)   # 11/11 chiều: rõ hơn, điện ảnh hơn, bão hòa hơn – vẫn tươi sáng   # + 5 ảnh mẫu 11/11: sáng thoáng, trắng sạch gần trung tính, da ấm, cỏ cây tươi, tương phản mềm, bóng không bệt
+        TG = dict(m=.50, sd=.22, sat=.13, cast=.045, gm=.015)   # + 5 ảnh mẫu 11/11: sáng thoáng, trắng sạch gần trung tính, da ấm, cỏ cây tươi, tương phản mềm, bóng không bệt
         g = dict(brightness=c((TG['m'] - m) * 1.2, -.3, .35),
                  contrast=c((TG['sd'] - sd) * 2.0, -.2, .45),
                  saturation=c((TG['sat'] - sat) * 3.0, -.3, .4),
@@ -884,60 +883,6 @@ def review(jb, sc, pl, proj, adir, mu):
         if not pl2: break
         pl = pl2
     log('  ✗ Claude kiểm tra chưa đạt sau 3 vòng sửa – KHÔNG giao project này:', proj); jb['qa_rej'] = jb.get('qa_rej', 0) + 1; jb['fixed'] = dict(sc, _n=sc0.get('_n')); return None
-GKEYS = ('brightness', 'contrast', 'saturation', 'temperature', 'tone', 'highlight', 'shadow')
-def claude_grades(jb, sc):   # Claude Sonnet NHÌN khung hình từng video dùng trong kịch bản → thông số lớp màu riêng (lưu lại, mỗi video xem 1 lần)
-    try:
-        from PIL import Image, ImageDraw
-        A = {a['i']: a for a in jb['A']}; C = jb.get('C') or {}; use = set()
-        for x in sc.get('aroll') or []:
-            c = C.get(str(x).strip().upper()) if isinstance(x, str) else None
-            if c: use.add(c[0])
-        for b in sc.get('broll') or []:
-            try: use.add(int(re.sub(r'\D', '', str(b.get('video', 0))) or 0))
-            except Exception: pass
-        ad, _ = ana_dir(); need = []
-        for i in sorted(use):
-            a = A.get(i)
-            if not a: continue
-            nm = '%s_%s_mau.json' % (a['vid']['id'], a['vid'].get('size') or 0)
-            got = names_in(ad, [nm])
-            if nm in got:
-                try: a['mau'] = json.loads(raw(got[nm]).decode('utf-8')); continue
-                except Exception: pass
-            need.append((a, nm))
-        for g in range(0, len(need), 12):
-            grp = need[g:g + 12]; tiles = []
-            for a, nm in grp:
-                ts = [t for s_ in (a.get('see') or {}).get('sheets') or [] for t in s_['ts']]
-                im = N._tile(a, ts[len(ts) // 2]) if ts else None
-                if im is not None: tiles.append((a, nm, im))
-            if not tiles: continue
-            w, h = max(t[2].width for t in tiles), max(t[2].height for t in tiles); cols = 4
-            cv = Image.new('RGB', (cols * w, ((len(tiles) + cols - 1) // cols) * h), (0, 0, 0)); dr = ImageDraw.Draw(cv)
-            for k, (a, nm, im) in enumerate(tiles):
-                x, y = (k % cols) * w, (k // cols) * h; cv.paste(im, (x, y)); dr.rectangle([x, y, x + 40, y + 16], fill=(0, 0, 0)); dr.text((x + 3, y + 2), '#%d' % a['i'], fill=(255, 230, 80))
-            bio = io.BytesIO(); cv.save(bio, 'JPEG', quality=80)
-            meas = '\n'.join('#%d: đo được %s' % (a['i'], json.dumps(grade_of(dict(a, mau=None)), ensure_ascii=False)) for a, nm, im in tiles)
-            q = ('Ảnh = 1 khung hình gốc (chưa chỉnh) của từng video, góc trái ghi số #. Hãy đặt thông số lớp Điều chỉnh màu CapCut cho TỪNG video để cả project ra cùng 1 tông:\n'
-                 'MÀU MẪU CỦA CHỦ: điện ảnh, chuyên nghiệp, hiện đại, sang, sạch; RÕ (tương phản tốt, chi tiết sắc), BÃO HÒA rõ (cỏ cây xanh tươi, trời xanh, da hồng hào) nhưng vẫn TƯƠI SÁNG, trắng sạch không ám, vùng tối không bệt, vùng sáng không cháy.\n'
-                 'Cảnh đã đẹp sẵn thì chỉnh nhẹ; cảnh xỉn / mù / log / thiếu sáng thì chỉnh mạnh hơn. Gợi ý máy đo (tham khảo):\n' + meas +
-                 '\n\nThang giá trị (0 = giữ nguyên): brightness −0.3..0.35, contrast −0.2..0.5, saturation −0.3..0.5, temperature −0.35..0.35 (dương = ấm), tone −0.25..0.25 (dương = hồng, âm = xanh lá), highlight −0.4..0, shadow −0.1..0.3.\n'
-                 'Trả JSON {"videos":[{"video":số #,"brightness":..,"contrast":..,"saturation":..,"temperature":..,"tone":..,"highlight":..,"shadow":..}]}')
-            j = N.ask_json(q, [('Khung hình gốc:', base64.b64encode(bio.getvalue()).decode())], model='sonnet', key='videos', log=log)
-            if not j: continue
-            R = {'brightness': (-.3, .35), 'contrast': (-.2, .5), 'saturation': (-.3, .5), 'temperature': (-.35, .35), 'tone': (-.25, .25), 'highlight': (-.4, 0), 'shadow': (-.1, .3)}
-            by = {a['i']: (a, nm) for a, nm, im in tiles}
-            for v in j.get('videos') or []:
-                try: a, nm = by[int(v['video'])]
-                except Exception: continue
-                g = {k: round(max(R[k][0], min(R[k][1], float(v.get(k) or 0))), 3) for k in GKEYS}
-                a['mau'] = g
-                try: jput(nm, g, ad, {})
-                except Exception: pass
-            log('  Claude xem màu %d video, đặt thông số lớp màu' % len(tiles))
-    except ClaudeWait: raise
-    except Exception as e: log('  Claude chưa đặt được màu (dùng thông số máy đo):', e)
-
 def publish(jb, sc, n):
     a0 = jb['A'][0]; A_ = {a['i']: a for a in jb['A']}; cnt = {}
     for it in sc.get('aroll', []):   # project nằm trong thư mục (Kịch bản N) chứa phần lớn câu nói của kịch bản
@@ -947,7 +892,7 @@ def publish(jb, sc, n):
     host = max(cnt, key=cnt.get) if cnt else jb['id']
     proj = safe(full_name(path_of(host), safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)), 110)   # 🤖 dự án - nội dung
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + rel + '/AI tải về'
-    mu = pick_music(jb, sc); claude_grades(jb, sc)
+    mu = pick_music(jb, sc)
     pl = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None, mu[4] if mu else None)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     pl = review(jb, sc, pl, proj, adir, mu)   # Claude Opus tự kiểm tra (xem ảnh xem trước + dòng thời gian), sửa tối đa 2 vòng
@@ -970,7 +915,7 @@ def publish(jb, sc, n):
     slot = '%s:%d' % (jb['id'], n)
     if any((c.get('appProperties') or {}).get('dungS') == slot or c['name'] == proj for c in new_):
         log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)
-    pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV, 'dungVol': '1'})   # đánh dấu thư mục project (tên không còn chữ CapCut)
+    pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
         af = mkdir('AI tải về', pf)
         for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):
@@ -1231,23 +1176,6 @@ def rename_old():   # chủ dặn: mọi project AI dựng đổi tên "🤖 Tê
             log('  đổi tên project:', old, '→', new)
     except Exception as e: log('  không đổi được tên project cũ:', e)
 
-def fix_vol():   # chủ dặn 11/11: SFX + nhạc nền 0 dB (không giảm âm lượng, không tự hạ khi có lời) – sửa cả project đã giao
-    try:
-        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,appProperties'):
-            if (c.get('appProperties') or {}).get('dungVol') == '1' or not lock(c['id'], 'dungVL'): continue
-            for f in lq("'%s' in parents and (name='draft_content.json' or name='draft_info.json')" % c['id'], 'id,name'):
-                try:
-                    d = json.loads(raw(f['id']).decode('utf-8')); ch = 0
-                    for t in d.get('tracks') or []:
-                        if t.get('type') != 'audio' or not re.search(r'(?i)sfx|nhạc', t.get('name') or ''): continue
-                        for sg in t.get('segments') or []:
-                            sg['volume'] = 1.0; sg['last_nonzero_volume'] = 1.0
-                            sg['common_keyframes'] = [k for k in sg.get('common_keyframes') or [] if k.get('property_type') != 'KFTypeVolume']; ch += 1
-                    if ch: update(f['id'], json.dumps(d, ensure_ascii=False).encode('utf-8'), 'application/json')
-                except Exception as e: log('  âm lượng: không sửa được', c['name'], e)
-            L.mark(c['id'], dungVol='1', dungVL=None); log('  âm lượng 0 dB:', c['name'])
-    except Exception as e: log('  không sửa được âm lượng project cũ:', e)
-
 def heal_list():   # mọi project đã giao (kiểu mới) phải có trong danh sách CapCut – tự bù dòng thiếu
     try:
         fid = list_file(); have = {x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()}
@@ -1269,7 +1197,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    rename_old(); fix_vol(); heal_list(); setup_bat()
+    rename_old(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
