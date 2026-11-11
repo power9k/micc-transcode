@@ -111,9 +111,9 @@ function Fix-Paths($dir) {
     if (-not (Test-Path -LiteralPath $f)) { continue }
     try {
       $t = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
-      $tN = $t.Normalize([Text.NormalizationForm]::FormC)
-      $n = [regex]::Replace($tN, $rxRoot.Normalize([Text.NormalizationForm]::FormC), ('"' + $rootF.Replace('$', '$$')))
-      if ($n -cne $tN) { [IO.File]::WriteAllText($f, $n, (New-Object Text.UTF8Encoding($false))); Log "sua duong dan theo o Drive cua may nay: $(Split-Path $dir -Leaf)" }
+      $n = [regex]::Replace($t, $rxRoot.Normalize([Text.NormalizationForm]::FormC), ('"' + $rootF.Replace('$', '$$')))
+      $n = [regex]::Replace($n, $rxRoot.Normalize([Text.NormalizationForm]::FormD), ('"' + $rootF.Replace('$', '$$')))
+      if ($n -cne $t) { [IO.File]::WriteAllText($f, $n, (New-Object Text.UTF8Encoding($false))); Log "sua duong dan theo o Drive cua may nay: $(Split-Path $dir -Leaf)" }
     } catch { Log ("khong sua duoc duong dan " + $f + ": " + $_.Exception.Message) }
   }
 }
@@ -145,6 +145,39 @@ $drafts = Join-Path $env:LOCALAPPDATA 'CapCut\User Data\Projects\com.lveditor.dr
 if (-not (Test-Path -LiteralPath $drafts)) { New-Item -ItemType Directory -Force -Path $drafts | Out-Null }
 # tim thu muc theo duong dan tuong doi, khong phan biet cach ma hoa dau tieng Viet / hoa thuong;
 # thu muc cuoi neu Drive tren may doi ten (vd them " (1)") thi lay ban moi nhat co draft_content.json
+# tim FILE that tren may theo duong dan tuong doi, khong phan biet kieu ma hoa dau tieng Viet (NFC / NFD) va hoa thuong
+$LooseCache = @{}
+function Resolve-LooseFile($base, $rel) {
+  $segs = @($rel -split '[\\/]' | Where-Object { $_ })
+  if ($segs.Count -lt 1) { return $null }
+  $dir = if ($segs.Count -gt 1) { Resolve-Loose $base (($segs[0..($segs.Count - 2)]) -join '/') } else { $base }
+  if (-not $dir) { return $null }
+  $want = $segs[-1].Normalize([Text.NormalizationForm]::FormC).Trim().ToLower()
+  $hit = Get-ChildItem -LiteralPath $dir -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name.Normalize([Text.NormalizationForm]::FormC).Trim().ToLower() -eq $want } | Select-Object -First 1
+  if ($hit) { return $hit.FullName } else { return $null }
+}
+# sua tung duong dan video / nhac / font trong project cho trung TEN THAT tren may nay (Drive o nao, dau kieu nao cung tim ra)
+function Fix-Media($dir) {
+  foreach ($fn in @('draft_content.json', 'draft_info.json')) {
+    $f = Join-Path $dir $fn
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    try {
+      $t = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8); $n = $t; $fix = 0; $miss = 0
+      $ps = [regex]::Matches($t, '"(?:path|font_path)":"([A-Za-z]:/[^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
+      foreach ($p in $ps) {
+        if (Test-Path -LiteralPath ($p -replace '/', '\')) { continue }
+        if (-not $LooseCache.ContainsKey($p)) {
+          $pc = $p.Normalize([Text.NormalizationForm]::FormC); $rc = $rootF.Normalize([Text.NormalizationForm]::FormC); $hit = $null
+          if ($pc.StartsWith($rc, [StringComparison]::OrdinalIgnoreCase)) { $hit = Resolve-LooseFile $root ($pc.Substring($rc.Length).TrimStart('/')) }
+          $LooseCache[$p] = if ($hit) { $hit -replace '\\', '/' } else { '' }
+        }
+        if ($LooseCache[$p]) { $n = $n.Replace('"' + $p + '"', '"' + $LooseCache[$p] + '"'); $fix++ } else { $miss++ }
+      }
+      if ($n -cne $t) { [IO.File]::WriteAllText($f, $n, (New-Object Text.UTF8Encoding($false))); Log "noi lai $fix file trong $(Split-Path $dir -Leaf)" }
+      if ($miss) { Log "con $miss file chua thay tren may (Drive chua dong bo xong?) trong $(Split-Path $dir -Leaf)" }
+    } catch { Log ("khong noi lai duoc file " + $f + ": " + $_.Exception.Message) }
+  }
+}
 function Resolve-Loose($base, $rel) {
   $cur = $base
   $segs = $rel -split '[\\/]' | Where-Object { $_ }
@@ -188,6 +221,7 @@ foreach ($line in (Get-Content -LiteralPath $list -Encoding UTF8)) {
     continue }
   $name = Split-Path $rel -Leaf
   Fix-Paths $src
+  Fix-Media $src
   if (-not $fontsDone) { Install-TeamFonts (Join-Path $src 'AI tải về'); $fontsDone = $true }
   $dst = Join-Path $drafts $name
   $item = Get-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue

@@ -904,12 +904,21 @@ _KHO = {}
 def kho():   # KHO DÙNG CHUNG (chủ dặn 11/11): SETUP/Kho AI tải về/{Font chữ, Âm thanh hiệu ứng, Nhạc nền, Bản đồ 3D} – mọi project lấy từ đây
     if _KHO: return _KHO
     st = lq("'%s' in parents and name='SETUP' and mimeType='%s'" % (L.ROOT, L.FOLDER), 'id')[0]['id']
-    k = lq("'%s' in parents and name='%s' and mimeType='%s'" % (st, KHO_NAME, L.FOLDER), 'id')
-    kid = k[0]['id'] if k else mkdir(KHO_NAME, st)
+    def one(parent, nm):   # đúng 1 thư mục tên nm (nhiều máy tạo cùng lúc → gộp bản trùng vào bản cũ nhất, bỏ bản thừa)
+        f = sorted(lq("'%s' in parents and name='%s' and mimeType='%s'" % (parent, nm, L.FOLDER), 'id,createdTime'), key=lambda x: x.get('createdTime') or '')
+        if not f: mkdir(nm, parent); time.sleep(3); return one(parent, nm)
+        keep = f[0]['id']
+        for d in f[1:]:
+            try:
+                have = {x['name'] for x in lq("'%s' in parents" % keep, 'id,name')}
+                for c in lq("'%s' in parents" % d['id'], 'id,name,mimeType'):
+                    if c['name'] not in have: L.drive('files/%s' % c['id'], {}, method='PATCH', params={'addParents': keep, 'removeParents': d['id'], 'fields': 'id'})
+                L.drive('files/' + d['id'], {'trashed': True}, method='PATCH'); log('  gộp thư mục trùng:', nm)
+            except Exception as e: log('  không gộp được thư mục trùng', nm, e)
+        return keep
+    kid = one(st, KHO_NAME)
     _KHO.update(id=kid, rel='SETUP/' + KHO_NAME)
-    for key, nm in KSUB.items():
-        f = lq("'%s' in parents and name='%s' and mimeType='%s'" % (kid, nm, L.FOLDER), 'id')
-        _KHO[key] = f[0]['id'] if f else mkdir(nm, kid)
+    for key, nm in KSUB.items(): _KHO[key] = one(kid, nm)
     have = {key: {x['name'] for x in lq("'%s' in parents" % _KHO[key], 'id,name')} for key in ('font', 'sfx', 'music')}
     for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):   # chép 1 lần từ thư viện mẫu cũ
         if f.get('mimeType') == L.FOLDER or f['name'].startswith(LIB_SKIP): continue
