@@ -862,6 +862,28 @@ def publish(jb, sc, n):
         raise
     return dict(proj=proj, dur=pl['total'], url='https://drive.google.com/drive/folders/' + pf)
 
+# ---- nhiều máy GitHub chạy song song: mỗi máy giữ 1 thư mục source (khóa trên Drive), máy khác bỏ qua
+WID = '%s-%s' % (os.environ.get('GITHUB_RUN_ID', 'local'), os.environ.get('WORKER', '1'))
+LOCK_TTL = 50 * 60
+def _lock_of(fid):
+    try: return (L.drive('files/' + fid, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungLock') or ''
+    except Exception: return ''
+def claim(jb):
+    lk = _lock_of(jb['id'])
+    if lk and not lk.startswith(WID + ':'):
+        try:
+            if time.time() - float(lk.rsplit(':', 1)[1]) < LOCK_TTL: return False
+        except Exception: pass
+    L.mark(jb['id'], dungLock='%s:%d' % (WID, time.time())); time.sleep(5)
+    return _lock_of(jb['id']).startswith(WID + ':')   # 2 máy giành cùng lúc → chỉ 1 máy giữ được
+def keep(jb):
+    try: L.mark(jb['id'], dungLock='%s:%d' % (WID, time.time()))
+    except Exception: pass
+def release(jb):
+    try:
+        if _lock_of(jb['id']).startswith(WID + ':'): L.mark(jb['id'], dungLock=None)
+    except Exception: pass
+
 _NC = [0, False]
 CODE = ('dung.py', 'nao.py', 'xem.py', 'loc.py', 'eng/')
 def newer_code():   # có bản sửa mới trên GitHub (mã dựng) → làm nốt kịch bản đang dở rồi dừng, lượt sau chạy ngay bằng mã mới
@@ -903,6 +925,7 @@ def edit(jb, key, models):
     done = []
     for sc in todo:
         if newer_code(): break
+        keep(jb)
         n = sc['_n']; jb['fixed'] = None; jb['qa_rej'] = 0
         try:
             r = publish(jb, sc, n)
@@ -934,7 +957,12 @@ def edit(jb, key, models):
 def pending():
     if PAUSE: return 0
     for k in range(3):
-        try: return len(scan())
+        try:   # thư mục đang có máy khác giữ (khóa còn hạn) thì không tính → máy rảnh tắt ngay, không cài đặt thừa
+            def free(j):
+                lk = (j.get('ap') or {}).get('dungLock') or ''
+                try: return not lk or time.time() - float(lk.rsplit(':', 1)[1]) >= LOCK_TTL
+                except Exception: return True
+            return len([j for j in scan() if free(j)])
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
     return 1   # quét lỗi mãi → vẫn giữ lượt chạy để run() thử lại, không bỏ việc
 ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
@@ -950,8 +978,10 @@ def run(key, models, until):
             try: J = [j for j in scan() if j['id'] not in busy]
             except Exception as e: log('AI dựng: quét lỗi', e); time.sleep(60); continue
             if not J: q.put(None); return
-            jb = J[0]; busy.add(jb['id']); log('AI dựng – đọc:', jb['src'], '›', jb['name'], '(%d video)' % len(jb['vids']))
-            try: q.put(read(jb))
+            jb = J[0]; busy.add(jb['id'])
+            if not claim(jb): log('AI dựng: %s đang do máy khác làm – bỏ qua' % jb['name']); continue
+            log('AI dựng – đọc:', jb['src'], '›', jb['name'], '(%d video)' % len(jb['vids']))
+            try: r_ = read(jb); keep(jb); q.put(r_)
             except ClaudeWait as e: log('⏸ đọc:', e); busy.discard(jb['id']); q.put(None); return   # hết hạn mức Claude → dừng, lượt sau đọc tiếp
             except Exception as e:
                 log('  đọc lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
@@ -961,11 +991,11 @@ def run(key, models, until):
     while True:
         jb = q.get()
         if jb is None or newer_code(): break
-        try: built[0] += len([r for r in (edit(jb, key, models) or []) if not r.get('exists')])
+        try: built[0] += len([r for r in (edit(jb, key, models) or []) if not r.get('exists')]); release(jb)
         except ClaudeWait as e:
-            log('⏸', e); L.mark(jb['id'], dungErr='chờ Claude'); break   # không tính là lỗi, lượt sau (10 phút / lần) làm tiếp
+            release(jb); log('⏸', e); L.mark(jb['id'], dungErr='chờ Claude'); break   # không tính là lỗi, lượt sau (10 phút / lần) làm tiếp
         except Exception as e:
-            log('✗ AI dựng lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
+            release(jb); log('✗ AI dựng lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
             if (int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1 >= 3: L.tsay('❌ AI DỰNG LỖI (đã thử 3 lần)\n📁 %s\n%s' % (jb['name'], str(e)[:300]))   # lỗi tạm thời tự thử lại, không báo ồn
     try:
         if built[0] and not scan():
