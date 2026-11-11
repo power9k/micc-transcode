@@ -1240,14 +1240,6 @@ def free_stale():   # máy dựng chết giữa chừng → sau 3 tiếng tự m
             if ed and time.time() - float(ed.rsplit(':', 1)[1]) > 3 * 3600: free(c, (c.get('parents') or [''])[0])
     except Exception as e: log('  không mở khoá được project treo:', e)
 
-_RN = {}
-def wslug(x): return re.sub(r'[^a-z0-9]', '', unicodedata.normalize('NFD', str(x or '').replace('đ', 'd').replace('Đ', 'd')).encode('ascii', 'ignore').decode().lower())
-def weblink(fid):   # giống web: /<tên gốc>/<thư mục>/.../<project> (bỏ dấu, bỏ ký tự lạ)
-    try:
-        if 'r' not in _RN: _RN['r'] = get(L.ROOT, 'name').get('name') or ''
-        f = get(fid, 'id,name,parents'); rel = path_of((f.get('parents') or [''])[0]) + '/' + f['name']
-        return L.SITE + '/' + (wslug(_RN['r']) or 'kho') + '/' + '/'.join(wslug(x) for x in rel.split('/') if x.strip())
-    except Exception: return L.SITE + '/_mo/' + fid
 def publish(jb, sc, n):
     a0 = jb['A'][0]; A_ = {a['i']: a for a in jb['A']}; cnt = {}
     for it in sc.get('aroll', []):   # project nằm trong thư mục (Kịch bản N) chứa phần lớn câu nói của kịch bản
@@ -1552,8 +1544,8 @@ def do_plan(jb, key, models):
     for n, sc in enumerate(scs, 1): sc['_n'] = n
     jput('%s_kichban.json' % jb['id'], {'scripts': scs, 'phong_cach': sty}, ad, idx)
     log('  ✓ lên kịch bản: %s – %d kịch bản (lưu lại, không lên lại)' % (jb['name'], len(scs)))
-    try: L.tsay('📖 AI ĐÃ ĐỌC XONG & PHÂN TÍCH SOURCE\n📁 %s\n🎬 %d video · ra %d kịch bản:\n%s\n➡️ Bắt đầu tự dựng các project\n🔗 %s' % (
-        path_of(jb['id']), len(jb['A']), len(scs), '\n'.join('• %s' % (sc.get('ten') or '') for sc in scs), weblink(jb['id'])))
+    try: L.tsay('📖 AI ĐÃ ĐỌC XONG & PHÂN TÍCH SOURCE\n📁 %s\n🎬 %d video · ra %d kịch bản:\n%s\n➡️ Bắt đầu tự dựng các project' % (
+        path_of(jb['id']), len(jb['A']), len(scs), '\n'.join('• %s' % (sc.get('ten') or '') for sc in scs)))
     except Exception as e: log('  không báo được Zalo:', e)
 
 def do_build(jb, n):
@@ -1574,9 +1566,8 @@ def do_build(jb, n):
         stt.update(done=True); jput(st_name(jb, n), stt, ad, idx)
         log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
         if not r.get('exists'):
-            try: L.ix(link=r['id'])   # báo kho web có thư mục mới
-            except Exception: pass
-            link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
+            try: link = (L.ix(link=r['id']) or {}).get('link') or L.SITE + '/_mo/' + r['id']   # link mở thẳng project trên web MICC media
+            except Exception: link = L.SITE + '/_mo/' + r['id']
             mm, ss = divmod(int(time.time() - t0), 60)
             L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], r['dur'], mm, ss, link),
                    photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # ảnh thumbnail: khung hình người nói của project
