@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '11'
-LV = '5'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '12'
+LV = '6'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -460,7 +460,7 @@ def rule_plan(jb):   # lớp dự phòng không cần AI: lấy câu theo thứ 
 CW, CH = 1080, 1920
 def s0(a): w, h = a.get('w') or 1080, a.get('h') or 1920; return (w / h) / (CW / CH) if w / h > CW / CH + .01 else 1.0
 def words(a, s, e): return [w for sg in a['segs'] for w in sg['w'] if w[0] >= s - .05 and w[1] <= e + .05]
-BADW = re.compile(r'(?i)trắng|đen kịt|mờ|nhòe|rung|lóa|logo|chữ in|text|tiêu đề|fade|chuyển cảnh|màn hình trống|trống trơn|tay che|lỗi|hỏng|bị cắt')
+BADW = re.compile(r'(?i)trắng|đen kịt|mờ|nhòe|rung|lóa|logo|chữ in|text|tiêu đề|fade|chuyển cảnh|màn hình trống|trống trơn|tay che|lỗi|hỏng|bị cắt|cận (tay|áo|ngực|cằm|cổ|vai|bụng|chân)|ngực|cằm|cổ áo|vạt áo|không thấy mặt|che mặt|nửa mặt|mất đầu|cây che|lá che|khuất')
 def clean_seg(a, s0_, e0_):   # đo thật trên khung hình: bỏ đoạn trắng xóa / đen / phẳng
     try:
         import numpy as _np
@@ -581,14 +581,17 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             d = y - x; k = key(a); m = base if j % 2 == 0 else round(base * 1.1, 3)
             f0, f1 = N.face_span(a, x, x + min(d, 1.5)), N.face_span(a, max(x, y - 1.5), y)   # bám mặt người nói (YuNet theo từng khung chính)
             fr0 = f0 or f1
+            fs_ = [f_ for f_ in (a.get('see') or {}).get('faces') or [] if x - .3 <= f_[0] <= y + .3]
+            nk_ = len([t_ for t_ in (a.get('kt') or []) if x - .3 <= t_ <= y + .3]) or 1
+            if fr0 and not (len(fs_) >= max(1, .5 * nk_) and .05 <= fr0[3] <= .4 and .12 <= fr0[1] <= .62 and .15 <= fr0[0] <= .85): fr0 = f0 = f1 = None   # mặt không chắc (nhận nhầm) → không bám, không zoom, giữ khung rộng
             # ZOOM CÓ CHỦ ĐÍCH: không cận quá (mặt tối đa ~22 % chiều cao khung → không cắt cằm); không thấy mặt thì không zoom mạnh
-            zc = round(max(1.0, min(1.35, .22 / fr0[3])), 3) if fr0 and fr0[3] > .02 else 1.08
+            zc = round(max(1.0, min(1.22, .2 / fr0[3])), 3) if fr0 and fr0[3] > .02 else 1.0   # không thấy mặt chắc chắn → không zoom; tối đa 1,22 (không cắt cằm / ngực)
             m = min(m, zc); m1 = round(min(zc, m * (1 + min(.05, .015 * d))), 4)
-            uv = lambda f, mm: (round(f[0], 3), round(min(.75, f[1] + .14 / mm), 3)) if f else (.5, .45)   # mặt ở ~1/3 trên khung, không lệch
+            uv = lambda f, mm: (round(min(.8, max(.2, f[0])), 3), round(min(.55, max(.3, f[1] + .1 / mm)), 3)) if f else (.5, .42)   # mặt ở ~1/3 trên khung; khung không bao giờ trượt xuống ngực
             u0, v0 = uv(f0, m); u1, v1 = uv(f1 or f0, m1)
             kp = [[round(t, 3), m, u0, v0, 0.0]]
             su, sv = u0, v0
-            for fr in sorted(f_ for f_ in (a.get('see') or {}).get('faces') or [] if x + .3 < f_[0] < y - .3 and fr0   # TRACKING: khung bám theo người nói di chuyển
+            for fr in sorted(f_ for f_ in (a.get('see') or {}).get('faces') or [] if x + .3 < f_[0] < y - .3 and fr0 and .12 <= f_[2] <= .62   # TRACKING: khung bám theo người nói di chuyển
                              and abs(f_[1] - fr0[0]) < .18 and abs(f_[2] - fr0[1]) < .18 and .6 < f_[4] / max(fr0[3], 1e-3) < 1.7):   # bỏ mặt nhận nhầm (lệch xa / to nhỏ bất thường)
                 mm = m + (m1 - m) * (fr[0] - x) / max(d, 1e-6); fu, fv = uv(fr[1:], mm)
                 su, sv = su + (fu - su) * .6, sv + (fv - sv) * .6   # làm mượt, không giật theo từng khung
@@ -598,12 +601,16 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             for kk_ in kp:
                 fr_ = (kk_[0] - t) / max(d, 1e-6)
                 if mv_ == 1: kk_[2] = round(kk_[2] + (fr_ - .5) * .06 * (1 if n_sent % 2 else -1), 3)
-                elif mv_ == 2: kk_[4] = round((-1.2 + 2.4 * fr_) * (1 if n_sent % 2 else -1), 3); kk_[1] = round(min(zc * 1.06, max(kk_[1], 1.04)), 4)   # xoay cần phóng nhẹ để không lộ viền
+                elif mv_ == 2 and fr0: kk_[4] = round((-1.0 + 2.0 * fr_) * (1 if n_sent % 2 else -1), 3); kk_[1] = round(max(kk_[1], 1.04), 4)   # xoay cần phóng nhẹ để không lộ viền
                 elif mv_ == 3: kk_[1] = round(max(1.0, min(zc, kk_[1] * (1.05 - .05 * fr_))), 4)
             shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A', face=f0 or f1, keys=kp, punch_abs=[], zc=zc))
             speech.append(dict(media=k, src_in=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), vol=1.0))
             pieces.append((a['i'], x, y, t, ai)); t += d
         if t > 118: break
+    for w_ in sc.get('_wide') or []:   # kiểm duyệt yêu cầu khung rộng (khung cắt mặt / quá cận) → về khung rộng giữa, không zoom, không giật
+        for sh in shots:
+            if sh['line'] == 'A' and min(sh['t1'], float(w_[1])) - max(sh['t0'], float(w_[0])) > .05:
+                sh['keys'] = [[sh['t0'], 1.0, .5, .42, 0.0], [sh['t1'], 1.0, .5, .42, 0.0]]; sh['face'] = None; sh['zc'] = 1.0
     if t < 15: log('  A-roll chỉ %.0fs (%d đoạn Gemini chọn, bỏ: %s)' % (t, len(sc.get('aroll', [])), why or 'không')); return None
     total = round(t, 3)
     def tl(vi, st):
@@ -747,7 +754,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh.get('face') and sh['t0'] + .2 < T < sh['t1'] - .35:
                     T = N.snap(T, beats, .12) if beats else T   # giật zoom trùng phách nếu phách ở rất gần từ khóa
-                    sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=sh.get('zc', 1.3) * 1.12); lastp = T; break
+                    sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=min(1.3, sh.get('zc', 1.0) * 1.12)); lastp = T; break
     # (bỏ phần tự thêm chữ từ lời nói: chủ phản ánh ra cụm vô nghĩa như "NINH VÀ", "TRƯỜNG SỐNG" – chữ chỉ lấy từ AI, có kiểm tra trọn nghĩa)
     titles.sort(key=lambda z: z['t0'])
     for n, z in enumerate(titles): z['anim'] = n
@@ -789,7 +796,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for dp in (mmap.get('drops') or [])[:2]:
         if 2 < dp < total - 2:
             sh = next((x for x in shots if x['t0'] + .2 < dp < x['t1'] - .3 and x['line'] == 'A'), None)
-            if sh and sh.get('face'): sh['keys'] = punch(sh['keys'], dp, 1.18, 1.2, cap=sh.get('zc', 1.3) * 1.12)
+            if sh and sh.get('face'): sh['keys'] = punch(sh['keys'], dp, 1.15, 1.16, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
     for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
     sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
@@ -832,7 +839,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for b in bshots:
         if b['t1'] - b['t0'] < 2.0: continue
         kb_ += 1
-        if kb_ % 3 != 2: continue
+        if True: continue   # tạm tắt khung nổi: chủ báo ghép xấu (11/11)
         sp = next((x for x in speech if x['t0'] <= b['t0'] + .05 and x['t1'] >= b['t1'] - .05), None)
         a_ = AK.get(sp['media']) if sp else None
         if not a_ or faceless(a_): continue
@@ -1088,6 +1095,9 @@ def review(jb, sc, pl, proj, adir, mu):
                 s_, e_ = float(c['s']), float(c['e'])
                 ai_ = {p[0] for p in pl.get('apieces') or [] if min(e_, p[2]) - max(s_, p[1]) > .15}
                 if ai_ and len(ai_) < len(sc.get('aroll') or []): sc['aroll'] = [x for i, x in enumerate(sc['aroll']) if i not in ai_]
+            except Exception: pass
+        for c in fx.get('khung_rong') or []:
+            try: sc.setdefault('_wide', []).append([float(c['s']), float(c['e'])])
             except Exception: pass
         for c in fx.get('doi_canh_tu_phu') or []:   # cảnh tự phủ xấu → không dùng đoạn đó nữa
             try: sc.setdefault('_bad', []).append([int(c['video']), float(c['giay'])])
