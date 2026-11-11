@@ -1044,7 +1044,8 @@ def review(jb, sc, pl, proj, adir, mu):
         tx = ' '.join(w[2] for w in words(A_[vi_], s_, e_))
         if END.search(tx) and 1.5 < e_ - s_ < 14: endc.append('%s (%.1fs): %s' % (k_, e_ - s_, tx[:110]))
     ecat = ('\n\nCÂU KẾT / CÂU HÚT CÓ THỂ GẮN THÊM (cùng nhân vật chính, mã câu C…):\n' + '\n'.join(endc[:40])) if endc else ''
-    bcat = ecat + ('\n\nKHO CẢNH PHỤ (đoạn đẹp, đã chấm điểm):\n' + '\n'.join(r_[1] for r_ in sorted(rows, key=lambda r_: -r_[0])[:60])) if rows else ''
+    sty_ = (jget('%s_kichban.json' % jb['id'], idx_now()[1]) or {}).get('phong_cach') or style_of(jb)
+    bcat = ('\n\nPHONG CÁCH KÊNH (video đã hậu kỳ trước đó – bản dựng phải theo, lệch phong cách là lỗi):\n' + sty_ if sty_ else '') + ecat + ('\n\nKHO CẢNH PHỤ (đoạn đẹp, đã chấm điểm):\n' + '\n'.join(r_[1] for r_ in sorted(rows, key=lambda r_: -r_[0])[:60])) if rows else ''
     A = {'V%d' % a['i']: a for a in jb['A']}
     for rnd in range(4):   # 1 lần kiểm + tối đa 3 lần sửa
         ts = sorted({round((z['t0'] + z['t1']) / 2, 2) for z in pl['titles']} | {round(x['t0'] + .3, 2) for x in pl['shots'] if x['line'] != 'A'})
@@ -1305,7 +1306,7 @@ def edit(jb, key, models):
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
 ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
-PAUSE = True   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 # ================================================================ HÀNG VIỆC CHUNG cho mọi máy GitHub (chủ dặn 11/11)
 # mọi máy = 1 cỗ máy: việc chia nhỏ (ĐỌC 1 video · LÊN KỊCH BẢN 1 source · DỰNG 1 kịch bản); máy rảnh nhận việc gần xong nhất trước
 # (dựng → lên kịch bản → đọc) → project ra lần lượt, các máy còn lại vẫn đọc song song các source khác. Khóa từng việc trên Drive.
@@ -1354,7 +1355,7 @@ def tasks(jobs=None):
             out += [(2, 'read', jb, v) for v in unread if not _fresh((v.get('appProperties') or {}).get('dungRL'))]
         elif not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))
     import random
-    random.shuffle(out); out.sort(key=lambda x: x[0])   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
+    random.shuffle(out); out.sort(key=lambda x: (0 if 'academy' in L.norm1(path_of(x[2]['id'])) else 1, x[0]))   # chủ dặn: ưu tiên MICC Academy   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
     return out
 
 _JB = {}
@@ -1377,15 +1378,55 @@ def do_read(jb, v):
         jput(xem_name(v), r[1], ad, idx)
     log('  ✓ đọc + xem: %s › %s (%.1f phút)' % (jb['name'], v['name'], (time.time() - t0) / 60))
 
+def style_of(jb):   # PHONG CÁCH KÊNH: Claude xem các video ĐÃ HẬU KỲ trước đó của kênh (nằm trong thư mục kênh, ngoài SOURCE) → bản mô tả phong cách để dựng theo
+    try:
+        src = get(jb['id'], 'id,parents'); chan = (src.get('parents') or [None])[0]
+        if not chan: return ''
+        ad, _ = ana_dir(); nm = '%s_phongcach.json' % chan; got = names_in(ad, [nm])
+        if nm in got:
+            try: return json.loads(raw(got[nm]).decode('utf-8')).get('mo_ta', '')
+            except Exception: pass
+        vids, st, seen = [], [chan], 0
+        while st and seen < 60:
+            d = st.pop(); seen += 1
+            for c in kids(d):
+                if c['mimeType'] == L.FOLDER:
+                    if c['id'] == jb['id'] or re.search(r'\bsources?\b', L.norm1(c['name'])) or (c.get('appProperties') or {}).get('dungP') == '1' or SKIPDIR.match(nf(c['name'])): continue
+                    st.append(c['id'])
+                elif L.is_video(c) and int(c.get('size') or 0) < 3e9: vids.append(c)
+        vids.sort(key=lambda c: c.get('createdTime') or '', reverse=True)
+        imgs = []
+        for k, v in enumerate(vids[:3]):
+            try:
+                a = L.analyze(900 + k, dict(id=v['id'], name=v['name'], size=int(v.get('size') or 0), dur=float((v.get('videoMediaMetadata') or {}).get('durationMillis') or 0) / 1000))
+                import glob as _g
+                ims = sorted(_g.glob(os.path.join(a.get('dir') or '', 'k*.jpg')))
+                if ims: imgs += [('Video đã hậu kỳ "%s" – tờ %d:' % (v['name'], j + 1), sh['b']) for j, sh in enumerate(X.sheets(ims, a.get('kt') or [], per=16)[:2])]
+            except Exception as e: log('  không xem được video mẫu', v['name'], e)
+        if not imgs: return ''
+        j = N.ask_json('Đây là các video kênh đã HẬU KỲ xong (thành phẩm team đã làm). Hãy mô tả PHONG CÁCH DỰNG để AI dựng các video mới THEO ĐÚNG phong cách này: bố cục khung, cỡ cảnh, nhịp cắt, kiểu chữ (font, cỡ, màu, vị trí, hiệu ứng, có khung/nền hay không), màu sắc / tông, chuyển cảnh, hiệu ứng, cách dùng cảnh phụ, logo / nhận diện, mở đầu và kết.\n'
+                       'Trả JSON {"mo_ta":"mô tả ngắn gọn, cụ thể, dạng gạch đầu dòng, ≤ 1200 chữ"}', imgs, model='sonnet', key='mo_ta', log=log)
+        if not j: return ''
+        jput(nm, {'mo_ta': j['mo_ta'], 'videos': [v['name'] for v in vids[:3]]}, ad, {})
+        log('  đã học phong cách kênh từ %d video đã hậu kỳ' % min(3, len(vids)))
+        return j['mo_ta']
+    except ClaudeWait: raise
+    except Exception as e: log('  không học được phong cách kênh:', e); return ''
+
 def do_plan(jb, key, models):
     jb = load(jb); ad, idx = idx_now(); engine()
     olds = [c['name'] for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'name,appProperties')
             if str((c.get('appProperties') or {}).get('dungS', '')).startswith(jb['id'] + ':') and (c.get('appProperties') or {}).get('dungL') != LV]
     hint = ('CHỦ YÊU CẦU DỰNG LẠI (giữ đúng chủ đề, làm tốt hơn) các video đã giao: %s. Đưa các chủ đề này vào danh sách kịch bản trước.\n\n' % '; '.join(olds)) if olds else ''
+    sty = style_of(jb)
+    if sty: hint = 'PHONG CÁCH KÊNH (học từ các video đã hậu kỳ trước đó – dựng THEO phong cách này):\n' + sty + '\n\n' + hint
     scs = plan(jb, key, models, hint)
     for n, sc in enumerate(scs, 1): sc['_n'] = n
-    jput('%s_kichban.json' % jb['id'], {'scripts': scs}, ad, idx)
+    jput('%s_kichban.json' % jb['id'], {'scripts': scs, 'phong_cach': sty}, ad, idx)
     log('  ✓ lên kịch bản: %s – %d kịch bản (lưu lại, không lên lại)' % (jb['name'], len(scs)))
+    try: L.tsay('📖 AI ĐÃ ĐỌC XONG & PHÂN TÍCH SOURCE\n📁 %s\n🎬 %d video · ra %d kịch bản:\n%s\n➡️ Bắt đầu tự dựng các project' % (
+        path_of(jb['id']), len(jb['A']), len(scs), '\n'.join('• %s' % (sc.get('ten') or '') for sc in scs)))
+    except Exception as e: log('  không báo được Zalo:', e)
 
 def do_build(jb, n):
     t0 = time.time(); jb = load(jb); ad, idx = idx_now(); engine(); codes(jb)
