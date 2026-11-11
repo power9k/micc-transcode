@@ -4,7 +4,10 @@
 #  - nhãn âm thanh theo từng giây (im lặng / gió-ù / ồn / có nhịp nhạc / giọng nói) – đo bằng phổ tần, không tốn AI
 #  - phân tích nhạc nền: BPM, nhịp, kick, snare, đoạn lắng / sôi, điểm dồn (drop)
 import os, io, glob, base64, json, math, subprocess, sys, urllib.request
-import numpy as np
+class _NP:   # numpy nạp khi cần (bước kiểm tra nhanh chạy trước khi cài numpy)
+    def __getattr__(self, k):
+        import numpy; return getattr(numpy, k)
+np = _NP()
 
 YUNET = ['https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx', 'https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx']
 _DET = []
