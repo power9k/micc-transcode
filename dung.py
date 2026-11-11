@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '17'
-LV = '11'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '18'
+LV = '12'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -658,7 +658,24 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             if nm == 'Glare II' and not fx: fx.append(dict(preset='effect_lens_flare.json', t0=round(T, 3), dur_s=.6))
     # ---- Claude kiểm duyệt yêu cầu PHỦ cảnh phụ lên đoạn đang có lời mà hình không có người / khung xấu (phu_canh_phu)
     poolC = [a for a in A.values() if a['vid'].get('broll') or not a.get('segs')]
-    for c in sc.get('_cover') or []:
+    # chủ dặn (nhắc nhiều lần): KHÔNG để khung người nói mất đầu / chỉ thấy cằm, cổ, ngực → kiểm tra bằng số đo mặt, không chờ Claude
+    auto_cov = []; keyA0 = {'V%d' % a['i']: a for a in A.values()}
+    for sh in shots:
+        if sh.get('line') != 'A': continue
+        a_ = keyA0.get(sh['media'])
+        if not a_: continue
+        fc_ = [f_ for f_ in (a_.get('see') or {}).get('faces') or [] if sh['src'] - .3 <= f_[0] <= sh['src'] + (sh['t1'] - sh['t0']) + .3]
+        fr_ = sh.get('face')
+        bad_ = not fr_ or not fc_ or (fr_[1] - .75 * fr_[3]) < .03 or (fr_[1] + .6 * fr_[3]) > .97   # không thấy mặt / đầu hoặc cằm sát mép khung gốc
+        if not bad_:
+            m0 = max(k_[1] for k_ in sh['keys']); v0 = min(k_[3] for k_ in sh['keys'])
+            if fr_[1] - .75 * fr_[3] < max(0.0, v0 - .5 / (m0 * 1.2)) + .02:   # zoom (kể cả giật zoom từ khóa) làm mất đỉnh đầu → bỏ zoom, giữ khung rộng
+                sh["nz"] = 1
+                sh['keys'] = [[k_[0], 1.0, k_[2], .42, 0.0] for k_ in sh['keys']]
+        if bad_: sh['keys'] = [[k_[0], 1.0, k_[2], .42, 0.0] for k_ in sh['keys']]; sh['nz'] = 1; sh['zc'] = 1.0   # không phủ được thì ít nhất KHÔNG zoom
+        if bad_ and sh['t1'] - sh['t0'] > .4: auto_cov.append({'s': sh['t0'], 'e': sh['t1'], 'video': 0, 'giay': None})
+    if auto_cov: log('  khung người nói xấu (mất đầu / không thấy mặt): phủ cảnh phụ %d đoạn' % len(auto_cov))
+    for c in (sc.get('_cover') or []) + auto_cov:
         try:
             S0, E0 = max(0.0, float(c['s'])), min(total - .1, float(c['e']))
             a = A.get(vid(c.get('video', 0))); src0 = c.get('giay')
@@ -785,7 +802,8 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh.get('face') and sh['t0'] + .2 < T < sh['t1'] - .35:
                     T = N.snap(T, beats, .12) if beats else T   # giật zoom trùng phách nếu phách ở rất gần từ khóa
-                    sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=min(1.3, sh.get('zc', 1.0) * 1.12)); lastp = T; break
+                    if not sh.get('nz'): sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
+                    lastp = T; break
     # (bỏ phần tự thêm chữ từ lời nói: chủ phản ánh ra cụm vô nghĩa như "NINH VÀ", "TRƯỜNG SỐNG" – chữ chỉ lấy từ AI, có kiểm tra trọn nghĩa)
     titles.sort(key=lambda z: z['t0'])
     for n, z in enumerate(titles): z['anim'] = n
@@ -827,7 +845,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for dp in (mmap.get('drops') or [])[:2]:
         if 2 < dp < total - 2:
             sh = next((x for x in shots if x['t0'] + .2 < dp < x['t1'] - .3 and x['line'] == 'A'), None)
-            if sh and sh.get('face'): sh['keys'] = punch(sh['keys'], dp, 1.15, 1.16, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
+            if sh and sh.get('face') and not sh.get('nz'): sh['keys'] = punch(sh['keys'], dp, 1.15, 1.16, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
     for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
     sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
