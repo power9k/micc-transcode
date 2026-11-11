@@ -863,7 +863,7 @@ def pending():
         try: return len(scan())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
     return 1   # quét lỗi mãi → vẫn giữ lượt chạy để run() thử lại, không bỏ việc
-ONLY = 'king park'   # bỏ trống ('') = chạy mọi thư mục source
+ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
 PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
