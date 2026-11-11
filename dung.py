@@ -1537,6 +1537,7 @@ def fix_public():   # project dựng lúc thử đường dẫn C:/Users/Public/
 def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên SETUP (máy người dùng tự lấy bản mới mỗi 2 phút)
     try:
         import hashlib
+        if os.environ.get('WORKER', '1') != '1': return   # chỉ 1 máy đưa lên → không ra 2 bản trùng
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'capcut', 'dong-bo-capcut.bat')
         if not os.path.exists(src): return
         data = open(src, 'rb').read(); md = hashlib.md5(data).hexdigest()
@@ -1611,7 +1612,7 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
     except Exception as e: log('  không làm mới được danh sách CapCut:', e)
 
 def pending():
-    if PAUSE: heal_list(); setup_bat(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
+    if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
