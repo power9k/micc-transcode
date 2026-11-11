@@ -237,6 +237,8 @@ def look(jb, ad, idx):   # Claude Sonnet XEM tờ ảnh mẫu (mọi khung chín
 
 # ---------------------------------------------------------------- 2) Claude chia kịch bản + chọn cảnh
 RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
+- MỖI VIDEO PHẢI CÓ ĐẦU CÓ ĐUÔI: câu mở hút (hook) + thân + câu KẾT rõ ràng (chốt ý / kêu gọi bình luận, liên hệ, theo dõi). Không có câu kết hợp ở đoạn đó thì lấy câu kết phù hợp ở chỗ khác trong source – ĐƯỢC PHÉP dùng lại câu đã dùng ở kịch bản khác.
+- MỖI VIDEO 1 NHÂN VẬT CHÍNH: A-roll chỉ lấy lời của đúng người dẫn chính của video đó, không chen người khác (trừ khi kịch bản là hỏi – đáp).
 - LỖI HAY BỊ KIỂM DUYỆT LOẠI – tránh ngay từ đầu: chữ nhấn cụt nghĩa ("SẮP CÓ", "VỪA Ở", "CÓ MUỐN", "RẤT ĐÁNG" → phải là "SẮP CÓ DỰ ÁN LỚN", "VỪA Ở VỪA KINH DOANH"); chữ đọc như khẳng định sai ý người nói; câu A-roll bị cụt / thiếu con số (chọn trọn câu, kể cả số liệu); cảnh phụ mờ, rung, trắng xóa, logo, chữ in sẵn; mở đầu người nói nhìn lệch máy / ngập ngừng (chọn câu hút nhất làm câu đầu); kết cụt (phải có câu chốt / kêu gọi).
 - Mỗi kịch bản = 1 video DƯỚI 2 PHÚT (tổng A-roll 45–110 giây). Buổi quay dài (đào tạo, hội thảo) → tách thành nhiều tập, mỗi tập 1 ý trọn vẹn, có câu mở hút (hook) và kết.
 - Nếu có file kịch bản: theo đúng kịch bản. Nếu thư mục con đặt tên "Kịch bản 1/2" thì mỗi thư mục con là 1 kịch bản.
@@ -495,11 +497,12 @@ def punch(keys, T, k1=1.14, k2=1.16, cap=9.0):   # giật zoom tại T mà vẫn
            [[k[0], round(min(k[1] * k2, cap), 4)] + list(k[2:]) for k in keys if k[0] > T + .08]
 
 def tighten(a, s, e):   # bỏ ngập ngừng: cắt ĐÚNG khoảng lặng giữa 2 từ, không cắt vào chữ
-    W = [w for w in words(a, s, e) if L.norm(w[2]) not in L.FILL]
+    W0 = [w for w in words(a, s, e) if L.norm(w[2]) not in L.FILL and L.norm(w[2]) not in ('ạ', 'ơi à', 'ờ thì')]
+    W = [w for k_, w in enumerate(W0) if not (k_ + 1 < len(W0) and L.norm(W0[k_ + 1][2]) == L.norm(w[2]) and W0[k_ + 1][0] - w[1] < .6)]   # nói lắp "thì thì", "là là" → bỏ chữ đầu
     if not W: return [(s, e)]
     iv = []
-    for w in W:
-        if iv and w[0] - iv[-1][1] <= .45: iv[-1][1] = w[1]
+    for w in W:   # khoảng ngập ngừng > 0,3 s giữa 2 chữ (thường là "ầm / ừm" máy nghe không ghi) → cắt bỏ cho mượt
+        if iv and w[0] - iv[-1][1] <= .3: iv[-1][1] = w[1]
         else: iv.append([w[0], w[1]])
     allw = sorted((w for sg in a['segs'] for w in sg['w']), key=lambda w: w[0])
     pe = max([w[1] for w in allw if w[1] <= iv[0][0] + .01 and w[0] < iv[0][0] - .01] or [-9])   # chữ ngay TRƯỚC đoạn (câu khác) → đệm không được lấn vào
@@ -508,7 +511,7 @@ def tighten(a, s, e):   # bỏ ngập ngừng: cắt ĐÚNG khoảng lặng gi�
     for k, (x, y) in enumerate(iv):
         lo = iv[k - 1][1] + .03 if k else max(s - .2, pe + .03)
         hi = iv[k + 1][0] - .03 if k + 1 < len(iv) else min(e + .3, ns - .03)
-        x2, y2 = max(lo, x - .12), min(hi, y + .2)
+        x2, y2 = max(lo, x - (.12 if k == 0 else .07)), min(hi, y + (.2 if k + 1 == len(iv) else .1))   # chỗ cắt giữa câu đệm ngắn để không dính tiếng ầm ừ
         if y2 - x2 > .3: out.append((max(0.0, x2), min(y2, a['dur'] - .05)))
     return out
 def grade_of(a):   # đo màu gốc từng cảnh → thông số lớp Điều chỉnh để ra ĐÚNG màu mẫu chủ gửi
@@ -1001,7 +1004,17 @@ def review(jb, sc, pl, proj, adir, mu):
         if not (a['vid'].get('broll') or not a.get('segs')): continue
         for x in sorted(((a.get('vlog') or {}).get('doan') or []), key=lambda x: -float(x.get('diem') or 0))[:2]:
             if float(x.get('diem') or 0) >= 7 and float(x.get('e', 0)) - float(x.get('s', 0)) >= 2: rows.append((float(x.get('diem') or 0), '#%d %.1f–%.1fs: %s' % (a['i'], float(x['s']), float(x['e']), str(x.get('noi_dung', ''))[:70])))
-    bcat = ('\n\nKHO CẢNH PHỤ (đoạn đẹp, đã chấm điểm):\n' + '\n'.join(r_[1] for r_ in sorted(rows, key=lambda r_: -r_[0])[:60])) if rows else ''
+    # CÂU KẾT / CÂU HÚT ỨNG VIÊN của CHÍNH nhân vật đang nói (cùng video A-roll), lấy từ toàn source – được dùng lại câu ở kịch bản khác
+    C_ = jb.get('C') or codes(jb); A_ = {a['i']: a for a in jb['A']}
+    used_v = {C_[str(x).strip().upper()][0] for x in sc.get('aroll') or [] if isinstance(x, str) and str(x).strip().upper() in C_}
+    END = re.compile(r'(?i)comment|bình luận|liên hệ|inbox|nhắn tin|theo dõi|follow|đăng ký|để lại|cảm ơn|hẹn gặp|nghĩ sao|ý kiến|đừng bỏ lỡ|nhanh tay|còn chần chừ|gọi ngay|hotline|kết lại|tóm lại|vậy thì|chính vì vậy')
+    endc = []
+    for k_, (vi_, s_, e_) in C_.items():
+        if vi_ not in used_v or not A_.get(vi_): continue
+        tx = ' '.join(w[2] for w in words(A_[vi_], s_, e_))
+        if END.search(tx) and 1.5 < e_ - s_ < 14: endc.append('%s (%.1fs): %s' % (k_, e_ - s_, tx[:110]))
+    ecat = ('\n\nCÂU KẾT / CÂU HÚT CÓ THỂ GẮN THÊM (cùng nhân vật chính, mã câu C…):\n' + '\n'.join(endc[:40])) if endc else ''
+    bcat = ecat + ('\n\nKHO CẢNH PHỤ (đoạn đẹp, đã chấm điểm):\n' + '\n'.join(r_[1] for r_ in sorted(rows, key=lambda r_: -r_[0])[:60])) if rows else ''
     A = {'V%d' % a['i']: a for a in jb['A']}
     for rnd in range(4):   # 1 lần kiểm + tối đa 3 lần sửa
         ts = sorted({round((z['t0'] + z['t1']) / 2, 2) for z in pl['titles']} | {round(x['t0'] + .3, 2) for x in pl['shots'] if x['line'] != 'A'})
@@ -1035,6 +1048,12 @@ def review(jb, sc, pl, proj, adir, mu):
             try:
                 bi_ = int(c['B']); B_ = sc.get('broll') or []
                 if 0 <= bi_ < len(B_): B_[bi_] = dict(B_[bi_], video=int(c['video']), s=float(c['s']), e=float(c['s']) + 3)
+            except Exception: pass
+        for c in fx.get('them_cau') or []:   # gắn câu kết (cuối) / câu hút (đầu) – dùng lại được câu ở kịch bản khác
+            try:
+                cc_ = str(c.get('cau', '')).strip().upper()
+                if cc_ in C_ and cc_ not in [str(x).strip().upper() for x in sc.get('aroll') or []]:
+                    sc['aroll'] = ([cc_] + list(sc['aroll'])) if c.get('vi_tri') == 'dau' else (list(sc['aroll']) + [cc_])
             except Exception: pass
         bdrop = {int(x) for x in fx.get('bo_canh_phu') or [] if str(x).lstrip('-').isdigit()}
         sc['broll'] = [b for i, b in enumerate(sc.get('broll') or []) if i not in bdrop]
