@@ -90,20 +90,6 @@ try {
 # duong dan that cua Drive TREN MAY NAY (o G, H, I... tu do theo dung mail) - project nao tro o khac / o M thi sua lai cho dung may nay
 $rootF = ((Get-Item -LiteralPath $root).FullName.TrimEnd('\')) -replace '\\', '/'
 $rxRoot = '"(?:M:|[A-Za-z]:[/\\]+(?:Drive của tôi|My Drive)[/\\]+PHÒNG TRUYỀN THÔNG MICC)(?=[/\\])'
-# cai font cua team (Nexa Rush, Bebas, Dancing Script...) vao may nay cho rieng nguoi dung -> CapCut luon dung dung font, khong bao gio ra font he thong
-$fontsDone = $false
-function Install-TeamFonts($dir) {
-  if (-not (Test-Path -LiteralPath $dir)) { return }
-  $fd = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'; New-Item -ItemType Directory -Force -Path $fd | Out-Null
-  $rk = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'; if (-not (Test-Path $rk)) { New-Item -Path $rk -Force | Out-Null }
-  foreach ($f in (Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\.(ttf|otf)$' })) {
-    $dst = Join-Path $fd $f.Name
-    if (-not (Test-Path -LiteralPath $dst)) {
-      try { Copy-Item -LiteralPath $f.FullName -Destination $dst -Force; New-ItemProperty -Path $rk -Name ($f.BaseName + ' (TrueType)') -Value $dst -PropertyType String -Force | Out-Null; Log "cai font $($f.Name)" }
-      catch { Log ("khong cai duoc font " + $f.Name + ": " + $_.Exception.Message) }
-    }
-  }
-}
 function Fix-Paths($dir) {
   foreach ($fn in @('draft_content.json', 'draft_info.json')) {
     $f = Join-Path $dir $fn
@@ -187,7 +173,6 @@ foreach ($line in (Get-Content -LiteralPath $list -Encoding UTF8)) {
     continue }
   $name = Split-Path $rel -Leaf
   Fix-Paths $src
-  if (-not $fontsDone) { Install-TeamFonts (Join-Path $src 'AI tải về'); $fontsDone = $true }
   $dst = Join-Path $drafts $name
   $item = Get-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue
   $ok = $false
