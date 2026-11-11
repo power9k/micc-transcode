@@ -1052,7 +1052,7 @@ def engine():
     if os.path.exists(os.path.join(ENG, 'build.py')): return
     z = lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), ENG_NAME))[0]['id']
     os.makedirs(ENG, exist_ok=True); p = os.path.join(L.TMP, 'eng.zip'); open(p, 'wb').write(raw(z)); zipfile.ZipFile(p).extractall(ENG)
-    for fn in ('build.py',):   # mã bộ dựng mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
+    for fn in ('build.py', 'mg.py', 'gsap.min.js'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'eng', fn)
         if os.path.exists(src): open(os.path.join(ENG, fn), 'wb').write(open(src, 'rb').read())
     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'fonttools'], capture_output=True)
