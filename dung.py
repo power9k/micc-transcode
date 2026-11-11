@@ -531,9 +531,11 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     poolB = [A[vid(b.get('video', 0))] for b in sc.get('broll', []) if A.get(vid(b.get('video', 0)))]
     poolB += [a for a in A.values() if (a['vid'].get('broll') or not a.get('segs')) and a not in poolB]
     def segs_of(a):
-        d = [x for x in ((a.get('vlog') or {}).get('doan') or []) if float(x.get('e', 0)) - float(x.get('s', 0)) >= 1.4]
+        BADW = re.compile(r'(?i)trắng|đen|mờ|nhòe|rung|lóa|logo|chữ|text|tiêu đề|fade|chuyển cảnh|màn hình|trống')
+        d = [x for x in ((a.get('vlog') or {}).get('doan') or []) if float(x.get('e', 0)) - float(x.get('s', 0)) >= 1.4
+             and float(x.get('diem') or 6) >= 6 and not BADW.search('%s %s' % (x.get('chat_luong', ''), x.get('noi_dung', '')))]
         d.sort(key=lambda x: -float(x.get('diem') or 0))
-        return [(float(x['s']), float(x['e'])) for x in d] or [(min(1.0, a['dur'] / 4), a['dur'] - .2)]
+        return [(float(x['s']), float(x['e'])) for x in d] or ([] if (a.get('vlog') or {}).get('doan') else [(min(1.0, a['dur'] / 4), a['dur'] - .2)])
     cur = {id(a): 0 for a in poolB}; pi = [0]
     def next_b(dmin):
         for _ in range(len(poolB)):
