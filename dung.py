@@ -1259,7 +1259,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         try: L.drive('files/' + pf, {'trashed': True}, method='PATCH')
         except Exception: pass
         raise
-    return dict(proj=proj, dur=pl['total'], url='https://drive.google.com/drive/folders/' + pf)
+    return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf)
 
 # ---- nhiều máy GitHub chạy song song: mỗi máy giữ 1 thư mục source (khóa trên Drive), máy khác bỏ qua
 WID = '%s-%s' % (os.environ.get('GITHUB_RUN_ID', 'local'), os.environ.get('WORKER', '1'))
@@ -1494,9 +1494,10 @@ def do_build(jb, n):
         stt.update(done=True); jput(st_name(jb, n), stt, ad, idx)
         log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
         if not r.get('exists'):
-            try: tot = len(lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (LV, L.FOLDER), 'id'))
-            except Exception: tot = 0
-            L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n📊 Tổng đã hoàn thành: %d project\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id']), tot))
+            try: link = (L.ix(link=r['id']) or {}).get('link') or L.SITE + '/_mo/' + r['id']   # link mở thẳng project trên web MICC media
+            except Exception: link = L.SITE + '/_mo/' + r['id']
+            mm, ss = divmod(int(time.time() - t0), 60)
+            L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], r['dur'], mm, ss, link))
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
     if not jb.get('qa_rej'): stt['tries'] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
