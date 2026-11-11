@@ -1246,6 +1246,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)   # nhạc dùng → vào Kho/Nhạc nền
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
             put(fn, pf, open(os.path.join(od, fn), 'rb').read(), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
+        put('draft_cover.jpg', pf, base64.b64decode(a0['thumbs'][len(a0['thumbs']) // 2][1]), 'image/jpeg')
         list_edit(add=[rel])
         for p_ in (mu or []): used_music(add=p_['key'])
         for c in old_:   # bản mới đã lên xong → mới bỏ bản cũ (vào thùng rác Drive, khôi phục được)
@@ -1258,8 +1259,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         try: L.drive('files/' + pf, {'trashed': True}, method='PATCH')
         except Exception: pass
         raise
-    vid0 = next((A_[int(sh['media'][1:])]['vid']['id'] for sh in pl['shots'] if sh.get('line') == 'A' and sh['media'][1:].isdigit() and int(sh['media'][1:]) in A_), None) if (A_ := {a['i']: a for a in jb['A']}) else None
-    return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0)
+    return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf)
 
 # ---- nhiều máy GitHub chạy song song: mỗi máy giữ 1 thư mục source (khóa trên Drive), máy khác bỏ qua
 WID = '%s-%s' % (os.environ.get('GITHUB_RUN_ID', 'local'), os.environ.get('WORKER', '1'))
@@ -1497,8 +1497,7 @@ def do_build(jb, n):
             try: link = (L.ix(link=r['id']) or {}).get('link') or L.SITE + '/_mo/' + r['id']   # link mở thẳng project trên web MICC media
             except Exception: link = L.SITE + '/_mo/' + r['id']
             mm, ss = divmod(int(time.time() - t0), 60)
-            L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], r['dur'], mm, ss, link),
-                   photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # ảnh thumbnail: khung hình người nói của project
+            L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], r['dur'], mm, ss, link))
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
     if not jb.get('qa_rej'): stt['tries'] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
