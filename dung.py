@@ -453,6 +453,29 @@ def rule_plan(jb):   # lớp dự phòng không cần AI: lấy câu theo thứ 
 CW, CH = 1080, 1920
 def s0(a): w, h = a.get('w') or 1080, a.get('h') or 1920; return (w / h) / (CW / CH) if w / h > CW / CH + .01 else 1.0
 def words(a, s, e): return [w for sg in a['segs'] for w in sg['w'] if w[0] >= s - .05 and w[1] <= e + .05]
+BADW = re.compile(r'(?i)trắng|đen kịt|mờ|nhòe|rung|lóa|logo|chữ in|text|tiêu đề|fade|chuyển cảnh|màn hình trống|trống trơn|tay che|lỗi|hỏng|bị cắt')
+def clean_seg(a, s0_, e0_):   # đo thật trên khung hình: bỏ đoạn trắng xóa / đen / phẳng
+    try:
+        import numpy as _np
+        for t_ in (s0_ + .1, (s0_ + e0_) / 2, e0_ - .1):
+            im = N._tile(a, t_)
+            if im is None: continue
+            g = _np.asarray(im.convert('L'), dtype=float)
+            if g.mean() > 215 or g.mean() < 25 or g.std() < 18: return False
+    except Exception: pass
+    return True
+def seg_ok(a, s0_, e0_):   # đoạn cảnh phụ đạt: Claude chấm ≥ 6, không mô tả lỗi, khung hình không trắng / đen
+    for x in ((a.get('vlog') or {}).get('doan') or []):
+        if min(e0_, float(x.get('e', 0))) - max(s0_, float(x.get('s', 0))) > .3:
+            if float(x.get('diem') or 6) < 6 or BADW.search('%s %s' % (x.get('chat_luong', ''), x.get('noi_dung', ''))): return False
+    return clean_seg(a, s0_, e0_)
+def best_seg(a, near=0.0, dmin=1.6):   # đoạn đẹp nhất của video (gần giây Claude chọn)
+    d = [x for x in ((a.get('vlog') or {}).get('doan') or []) if float(x.get('e', 0)) - float(x.get('s', 0)) >= dmin]
+    d.sort(key=lambda x: (-float(x.get('diem') or 0), abs(float(x['s']) - near)))
+    for x in d:
+        if seg_ok(a, float(x['s']), min(float(x['e']), float(x['s']) + 3)): return float(x['s'])
+    return None
+
 def kat(keys, t):   # khung máy [t, zoom, u, v, xoay] tại thời điểm t (nội suy giữa các khóa)
     if t <= keys[0][0]: return list(keys[0])
     for a_, b_ in zip(keys, keys[1:]):
@@ -594,6 +617,10 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             return y if all(abs(y - c) < .01 or abs(y - c) >= .35 for c in cuts_) else x
         T = on_beat(T)
         s, e = float(b.get('s', 0)), float(b.get('e', 0)); d = min(3.0, max(1.6, e - s), total - T - .3)
+        if not seg_ok(a, s, s + max(d, 1.3)):   # đoạn Claude chọn bị mờ / trắng / lỗi → lấy đoạn đẹp nhất của chính video đó, không có thì bỏ
+            s2 = best_seg(a, s)
+            if s2 is None: continue
+            s, e = s2, s2 + 3
         e2 = on_beat(T + d); d = e2 - T if 1.3 <= e2 - T <= 3.3 and e2 < total - .3 else d   # cảnh phụ kết thúc cũng rơi vào phách
         if d < 1.3 or s + d > a['dur']: continue
         k = key(a); used.add(a['i']); lastB = T + d; new = []
@@ -968,13 +995,19 @@ def timeline(jb, sc, pl):   # dòng thời gian bằng chữ cho Claude kiểm d
     return ('DỰ ÁN (tên chuẩn theo thư mục): %s – lời thoại do máy nghe có thể sai tên riêng (vd "Kinh Bắc" = "King Park"); chữ trên hình sai tên dự án / địa danh là lỗi NẶNG, sửa bằng doi_chu.\n' % path_of(jb['id'])) + '\n'.join(out)
 def review(jb, sc, pl, proj, adir, mu):
     sc0 = sc
+    rows = []   # KHO CẢNH PHỤ cho Claude đổi cảnh phụ vớ vẩn: các đoạn đẹp nhất (Claude đã chấm khi xem)
+    for a in jb['A']:
+        if not (a['vid'].get('broll') or not a.get('segs')): continue
+        for x in sorted(((a.get('vlog') or {}).get('doan') or []), key=lambda x: -float(x.get('diem') or 0))[:2]:
+            if float(x.get('diem') or 0) >= 7 and float(x.get('e', 0)) - float(x.get('s', 0)) >= 2: rows.append((float(x.get('diem') or 0), '#%d %.1f–%.1fs: %s' % (a['i'], float(x['s']), float(x['e']), str(x.get('noi_dung', ''))[:70])))
+    bcat = ('\n\nKHO CẢNH PHỤ (đoạn đẹp, đã chấm điểm):\n' + '\n'.join(r_[1] for r_ in sorted(rows, key=lambda r_: -r_[0])[:60])) if rows else ''
     A = {'V%d' % a['i']: a for a in jb['A']}
     for rnd in range(4):   # 1 lần kiểm + tối đa 3 lần sửa
         ts = sorted({round((z['t0'] + z['t1']) / 2, 2) for z in pl['titles']} | {round(x['t0'] + .3, 2) for x in pl['shots'] if x['line'] != 'A'})
         if len(ts) > 24: ts = ts[::math.ceil(len(ts) / 24)]
         try: pv = N.preview(pl, A, ts, os.path.join(ENG, 'fonts'))
         except Exception as e: pv = []; log('  không dựng được ảnh xem trước:', e)
-        r = N.qa(pl, timeline(jb, sc, pl), pv, log=log)
+        r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat)
         if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
         log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
         if r.get('dat'): return pl
@@ -996,6 +1029,11 @@ def review(jb, sc, pl, proj, adir, mu):
             except Exception: pass
         for c in fx.get('doi_canh_tu_phu') or []:   # cảnh tự phủ xấu → không dùng đoạn đó nữa
             try: sc.setdefault('_bad', []).append([int(c['video']), float(c['giay'])])
+            except Exception: pass
+        for c in fx.get('doi_canh_phu') or []:   # đổi cảnh phụ vớ vẩn bằng đoạn đẹp trong kho (giữ đúng chỗ chèn)
+            try:
+                bi_ = int(c['B']); B_ = sc.get('broll') or []
+                if 0 <= bi_ < len(B_): B_[bi_] = dict(B_[bi_], video=int(c['video']), s=float(c['s']), e=float(c['s']) + 3)
             except Exception: pass
         bdrop = {int(x) for x in fx.get('bo_canh_phu') or [] if str(x).lstrip('-').isdigit()}
         sc['broll'] = [b for i, b in enumerate(sc.get('broll') or []) if i not in bdrop]
@@ -1361,7 +1399,7 @@ def fix_vol():   # chủ dặn 11/11: SFX + nhạc nền 0 dB (không giảm âm
                 try:
                     d = json.loads(raw(f['id']).decode('utf-8')); ch = 0
                     for t in d.get('tracks') or []:
-                        if t.get('type') != 'audio' or not re.search(r'(?i)sfx|nhạc', t.get('name') or ''): continue
+                        if t.get('type') != 'audio': continue   # chủ dặn: mọi âm thanh (lời, nhạc, hiệu ứng) 0 dB
                         for sg in t.get('segments') or []:
                             sg['volume'] = 1.0; sg['last_nonzero_volume'] = 1.0
                             sg['common_keyframes'] = [k for k in sg.get('common_keyframes') or [] if k.get('property_type') != 'KFTypeVolume']; ch += 1
