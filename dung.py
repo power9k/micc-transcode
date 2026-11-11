@@ -352,6 +352,13 @@ def faceless(a):   # bản thu tiếng (không thấy người nói) → phải 
     ppl = sum(1 for x in dn if re.search(r'(?i)người|nói|dẫn|mc|cô gái|chàng trai|anh |chị |đứng|cầm mic', '%s %s' % (x.get('noi_dung', ''), x.get('canh', ''))))
     return not (dn and ppl >= .3 * len(dn))
 
+def codes(jb):   # mã câu C1, C2… (cùng thứ tự với lúc lên kế hoạch) – cần cả khi dựng lại kịch bản đã lưu
+    C = jb['C'] = {}
+    for a in jb['A']:
+        if a['vid'].get('broll'): continue
+        for sg in a['segs']: C['C%d' % (len(C) + 1)] = (a['i'], float(sg['s']), float(sg['e']))
+    return C
+
 def plan(jb, key, models, extra=''):
     parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nSource có các thư mục con "Kịch bản N": MỖI thư mục Kịch bản = đúng 1 video (1 script), A-roll lấy từ chính thư mục đó; thư mục khác = kho cảnh phụ dùng chung.' if jb.get('kbtop') else '\nTự phân tích toàn bộ source để chia các kịch bản, mỗi kịch bản 1 video dưới 2 phút.')}]
     C = jb['C'] = {}
@@ -620,7 +627,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         # chữ 2 tầng (theo bộ mẫu BĐS): dòng viết tay dẫn ý + dòng chữ đậm chính, tối đa 2 dòng; màu nhấn đổi theo cụm, quầng sáng mềm
         COL = ['#FFD54A', '#7FE3FF', '#FF9A6B', '#FFFFFF', '#FFB3D1']
         c1 = '#FFD54A' if num else COL[n % len(COL)]
-        main = 'BEB' if n % 3 != 2 else 'BIG'
+        main = 'BEB' if n % 3 != 2 or re.search(r'[!+%/:()"\'#*&]', big) else 'BIG'   # font Nexa bản dùng thử không có các ký tự này (hiện ô "Việt hóa bởi…")
         lead = small if small and len(small.split()) <= 6 else ''
         if lead and n % 2 == 0: lines = [[lead[:1].upper() + lead[1:], 'SCR', 3.6, '#FFFFFF'], [big, main, 7.6 if main == 'BEB' else 6.2, c1]]
         else: lines = [[big, main, 8.2 if main == 'BEB' else 6.6, c1]]
@@ -867,7 +874,7 @@ def edit(jb, key, models):
        lq("appProperties has { key='dungS' and value='%s:1' } and appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (jb['id'], LV, L.FOLDER), 'id')):
         log('  đã có project, bỏ qua:', jb['name']); L.mark(jb['id'], dungV=DV, dungFail=None); return []
     engine()
-    if redo: log('  làm lại %d kịch bản bị kiểm duyệt loại lượt trước (không lên kế hoạch lại)' % len(redo))
+    if redo: codes(jb); log('  làm lại %d kịch bản bị kiểm duyệt loại lượt trước (không lên kế hoạch lại)' % len(redo))
     olds = [] if redo else [c['name'] for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'name,appProperties')
                             if str((c.get('appProperties') or {}).get('dungS', '')).startswith(jb['id'] + ':') and (c.get('appProperties') or {}).get('dungL') != LV]
     if olds: log('  dựng lại theo kiểu nhiều lớp:', ', '.join(olds))
