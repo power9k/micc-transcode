@@ -45,3 +45,12 @@
 - Mỗi project có ảnh cover riêng (draft_cover.jpg), khác hẳn cover mọi project khác (so dấu vân ảnh dungCH).
 - Dựng lại: tên thêm v2, v3… ở cuối (không ghi "AI dựng lại"); mỗi kịch bản chỉ còn 1 project mới nhất.
 - Máy dựng làm liên tục; bị chặn hạn mức thì tự ngưng chờ rồi chạy tiếp.
+
+## 12/11 (đêm) – chủ dặn dựng lại TẤT CẢ từ đầu
+- Xóa hết project AI kiểu cũ (purge_old, vào thùng rác Drive); dựng MỚI hoàn toàn, không ghi đè bản cũ.
+- Thứ tự: source MỚI NHẤT trước → cũ dần; 16 máy: máy 1–12 dựng, máy 13–16 ưu tiên đọc source mới + ra kịch bản; xong project nào báo Zalo project đó.
+- Khung người nói: đo mặt bằng số – mất đầu / chỉ thấy cằm, cổ → phủ cảnh phụ; zoom làm mất đỉnh đầu → bỏ zoom.
+- Màu chữ: đo độ sáng nền đúng chỗ đặt chữ; nền sáng → chữ xanh than đậm (#0E2F6B), không để chữ sáng trên nền sáng.
+- Motion graphic: nhiều đoạn nếu kịch bản cần (~1 đoạn / 8 s), mỗi đoạn một loại khác nhau; mỗi clip phối ngẫu nhiên nền × mặt nạ cắt cảnh quay (tròn, lục giác, vòm, chéo, khối, dải phim…) × bố cục × kiểu xuất hiện × chi tiết trang trí; giữ tông màu web.
+- Zalo: gửi clip GỘP các motion graphic của project (mg - tổng hợp.mp4), không chèn link.
+- Claude kiểm tra tối đa 6 vòng; các bước chọn nhạc / màu / phong cách dùng model mạnh nhất (opus).

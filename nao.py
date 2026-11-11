@@ -219,11 +219,11 @@ def qa(pl, timeline, pv_imgs, log=print, extra=''):
 
 def mg_pick(timeline, loai, kho='', log=print):   # chủ dặn 11/11: chèn motion graphic (đồ họa sinh động, KHÔNG CHỮ – chữ vẫn trên CapCut) ở đoạn lời nói có số liệu / vị trí / so sánh
     q = ('Bạn là motion designer cho video ngắn bất động sản. Dưới đây là DÒNG THỜI GIAN bản dựng (lời nói theo giây).\n'
-         'Chọn 0–4 đoạn (mỗi đoạn 2.5–5 giây, không chồng nhau, không trong 1.5 s đầu, cách nhau ≥ 4 s) mà lời nói có SỐ LIỆU, VỊ TRÍ, QUY MÔ, SO SÁNH, THỜI GIAN, CÔNG NGHỆ… '
-         'để thay hình bằng 1 clip motion graphic minh họa đúng ý câu nói (chữ nhấn của CapCut vẫn nằm trên). Video truyền cảm hứng / tâm sự thì chỉ chọn 0–1 đoạn. '
+         'Chọn các đoạn cần minh họa (mỗi đoạn 2.5–5 giây, không chồng nhau, không trong 1.5 s đầu, cách nhau ≥ 2.5 s; kịch bản nhiều số liệu / ý minh họa thì chọn NHIỀU – tối đa ~1 đoạn mỗi 8 giây; mỗi đoạn một LOẠI KHÁC NHAU, không lặp loại trong 1 video trừ khi bắt buộc) mà lời nói có SỐ LIỆU, VỊ TRÍ, QUY MÔ, SO SÁNH, THỜI GIAN, CÔNG NGHỆ… '
+         'để thay hình bằng 1 clip motion graphic minh họa đúng ý câu nói (chữ nhấn của CapCut vẫn nằm trên). Video truyền cảm hứng / tâm sự thì chọn ít hơn (chỉ ở ý thật sự cần minh họa). '
          'KHÔNG chọn đoạn người nói đang biểu cảm mạnh / cao trào cảm xúc. Không có đoạn hợp thì trả danh sách rỗng.\n'
          'Loại đồ họa:\n' + '\n'.join('- %s: %s' % kv for kv in loai.items()) +
          '\n\nDÒNG THỜI GIAN:\n' + timeline + (('\n\nKHO CẢNH PHỤ (cảnh đặt trong thẻ / điện thoại của đồ họa):\n' + kho) if kho else '') +
-         '\n\nTrả JSON: {"motion":[{"s":giây timeline,"e":giây timeline,"loai":"tên loại","video":số # cảnh trong KHO CẢNH PHỤ (0 = không cần),"giay":giây bắt đầu trong cảnh đó,"chieu":1 hoặc -1 (luoi_can: 1 sáng dần, -1 tắt dần),"vi_sao":"ngắn"}]}')
+         '\n\nTrả JSON: {"motion":[{"s":giây timeline,"e":giây timeline,"loai":"tên loại","video":số # cảnh trong KHO CẢNH PHỤ (0 = không cần),"giay":giây bắt đầu trong cảnh đó,"chieu":1 hoặc -1 (luoi_can: 1 sáng dần, -1 tắt dần),"so":số % nếu loại vong_so (vd 70),"vi_sao":"ngắn"}]}')
     r = ask_json(q, [], model='opus', key='motion', sys_p='Chỉ trả JSON.', log=log)
     return (r or {}).get('motion') or []

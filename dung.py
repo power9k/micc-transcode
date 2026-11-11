@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '18'
-LV = '12'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '19'
+LV = '13'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -828,6 +828,28 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             if not fc or fc[1] < z['y_pct'] - hh / 2 - 1 or fc[0] > z['y_pct'] + hh / 2 + 1: continue
             below, above = fc[1] + hh / 2 + 3, fc[0] - hh / 2 - 3
             z['y_pct'] = round(below if below <= 76 else (above if above >= 14 else 76), 1); z['ne_mat'] = 1; break
+    # chủ dặn 12/11: nền sáng mà chữ cũng sáng → không đọc được. Đo độ sáng nền ĐÚNG chỗ đặt chữ (khung thật của cảnh) → nền sáng thì chữ xanh than đậm
+    for z in titles:
+        try:
+            br_ = []
+            for T in (z['t0'] + .1, (z['t0'] + z['t1']) / 2, z['t1'] - .1):
+                sh = next((s_ for s_ in sorted(shots, key=lambda s_: s_['line'] == 'A') if s_['t0'] <= T < s_['t1']), None)
+                a = AK.get(sh['media']) if sh else None
+                if not a: continue
+                im = N._tile(a, sh['src'] + (T - sh['t0']) * sh.get('spd', 1.0))
+                if im is None: continue
+                k = kat(sh['keys'], T); m = max(1.0, k[1]); W_, H_ = im.size
+                S0 = max(1.0, ((a.get('w') or 1080) / (a.get('h') or 1920)) / (CW / CH))
+                hh = sum(l[2] for l in z['lines']) * .75 + 2
+                y0 = k[3] + ((z['y_pct'] - hh / 2) / 100 - .5) / m; y1 = k[3] + ((z['y_pct'] + hh / 2) / 100 - .5) / m
+                x0 = k[2] - .42 / (S0 * m); x1 = k[2] + .42 / (S0 * m)
+                bx = [max(0, int(x0 * W_)), max(0, int(y0 * H_)), min(W_, int(x1 * W_)), min(H_, int(y1 * H_) + 1)]
+                if bx[2] - bx[0] < 3 or bx[3] - bx[1] < 2: continue
+                px = sorted(im.crop(bx).convert('L').getdata()); br_.append(px[int(len(px) * .6)] / 255.0)
+            if br_ and max(br_) > .62:
+                for l in z['lines']: l[3] = '#0E2F6B'
+                z['bright'] = True; z['nen_sang'] = round(max(br_), 2)
+        except Exception as e: log('  không đo được nền chữ:', e)
     # ---- TRACKING CHỮ: chữ trôi theo người / cảnh (như gắn vào cảnh) + phóng nhẹ cho sống động
     for n_, z in enumerate(titles):
         pts, base = [], None
@@ -943,7 +965,7 @@ def pick_music(jb, sc=None):
                 opts = '\n'.join('%d. %s' % (k, x['name']) for k, x in enumerate(fresh[:40]))
                 j = N.ask_json(info + '\n\nCHỌN 1 BÀI NHẠC NỀN hợp nhất với phong thái người nói và giọng điệu kịch bản (vd tự tin – năng động – hài hước → nhạc sôi, beat mạnh, hiện đại / trap / pop; chia sẻ cảm xúc thật sự mới dùng nhạc sâu lắng). '
                                'Video BĐS / kinh doanh mặc định: hiện đại, sang, có nhịp. Tránh nhạc da diết, bi, chậm buồn khi kịch bản không buồn.\nDanh sách (đoán tính chất qua tên):\n' + opts +
-                               '\n\nTrả JSON {"chon": số thứ tự, "ly_do": "ngắn"}', model='sonnet', key='chon', log=log)
+                               '\n\nTrả JSON {"chon": số thứ tự, "ly_do": "ngắn"}', model='opus', key='chon', log=log)
                 if j is not None and 0 <= int(j['chon']) < len(fresh[:40]): c = fresh[int(j['chon'])]; log('  Claude chọn nhạc:', c['name'], '–', str(j.get('ly_do', ''))[:80])
             except ClaudeWait: raise
             except Exception as e: log('  Claude chưa chọn được nhạc, lấy bài mới nhất:', e)
@@ -1048,7 +1070,7 @@ def pick_mix(jb, sc):   # Claude MIX nhạc theo từng đoạn kịch bản (1�
              '- Dùng 1–3 bài, mỗi bài phủ 1 đoạn liền (đổi bài ở chỗ đổi ý của kịch bản); ưu tiên bài chưa dùng; vào bài ở đoạn "sôi" / điểm dồn khi cần ngầu.\n'
              'Danh sách bài (tên | độ dài | BPM | đoạn lắng/vừa/sôi | điểm dồn):\n' + opts +
              '\n\nTrả JSON {"mix":[{"bai": số thứ tự, "tu": % thời lượng video bắt đầu (0–100), "den": % kết thúc, "vao": giây bắt đầu trong bài}], "ly_do": "ngắn"} – các đoạn nối liền, phủ 0→100.')
-        j = N.ask_json(q, model='sonnet', key='mix', log=log)
+        j = N.ask_json(q, model='opus', key='mix', log=log)
         parts = []
         for m in (j or {}).get('mix') or []:
             try:
@@ -1121,7 +1143,7 @@ def review(jb, sc, pl, proj, adir, mu):
     sty_ = (jget('%s_kichban.json' % jb['id'], idx_now()[1]) or {}).get('phong_cach') or style_of(jb)
     bcat = ('\n\nPHONG CÁCH KÊNH (video đã hậu kỳ trước đó – bản dựng phải theo, lệch phong cách là lỗi):\n' + sty_ if sty_ else '') + ecat + ('\n\nKHO CẢNH PHỤ (đoạn đẹp, đã chấm điểm):\n' + '\n'.join(r_[1] for r_ in sorted(rows, key=lambda r_: -r_[0])[:60])) if rows else ''
     A = {'V%d' % a['i']: a for a in jb['A']}
-    for rnd in range(4):   # 1 lần kiểm + tối đa 3 lần sửa
+    for rnd in range(6):   # chủ dặn 12/11: được kiểm tra đi kiểm tra lại – 1 lần kiểm + tối đa 5 lần sửa
         ts = sorted({round((z['t0'] + z['t1']) / 2, 2) for z in pl['titles']} | {round(x['t0'] + .3, 2) for x in pl['shots'] if x['line'] != 'A'})
         if len(ts) > 24: ts = ts[::math.ceil(len(ts) / 24)]
         try: pv = N.preview(pl, A, ts, os.path.join(ENG, 'fonts'))
@@ -1214,7 +1236,7 @@ def claude_grades(jb, sc):   # Claude Sonnet NHÌN khung hình từng video dùn
                  'Cảnh đã đẹp sẵn thì chỉnh nhẹ; cảnh xỉn / mù / log / thiếu sáng thì chỉnh mạnh hơn. Gợi ý máy đo (tham khảo):\n' + meas +
                  '\n\nThang giá trị (0 = giữ nguyên): brightness −0.3..0.35, contrast −0.2..0.5, saturation −0.3..0.5, temperature −0.35..0.35 (dương = ấm), tone −0.25..0.25 (dương = hồng, âm = xanh lá), highlight −0.4..0, shadow −0.1..0.3.\n'
                  'Trả JSON {"videos":[{"video":số #,"brightness":..,"contrast":..,"saturation":..,"temperature":..,"tone":..,"highlight":..,"shadow":..}]}')
-            j = N.ask_json(q, [('Khung hình gốc:', base64.b64encode(bio.getvalue()).decode())], model='sonnet', key='videos', log=log)
+            j = N.ask_json(q, [('Khung hình gốc:', base64.b64encode(bio.getvalue()).decode())], model='opus', key='videos', log=log)
             if not j: continue
             R = {'brightness': (-.3, .35), 'contrast': (-.2, .5), 'saturation': (-.3, .5), 'temperature': (-.35, .35), 'tone': (-.25, .25), 'highlight': (-.4, 0), 'shadow': (-.1, .3)}
             by = {a['i']: (a, nm) for a, nm, im in tiles}
@@ -1241,6 +1263,15 @@ VRE = re.compile(r'(?: \(AI dựng lại\)| v(\d+))\s*$')   # chủ dặn 11/11:
 def vnum(nm): m = VRE.search(bare_nm(nm)); return (int(m.group(1)) if m.group(1) else 2) if m else 1
 def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
 def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
+def purge_old():   # chủ dặn 12/11: xóa HẾT project AI kiểu dựng cũ (vào thùng rác Drive) – chỉ giữ project dựng theo quy tắc mới nhất
+    try:
+        cs = [c for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'id,name,appProperties')
+              if (c.get('appProperties') or {}).get('dungL') != LV]
+        for c in cs:
+            try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH')
+            except Exception: pass
+        if cs: list_edit(); log('  đã xóa %d project AI kiểu cũ (vào thùng rác Drive)' % len(cs))
+    except Exception as e: log('  không xóa được project cũ:', e)
 def dedupe_proj():   # chủ dặn 11/11: mỗi kịch bản chỉ còn 1 project – bản mới nhất (bản thừa vào thùng rác Drive, khôi phục được 30 ngày)
     try:
         cs = lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'id,name,parents,appProperties,createdTime,modifiedTime')
@@ -1364,7 +1395,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
         try:
             s_, e_ = float(p['s']), float(p['e']); e_ = min(e_, s_ + 5.0)
             if e_ - s_ < 2.5: e_ = s_ + 2.5
-            if s_ < 1.5 or e_ > pl['total'] - .3 or s_ < last + 4: continue
+            if s_ < 1.5 or e_ > pl['total'] - .3 or s_ < last + 2.5: continue
             a = A_.get(int(p.get('video') or 0)); clip = None
             if a and not (a['vid'].get('broll') or not a.get('segs')): a = None   # chỉ đặt CẢNH PHỤ vào thẻ (không lấy người nói)
             if a:
@@ -1373,7 +1404,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
                 L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(a['vid']['id'], g, e_ - s_ + .3) + ['-an', '-vf', 'scale=1280:-2', '-c:v', 'libx264', '-crf', '21', '-pix_fmt', 'yuv420p', clip], timeout=400)
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
             os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
-            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('chieu') or 1))
+            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_))
             out.append((s_, e_, o, nm)); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
         except Exception as e: mlog('bỏ 1 motion graphic:', repr(e)[:500])
@@ -1390,6 +1421,13 @@ def add_mg(jb, sc, pl, proj, host, adir):
         new.append(dict(media=k, src=0.0, t0=round(s_, 3), t1=round(e_, 3), line='B', bi=-1, keys=[[round(s_, 3), 1.0, .5, .5, 0.0], [round(e_, 3), 1.0, .5, .5, 0.0]], punch_abs=[]))
         shots = sorted(new, key=lambda x: x['t0'])
     pl['shots'] = shots; pl['mg'] = [(o, nm) for _, _, o, nm in out]
+    if len(out) > 1:   # chủ dặn 12/11: bản gửi kèm tin Zalo = GỘP các motion graphic lại thành 1 clip
+        try:
+            lst = os.path.join(MGW, 'gop.txt'); open(lst, 'w').write(''.join("file '%s'\n" % o for _, _, o, _ in out))
+            g_ = os.path.join(MGW, 'mg - tổng hợp.mp4')
+            L.run(['ffmpeg', '-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', lst, '-c:v', 'libx264', '-crf', '23', '-pix_fmt', 'yuv420p', '-an', g_], timeout=300)
+            pl['mg_all'] = g_
+        except Exception as e: mlog('không gộp được motion graphic:', repr(e)[:300])
     return pl
 
 def script_doc(jb, pl, proj):   # file Word kịch bản (lời thoại theo thứ tự + chữ trên hình)
@@ -1445,6 +1483,7 @@ def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover 
         if pl.get('mg'):
             md_ = mkdir(MGDIR, pf)
             for o, nm in pl['mg']: ids.append(put(nm, md_, open(o, 'rb').read(), 'video/mp4')['id'])
+            if pl.get('mg_all'): ids.insert(0, put('mg - tổng hợp.mp4', md_, open(pl['mg_all'], 'rb').read(), 'video/mp4')['id'])   # clip gộp → gửi Zalo
     except Exception as e: mlog('không lưu được motion graphic:', repr(e))
     try: put('Kịch bản - %s.docx' % safe(proj, 90), pf, script_doc(jb, pl, proj), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
     except Exception as e: log('  không tạo được file Word kịch bản:', e)
@@ -1502,7 +1541,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
             b_ = b_.replace(j_('/' + proj0), j_('/' + proj)).replace(j_(proj0), j_(proj))
         return b_
     # chủ dặn 11/11: project cũ CHƯA ai sửa → GHI ĐÈ thẳng vào thư mục đó (giữ nguyên lối tắt CapCut, không xoá rồi tạo lại)
-    tgt = (sorted([c for c in old_ if c['id'] not in ued], key=lambda c: c['createdTime']) or [None])[0]   # ghi đè vào bản chưa ai sửa; bản người dùng đã sửa → vào thùng rác khi bản mới lên
+    tgt = None   # chủ dặn 12/11: dựng mới hoàn toàn (không ghi đè bản cũ để khỏi lẫn)   # ghi đè vào bản chưa ai sửa; bản người dùng đã sửa → vào thùng rác khi bản mới lên
     if tgt:
         try:
             for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # bỏ bản lưu tạm / Timelines CapCut sinh ra để CapCut đọc đúng bản mới
@@ -1691,7 +1730,8 @@ def tasks(jobs=None):
             out += [(2, 'read', jb, v) for v in unread if not _fresh((v.get('appProperties') or {}).get('dungRL'))]
         elif not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))
     import random
-    random.shuffle(out); out.sort(key=lambda x: (1 if 'center avenue' in L.norm1(path_of(x[2]['id'])) else 0, x[0], 0 if 'academy' in L.norm1(path_of(x[2]['id'])) else 1))   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
+    rd_first = int(os.environ.get('WORKER') or 0) > 12   # chủ dặn 12/11: 16 máy – máy 13–16 ưu tiên đọc source mới + ra kịch bản, các máy khác dựng
+    out.sort(key=lambda x: ((0 if x[1] != 'build' else 1) if rd_first else (0 if x[1] == 'build' else 1), -x[2].get('last', 0), x[3] if x[1] == 'build' else 0))   # dựng lần lượt từ source MỚI NHẤT tới cũ   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
     return out
 
 _JB = {}
@@ -1741,7 +1781,7 @@ def style_of(jb):   # PHONG CÁCH KÊNH: Claude xem các video ĐÃ HẬU KỲ t
             except Exception as e: log('  không xem được video mẫu', v['name'], e)
         if not imgs: return ''
         j = N.ask_json('Đây là các video kênh đã HẬU KỲ xong (thành phẩm team đã làm). Hãy mô tả PHONG CÁCH DỰNG để AI dựng các video mới THEO ĐÚNG phong cách này: bố cục khung, cỡ cảnh, nhịp cắt, kiểu chữ (font, cỡ, màu, vị trí, hiệu ứng, có khung/nền hay không), màu sắc / tông, chuyển cảnh, hiệu ứng, cách dùng cảnh phụ, logo / nhận diện, mở đầu và kết.\n'
-                       'Trả JSON {"mo_ta":"mô tả ngắn gọn, cụ thể, dạng gạch đầu dòng, ≤ 1200 chữ"}', imgs, model='sonnet', key='mo_ta', log=log)
+                       'Trả JSON {"mo_ta":"mô tả ngắn gọn, cụ thể, dạng gạch đầu dòng, ≤ 1200 chữ"}', imgs, model='opus', key='mo_ta', log=log)
         if not j: return ''
         jput(nm, {'mo_ta': j['mo_ta'], 'videos': [v['name'] for v in vids[:3]]}, ad, {})
         log('  đã học phong cách kênh từ %d video đã hậu kỳ' % min(3, len(vids)))
@@ -1925,7 +1965,7 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
 def pending():
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     if not drive_ok(): return 0   # Google đang chặn tải → không khởi động máy dựng
-    share_sys(); restore_r6(); dedupe_proj()   # dọn trùng ngay cả khi không có việc dựng
+    share_sys(); purge_old(); dedupe_proj()   # dọn trùng ngay cả khi không có việc dựng
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
@@ -1948,7 +1988,7 @@ LISTF = '1wp8d6QDy9vkjrJPols3esmh9ORFMXY97'   # file danh sách CapCut (của t�
 def run(key, models, until):
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    mark_root(); fix_public(); retract_all(); share_sys(); restore_r6(); free_stale(); rename_old(); dedupe_proj(); fix_vol(); heal_list(); setup_bat()
+    mark_root(); fix_public(); retract_all(); share_sys(); free_stale(); purge_old(); dedupe_proj(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not drive_ok(): break   # chủ dặn 12/11: Google chặn hạn mức tải → ngưng, lượt sau (10 phút) tự thử lại
