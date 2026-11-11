@@ -181,6 +181,7 @@ QA_LIST = '''DANH SÁCH KIỂM TRA (chủ đã dặn, lỗi nào cũng phải s�
 7. Mở đầu không có câu hút (hook), kết thúc cụt.
 8. Đè tiếng: 2 giọng nói cùng lúc, tiếng cảnh phụ lẫn vào lời, nhạc / SFX át giọng.
 9. Lỗi font: ký tự hiện thành ô vuông / khối chữ nhỏ lạ, mất dấu tiếng Việt.
+11. Bố cục chữ: chữ đè lên người / ngực trong khi phía trên đầu hoặc bên cạnh còn khoảng trống (phải đặt chữ vào khoảng trống); nhạc nền không hợp phong thái người nói / giọng kịch bản (vd nhạc da diết cho video năng động).
 10. Video chán: ít hiệu ứng, cảnh đứng yên lâu, cảnh phụ không đa dạng, nhịp cắt đều đều không theo nhạc.'''
 def qa(pl, timeline, pv_imgs, log=print):
     q = (QA_LIST + '\n\nDÒNG THỜI GIAN BẢN DỰNG (mỗi mục chữ có số [T#], cảnh phụ có số [B#]):\n' + timeline +

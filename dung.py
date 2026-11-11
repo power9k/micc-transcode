@@ -78,6 +78,22 @@ def update(fid, data, mime):
     return L.http(L.G + '/upload/drive/v3/files/' + fid + '?uploadType=media&supportsAllDrives=true', data,
                   {'Authorization': 'Bearer ' + L.tok(), 'Content-Type': mime}, method='PATCH')
 def mkdir(name, parent, ap=None): return L.drive('files', dict({'name': name, 'parents': [parent], 'mimeType': L.FOLDER}, **({'appProperties': ap} if ap else {})), params={'fields': 'id'})['id']
+AI_ICON = '🤖'
+def du_an(path):   # tên dự án = thư mục ngay trên SOURCE (bỏ ngày đầu tên, vd "20261030 Khai phá tư duy" → "Khai phá tư duy")
+    sg = [x for x in path.split('/') if x]
+    i = next((k for k, x in enumerate(sg) if re.match(r'^sources?$', L.norm1(x))), len(sg))
+    nm = sg[i - 1] if i > 0 else (sg[-1] if sg else '')
+    return re.sub(r'^\d{6,8}\s*[-_.]?\s*', '', nm).strip()
+def full_name(path, ten):   # 🤖 Tên dự án - Nội dung (nội dung không lặp lại tên dự án)
+    da = du_an(path); t = ten
+    vs = set()
+    for base in (da, re.sub(r'(?i)^vinhomes\s+', '', da)):
+        w = base.split()
+        for k in range(len(w), 1, -1): vs.add(' '.join(w[:k]))   # "Vinhomes King Park Bắc Ninh" → cả "Vinhomes King Park", "King Park"
+    for v in sorted(vs, key=len, reverse=True):
+        if v and len(v) > 3: t = re.sub(re.escape(v), '', t, flags=re.I)
+    t = re.sub(r'\s{2,}', ' ', t).strip(' -–:,'); t = t[:1].upper() + t[1:]
+    return '%s %s - %s' % (AI_ICON, da, t or ten)
 def safe(s, k=70): return re.sub(r'\s+', ' ', re.sub(r'[\\/:*?"<>|\n\r\t]+', ' ', str(s))).strip()[:k].strip()
 def tsafe(s, k=40):   # chữ trên hình: giữ "/" (9/11, TRIỆU/M2); font không có ² → M2
     s = re.sub(r'[\\:*?"<>|\n\r\t]+', ' ', str(s or '')).replace('²', '2').replace('³', '3')
@@ -670,7 +686,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         else: lines = [[big, main, 8.2 if main == 'BEB' else 6.6, c1]]
         y = (19.0 + (n % 3) * 4) if on_b else (68.0 + (n % 2) * 3)   # cảnh người nói: chữ dưới ngực, không đè mặt; vùng an toàn TikTok ≤75 %
         if ti.get('y'): y = max(12.0, min(80.0, float(ti['y'])))   # vị trí Claude kiểm duyệt yêu cầu
-        titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=False, anim=n, si=si))
+        titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=False, anim=n, si=si, yfix=bool(ti.get('y')), onb=on_b))
         if num: sfx.append(dict(file='SFX tit thong tin.wav', t=round(max(0, T - .02), 3), vol=.2, dur=0.34))   # tiếng "tít" khi thông tin / số liệu hiện
         elif n % 3 == 0: sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
         if n % 2 == 0 or num:
@@ -692,6 +708,11 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         return (.5 + (f[1] - f[3] / 2 - v) * m) * 100, (.5 + (f[1] + f[3] / 2 - v) * m) * 100, (.5 + (f[0] - u) * m) * 100
     for z in titles:
         hh = sum(l[2] for l in z['lines']) * .75 + 2
+        if not z.get('yfix') and not z.get('onb'):   # BỐ CỤC: khung đã crop mà trên đầu còn trống → đặt chữ vào khoảng trống đó, không đè lên người
+            fcs = [f_ for f_ in (face_canvas(z['t0'] + .05), face_canvas((z['t0'] + z['t1']) / 2)) if f_]
+            if fcs:
+                head = min(f_[0] - (f_[1] - f_[0]) * .5 for f_ in fcs)   # đỉnh đầu (tính cả tóc)
+                if head - 14 >= hh + 3: z['y_pct'] = round(max(14 + hh / 2, head - hh / 2 - 3), 1); z['tren'] = 1; continue
         for T in (z['t0'] + .05, (z['t0'] + z['t1']) / 2):
             fc = face_canvas(T)
             if not fc or fc[1] < z['y_pct'] - hh / 2 - 1 or fc[0] > z['y_pct'] + hh / 2 + 1: continue
@@ -754,7 +775,7 @@ def used_music(add=None):
         if f: update(f[0]['id'], data, 'text/plain')
         else: put('Nhạc đã dùng.txt', cd, data, 'text/plain')
     return ids
-def pick_music(jb):
+def pick_music(jb, sc=None):
     try:
         AU = lambda d: [c for c in lq("'%s' in parents and mimeType contains 'audio/'" % d, 'id,name,size,mimeType') if int(c.get('size') or 0) > 800000
                         and not re.search(r'(?i)voice|vocal|giọng|giong|sfx|whoosh|lồng tiếng', c['name'])]
@@ -763,7 +784,20 @@ def pick_music(jb):
         cands = local + (AU(kho[0]['id']) if kho else [])
         used = set(used_music()); fresh = [c for c in cands if nf(c['name']).lower() not in used] or cands
         if not fresh: return None
-        c = fresh[0]; fp = os.path.join(L.TMP, 'nhac_' + c['id'])
+        c = fresh[0]
+        if sc:   # Claude chọn nhạc hợp phong thái người nói + giọng kịch bản (không mặc định nhạc da diết)
+            try:
+                talk = [a for a in jb['A'] if not a['vid'].get('broll')][:4]
+                info = 'Tên video: %s\nChữ nhấn: %s\nNgười nói / cảnh: %s' % (sc.get('ten', ''), ', '.join(t.get('big', '') for t in (sc.get('titles') or [])[:14]),
+                                                                       ' | '.join(((a.get('vlog') or {}).get('tong') or '')[:160] for a in talk))
+                opts = '\n'.join('%d. %s' % (k, x['name']) for k, x in enumerate(fresh[:40]))
+                j = N.ask_json(info + '\n\nCHỌN 1 BÀI NHẠC NỀN hợp nhất với phong thái người nói và giọng điệu kịch bản (vd tự tin – năng động – hài hước → nhạc sôi, beat mạnh, hiện đại / trap / pop; chia sẻ cảm xúc thật sự mới dùng nhạc sâu lắng). '
+                               'Video BĐS / kinh doanh mặc định: hiện đại, sang, có nhịp. Tránh nhạc da diết, bi, chậm buồn khi kịch bản không buồn.\nDanh sách (đoán tính chất qua tên):\n' + opts +
+                               '\n\nTrả JSON {"chon": số thứ tự, "ly_do": "ngắn"}', model='sonnet', key='chon', log=log)
+                if j is not None and 0 <= int(j['chon']) < len(fresh[:40]): c = fresh[int(j['chon'])]; log('  Claude chọn nhạc:', c['name'], '–', str(j.get('ly_do', ''))[:80])
+            except ClaudeWait: raise
+            except Exception as e: log('  Claude chưa chọn được nhạc, lấy bài mới nhất:', e)
+        fp = os.path.join(L.TMP, 'nhac_' + c['id'])
         open(fp, 'wb').write(raw(c['id']))
         dur = float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', fp], capture_output=True, text=True).stdout.strip() or 0)
         if dur < 20: return None
@@ -856,9 +890,9 @@ def publish(jb, sc, n):
         a = A_.get(c[0]) if c else A_.get(int(re.sub(r'\D', '', str(it.get('video', 0))) or 0)) if isinstance(it, dict) else None
         if a: d = (jb.get('kbtop') or {}).get(a['vid']['dir'], a['vid']['dir']); cnt[d] = cnt.get(d, 0) + 1
     host = max(cnt, key=cnt.get) if cnt else jb['id']
-    proj = safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)   # tên = nội dung, ngắn gọn
+    proj = safe(full_name(path_of(host), safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)), 110)   # 🤖 dự án - nội dung
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + rel + '/AI tải về'
-    mu = pick_music(jb)
+    mu = pick_music(jb, sc)
     pl = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None, mu[4] if mu else None)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     pl = review(jb, sc, pl, proj, adir, mu)   # Claude Opus tự kiểm tra (xem ảnh xem trước + dòng thời gian), sửa tối đa 2 vòng
@@ -1124,6 +1158,24 @@ def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên
         log('  đã cập nhật công cụ đồng bộ CapCut trong SETUP')
     except Exception as e: log('  không cập nhật được công cụ đồng bộ:', e)
 
+def rename_old():   # chủ dặn: mọi project AI dựng đổi tên "🤖 Tên dự án - Nội dung" (cả các project đã giao)
+    try:
+        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,parents,appProperties'):
+            if c['name'].startswith(AI_ICON): continue
+            par = (c.get('parents') or [''])[0]; new = safe(full_name(path_of(par), c['name']), 110)
+            if not lock(c['id'], 'dungRN'): continue
+            old = nf(c['name']); oldrel, newrel = path_of(par) + '/' + old, path_of(par) + '/' + new
+            for f in lq("'%s' in parents and (name='draft_content.json' or name='draft_info.json' or name='draft_meta_info.json')" % c['id'], 'id,name'):
+                try:
+                    t = unicodedata.normalize('NFC', raw(f['id']).decode('utf-8'))
+                    t2 = t.replace('/' + old + '/', '/' + new + '/').replace('\\' + old + '\\', '\\' + new + '\\').replace('"' + old + '"', '"' + new + '"')
+                    if t2 != t: update(f['id'], t2.encode('utf-8'), 'application/json')
+                except Exception as e: log('  đổi tên: không sửa được', f['name'], e)
+            L.drive('files/' + c['id'], {'name': new}, method='PATCH')
+            list_edit(add=[newrel], remove=[oldrel]); unlock(c['id'], 'dungRN')
+            log('  đổi tên project:', old, '→', new)
+    except Exception as e: log('  không đổi được tên project cũ:', e)
+
 def heal_list():   # mọi project đã giao (kiểu mới) phải có trong danh sách CapCut – tự bù dòng thiếu
     try:
         fid = list_file(); have = {x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()}
@@ -1145,7 +1197,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    heal_list(); setup_bat()
+    rename_old(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
