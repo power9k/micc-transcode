@@ -848,7 +848,11 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         prev = bshots[k_ - 1] if k_ else None
         if prev is not None and abs(prev['t1'] - b['t0']) < .01: continue
         if all(abs(b['t0'] - w) >= 2.0 for w in wt): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(b['t0'] - .22, 3)), vol=.22, dur=0.58)); wt.append(b['t0'])
-    return dict(project=proj, out_dir=os.path.join(L.TMP, 'out'), asset_dir=adir, media=media, total=total, lines=[dict(id='A', t0=0.0, t1=total)],
+    for x in sfx:
+        if '/' not in x['file']: x['file'] = KSUB['sfx'] + '/' + x['file']
+    for x in mus:
+        if '/' not in x['file']: x['file'] = KSUB['music'] + '/' + x['file']
+    return dict(project=proj, font_dir=adir + '/' + KSUB['font'], out_dir=os.path.join(L.TMP, 'out'), asset_dir=adir, media=media, total=total, lines=[dict(id='A', t0=0.0, t1=total)],
                 apieces=[[p[4], round(p[3], 3), round(p[3] + p[2] - p[1], 3)] for p in pieces], ashots=ashots, bshots=bshots, pips=pips, speech=speech, shots=shots, titles=titles, transitions=trans, effects=fx, music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
 
 
@@ -895,6 +899,33 @@ def pick_music(jb, sc=None):
         return (c['id'], nm, round(dur, 3), nf(c['name']).lower(), mm)
     except Exception as e: log('  không chọn được nhạc riêng:', e); return None
 
+KHO_NAME = 'Kho AI tải về'; KSUB = {'font': 'Font chữ', 'sfx': 'Âm thanh hiệu ứng', 'music': 'Nhạc nền', 'map': 'Bản đồ 3D', 'broll': 'Cảnh phụ tải về'}   # cảnh phụ tải về đặt tên: "Dự án - nội dung"
+_KHO = {}
+def kho():   # KHO DÙNG CHUNG (chủ dặn 11/11): SETUP/Kho AI tải về/{Font chữ, Âm thanh hiệu ứng, Nhạc nền, Bản đồ 3D} – mọi project lấy từ đây
+    if _KHO: return _KHO
+    st = lq("'%s' in parents and name='SETUP' and mimeType='%s'" % (L.ROOT, L.FOLDER), 'id')[0]['id']
+    k = lq("'%s' in parents and name='%s' and mimeType='%s'" % (st, KHO_NAME, L.FOLDER), 'id')
+    kid = k[0]['id'] if k else mkdir(KHO_NAME, st)
+    _KHO.update(id=kid, rel='SETUP/' + KHO_NAME)
+    for key, nm in KSUB.items():
+        f = lq("'%s' in parents and name='%s' and mimeType='%s'" % (kid, nm, L.FOLDER), 'id')
+        _KHO[key] = f[0]['id'] if f else mkdir(nm, kid)
+    have = {key: {x['name'] for x in lq("'%s' in parents" % _KHO[key], 'id,name')} for key in ('font', 'sfx', 'music')}
+    for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):   # chép 1 lần từ thư viện mẫu cũ
+        if f.get('mimeType') == L.FOLDER or f['name'].startswith(LIB_SKIP): continue
+        key = 'font' if f['name'].lower().endswith(('.ttf', '.otf')) else ('sfx' if re.match(r'(?i)sfx', f['name']) else ('music' if 'audio' in (f.get('mimeType') or '') or f['name'].lower().endswith(('.mp3', '.wav', '.m4a')) else None))
+        if not key or f['name'] in have[key]: continue
+        try: L.drive('files/%s/copy' % f['id'], {'name': f['name'], 'parents': [_KHO[key]]}, params={'fields': 'id'})
+        except Exception:
+            try: put(f['name'], _KHO[key], raw(f['id']), f.get('mimeType') or 'application/octet-stream')
+            except Exception as e: log('  kho: bỏ file', f['name'], e)
+    return _KHO
+def kho_music(p_):   # bài nhạc được chọn → có trong Kho/Nhạc nền (giữ tên gốc dễ hiểu)
+    k = kho(); nm = p_['orig']
+    if not lq("'%s' in parents and name='%s'" % (k['music'], nm.replace("'", "\\'")), 'id'):
+        try: L.drive('files/%s/copy' % p_['id'], {'name': nm, 'parents': [k['music']]}, params={'fields': 'id'})
+        except Exception: put(nm, k['music'], raw(p_['id']), 'audio/mpeg')
+
 def music_info(c):   # phân tích 1 bài nhạc 1 lần (BPM, kick, snare, đoạn lắng / sôi, điểm dồn) – lưu lại cho mọi máy dùng
     ad, _ = ana_dir(); nm = '%s_nhac.json' % c['id']; got = names_in(ad, [nm])
     if nm in got:
@@ -909,9 +940,7 @@ def music_info(c):   # phân tích 1 bài nhạc 1 lần (BPM, kick, snare, đo�
     except Exception: pass
     return info
 
-def mnm(c):
-    ext = os.path.splitext(c['name'])[1].lower() or '.mp3'
-    return 'Nhac nen - ' + re.sub(r'[^A-Za-z0-9 -]+', '', unicodedata.normalize('NFKD', os.path.splitext(c['name'])[0]).encode('ascii', 'ignore').decode())[:40].strip() + ext
+def mnm(c): return KSUB['music'] + '/' + nf(c['name']).replace('/', ' ')   # đường dẫn trong kho: Nhạc nền/<tên gốc>
 
 def pick_mix(jb, sc):   # Claude MIX nhạc theo từng đoạn kịch bản (1–3 bài, chuyển mượt) – ngầu, hiện đại, kịch tính; vui thì bẻ sang dòng nhạc có gu
     try:
@@ -919,7 +948,8 @@ def pick_mix(jb, sc):   # Claude MIX nhạc theo từng đoạn kịch bản (1�
                         and not re.search(r'(?i)voice|vocal|giọng|giong|sfx|whoosh|lồng tiếng', c['name'])]
         local = [c for d in list(jb['dirs']) + [p[0] for p in jb.get('pool', [])] for c in AU(d)]
         kho = lq("'%s' in parents and name='Kho nhạc nền' and mimeType='%s'" % (cache_dir(), L.FOLDER), 'id')
-        cands = (local + (AU(kho[0]['id']) if kho else []))[:40]
+        cands = (local + AU(globals()['kho']()['music']) + (AU(kho[0]['id']) if kho else []))   # nhạc trong source + Kho chung (SETUP/Kho AI tải về/Nhạc nền) + kho nhạc cũ
+        seen_ = set(); cands = [c for c in cands if not (nf(c['name']).lower() in seen_ or seen_.add(nf(c['name']).lower()))][:40]
         if not cands: return None
         used = set(used_music()); INF = {}
         for c in cands:
@@ -950,12 +980,12 @@ def pick_mix(jb, sc):   # Claude MIX nhạc theo từng đoạn kịch bản (1�
         for m in (j or {}).get('mix') or []:
             try:
                 c = cands[int(m['bai'])]; i = INF[c['id']]
-                parts.append(dict(id=c['id'], nm=mnm(c), dur=i['dur'], key=nf(c['name']).lower(), mm=i.get('mm') or {}, f0=max(0, min(1, float(m['tu']) / 100)), f1=max(0, min(1, float(m['den']) / 100)), src=max(0.0, min(i['dur'] - 10, float(m.get('vao') or 0)))))
+                parts.append(dict(id=c['id'], nm=mnm(c), orig=nf(c['name']).replace('/', ' '), dur=i['dur'], key=nf(c['name']).lower(), mm=i.get('mm') or {}, f0=max(0, min(1, float(m['tu']) / 100)), f1=max(0, min(1, float(m['den']) / 100)), src=max(0.0, min(i['dur'] - 10, float(m.get('vao') or 0)))))
             except Exception: continue
         parts = sorted([p_ for p_ in parts if p_['f1'] - p_['f0'] > .05], key=lambda p_: p_['f0'])
         if not parts:
             fresh = [c for c in cands if nf(c['name']).lower() not in used] or cands; c = fresh[0]; i = INF[c['id']]
-            parts = [dict(id=c['id'], nm=mnm(c), dur=i['dur'], key=nf(c['name']).lower(), mm=i.get('mm') or {}, f0=0.0, f1=1.0, src=0.0)]
+            parts = [dict(id=c['id'], nm=mnm(c), orig=nf(c['name']).replace('/', ' '), dur=i['dur'], key=nf(c['name']).lower(), mm=i.get('mm') or {}, f0=0.0, f1=1.0, src=0.0)]
         parts[0]['f0'] = 0.0; parts[-1]['f1'] = 1.0
         for a_, b_ in zip(parts, parts[1:]): b_['f0'] = a_['f1']
         log('  Claude mix nhạc:', ' → '.join('%s (%d–%d%%)' % (p_['nm'], p_['f0'] * 100, p_['f1'] * 100) for p_ in parts), '–', str((j or {}).get('ly_do', ''))[:100])
@@ -1126,7 +1156,7 @@ def publish(jb, sc, n):
         if a: d = (jb.get('kbtop') or {}).get(a['vid']['dir'], a['vid']['dir']); cnt[d] = cnt.get(d, 0) + 1
     host = max(cnt, key=cnt.get) if cnt else jb['id']
     proj = safe(full_name(path_of(host), safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)), 110)   # 🤖 dự án - nội dung
-    rel = path_of(host) + '/' + proj; adir = DRV + '/' + rel + '/AI tải về'
+    rel = path_of(host) + '/' + proj; adir = DRV + '/' + kho()['rel']   # tài nguyên dựng lấy từ kho chung SETUP/Kho AI tải về
     mu = pick_mix(jb, sc); claude_grades(jb, sc)
     pl = build_plan(jb, sc, proj, adir, mu, None)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
@@ -1152,19 +1182,10 @@ def publish(jb, sc, n):
         log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)
     pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV, 'dungVol': '1'})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
-        af = mkdir('AI tải về', pf)
-        for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):
-            if f['name'].startswith(LIB_SKIP) or f.get('mimeType') == L.FOLDER: continue
-            try: L.drive('files/%s/copy' % f['id'], {'name': f['name'], 'parents': [af]}, params={'fields': 'id'})
-            except Exception:   # file bị chặn sao chép → tải về rồi đưa lên lại
-                try: put(f['name'], af, raw(f['id']), f.get('mimeType') or 'application/octet-stream')
-                except Exception as e: log('  bỏ file thư viện', f['name'], e)
+        for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)   # nhạc dùng → vào Kho/Nhạc nền
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
             put(fn, pf, open(os.path.join(od, fn), 'rb').read(), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
         put('draft_cover.jpg', pf, base64.b64decode(a0['thumbs'][len(a0['thumbs']) // 2][1]), 'image/jpeg')
-        for p_ in {p_['id']: p_ for p_ in (mu or [])}.values():   # chép các bài nhạc mix vào AI tải về của project
-            try: L.drive('files/%s/copy' % p_['id'], {'name': p_['nm'], 'parents': [af]}, params={'fields': 'id'})
-            except Exception: put(p_['nm'], af, raw(p_['id']), 'audio/mpeg')
         list_edit(add=[rel])
         for p_ in (mu or []): used_music(add=p_['key'])
         for c in old_:   # bản mới đã lên xong → mới bỏ bản cũ (vào thùng rác Drive, khôi phục được)
