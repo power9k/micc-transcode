@@ -389,7 +389,8 @@ def plan(jb, key, models, extra=''):
     C = jb['C'] = {}
     for a in jb['A']:
         head = '[thư mục: %s] ' % (jb.get('dn') or {}).get(a['vid'].get('dir'), '') + L.summary(a).split('\nLời thoại:')[0]
-        head += '\n' + N.vlog_text(a.get('vlog')) + '\n' + N.sound_text((a.get('see') or {}).get('sound'))
+        br_ = a['vid'].get('broll') or not a.get('segs')
+        head += '\n' + N.vlog_text(a.get('vlog'), k=8 if br_ else 40) + ('' if br_ else '\n' + N.sound_text((a.get('see') or {}).get('sound')))   # cảnh phụ: tóm gọn 8 đoạn đẹp nhất để kịch bản không quá dài (source lớn vẫn chất lượng như source nhỏ)
         if not a['vid'].get('broll') and faceless(a): head += '\n⚠ VIDEO NÀY KHÔNG THẤY MẶT NGƯỜI NÓI (chỉ là bản thu tiếng) → chỉ lấy tiếng, mọi câu của video này phải có broll phủ kín (máy sẽ tự phủ cảnh phụ).'   # Claude đã XEM mọi khung hình + nghe âm thanh
         if a['vid'].get('broll'):
             parts.append({'text': '[KHO CẢNH PHỤ DÙNG CHUNG – chỉ dùng làm broll, KHÔNG làm aroll, không lấy tiếng]\n' + head})
@@ -1010,7 +1011,7 @@ def review(jb, sc, pl, proj, adir, mu):
         r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat)
         if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
         log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
-        if r.get('dat'): return pl
+        if r.get('dat') and (rnd >= 1 or not (r.get('sua') and any((r.get('sua') or {}).values()))): return pl   # mọi project ít nhất 2 lượt Claude xem nếu còn chỗ sửa (chất lượng đồng đều)
         fx = r.get('sua') or {}; sc = json.loads(json.dumps(sc)); T = sc.get('titles') or []
         for d in fx.get('doi_chu') or []:
             try: T[int(d['T'])].update(big=d.get('big', T[int(d['T'])].get('big')), small=d.get('small', ''))

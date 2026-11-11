@@ -99,7 +99,7 @@ def see(videos, log=print):
 def vlog_text(vl, k=40):
     if not vl: return '(chưa có nhật ký hình)'
     rows = ['  %.1f–%.1fs [%s] %s · %s · %s/10' % (float(d.get('s', 0)), float(d.get('e', 0)), d.get('canh', ''), d.get('noi_dung', ''), d.get('chat_luong', ''), d.get('diem', '?'))
-            for d in vl.get('doan', [])[:k]]
+            for d in sorted(sorted(vl.get('doan', []), key=lambda d: -float(d.get('diem') or 0))[:k], key=lambda d: float(d.get('s', 0)))]   # k đoạn đẹp nhất, theo thứ tự thời gian
     return 'Hình: ' + (vl.get('tong') or '') + '\n' + '\n'.join(rows)
 
 def sound_text(runs):
