@@ -49,12 +49,12 @@ def ask(text, images=(), model='opus', sys_p='Bạn là editor video ngắn chuy
 def ask_json(text, images=(), model='opus', key=None, tries=2, log=print, **kw):
     for k in range(tries):
         out = ask(text if not k else text + '\n\nLẦN TRƯỚC TRẢ SAI ĐỊNH DẠNG. Chỉ trả 1 khối JSON hợp lệ, không chữ nào khác.', images, model, log=log, **kw)
-        m = re.search(r'\{.*\}', out or '', re.S)
-        if m:
-            try:
-                j = json.loads(m.group(0))
-                if key is None or key in j: return j
-            except Exception as e: log('  JSON hỏng:', e)
+        o = out or ''; dec = json.JSONDecoder(); err = None
+        for m in re.finditer(r'\{', o):   # đọc khối JSON đầu tiên hợp lệ, bỏ chữ thừa phía sau
+            try: j, _ = dec.raw_decode(o[m.start():])
+            except Exception as e: err = err or e; continue
+            if isinstance(j, dict) and (key is None or key in j): return j
+        if err: log('  JSON hỏng:', err)
     return None
 
 # ---------------------------------------------------------------- 1) Sonnet XEM source: nhật ký hình ảnh từng đoạn
