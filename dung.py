@@ -1526,8 +1526,10 @@ def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên
         if not st: return
         f = lq("'%s' in parents and name='Cài đặt đồng bộ CapCut.bat'" % st[0]['id'], 'id,md5Checksum')
         if f and f[0].get('md5Checksum') == md: return
-        if f: update(f[0]['id'], data, 'application/octet-stream')
-        else: put('Cài đặt đồng bộ CapCut.bat', st[0]['id'], data, 'application/octet-stream')
+        for x in f:   # chủ dặn: xoá file cũ trước rồi mới đưa file mới (ngày tạo = lúc cập nhật, không nhầm bản cũ)
+            try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
+            except Exception: pass
+        put('Cài đặt đồng bộ CapCut.bat', st[0]['id'], data, 'application/octet-stream')
         log('  đã cập nhật công cụ đồng bộ CapCut trong SETUP')
     except Exception as e: log('  không cập nhật được công cụ đồng bộ:', e)
 
