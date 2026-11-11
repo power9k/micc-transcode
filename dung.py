@@ -444,10 +444,13 @@ def tighten(a, s, e):   # bỏ ngập ngừng: cắt ĐÚNG khoảng lặng gi�
     for w in W:
         if iv and w[0] - iv[-1][1] <= .45: iv[-1][1] = w[1]
         else: iv.append([w[0], w[1]])
+    allw = sorted((w for sg in a['segs'] for w in sg['w']), key=lambda w: w[0])
+    pe = max([w[1] for w in allw if w[1] <= iv[0][0] + .01 and w[0] < iv[0][0] - .01] or [-9])   # chữ ngay TRƯỚC đoạn (câu khác) → đệm không được lấn vào
+    ns = min([w[0] for w in allw if w[0] >= iv[-1][1] - .01 and w[1] > iv[-1][1] + .01] or [1e9])   # chữ ngay SAU đoạn
     out = []
     for k, (x, y) in enumerate(iv):
-        lo = iv[k - 1][1] + .03 if k else s - .2
-        hi = iv[k + 1][0] - .03 if k + 1 < len(iv) else e + .3
+        lo = iv[k - 1][1] + .03 if k else max(s - .2, pe + .03)
+        hi = iv[k + 1][0] - .03 if k + 1 < len(iv) else min(e + .3, ns - .03)
         x2, y2 = max(lo, x - .12), min(hi, y + .2)
         if y2 - x2 > .3: out.append((max(0.0, x2), min(y2, a['dur'] - .05)))
     return out
@@ -493,7 +496,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         sc['broll'] = [dict(b, luc=[conv(b.get('cau'))[0], conv(b.get('cau'))[1]]) if conv(b.get('cau')) else dict(b, video=0) for b in sc.get('broll', [])]   # giữ đúng số thứ tự (Claude kiểm duyệt gọi theo số)
         sc['titles'] = [dict(t, video=conv(t.get('cau'))[0], s=conv(t.get('cau'))[1], e=conv(t.get('cau'))[2]) if conv(t.get('cau')) else dict(t, video=0) for t in sc.get('titles', [])]
     # ---- A-roll: câu nói nối liền, cắt ở khoảng lặng; mỗi CÂU 1 cỡ khung (rộng / cận) để nhảy cỡ che vết cắt
-    t, pieces, why, n_sent = 0.0, [], {}, 0
+    t, pieces, why, n_sent, lastw = 0.0, [], {}, 0, []
     for ai, it in enumerate(sc.get('aroll', [])):
         a = A.get(vid(it.get('video', 0))); s, e = float(it.get('s', 0)), float(it.get('e', 0))
         if not a: why['sai số video'] = why.get('sai số video', 0) + 1; continue
@@ -501,6 +504,12 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         if e - s < .6: why['đoạn quá ngắn'] = why.get('đoạn quá ngắn', 0) + 1; continue
         e = min(e, a['dur'] - .05); base = 1.0 if n_sent % 2 == 0 else 1.2; n_sent += 1
         for j, (x, y) in enumerate(tighten(a, s, e)):
+            wl = [w for w in words(a, x, y) if L.norm(w[2]) not in L.FILL]
+            for kk in (3, 2, 1):   # câu sau mở đầu bằng đúng chữ cuối câu trước ("…quá cao" / "cao… vì thế") → gọt bỏ chữ lặp
+                if len(wl) > kk and len(lastw) >= kk and [L.norm(w[2]) for w in wl[:kk]] == lastw[-kk:]:
+                    x = max(x, min(wl[kk - 1][1] + .03, wl[kk][0] - .03)); wl = wl[kk:]; break
+            if y - x < .3 or not wl: continue
+            lastw = (lastw + [L.norm(w[2]) for w in wl])[-6:]
             d = y - x; k = key(a); m = base if j % 2 == 0 else round(base * 1.1, 3)
             f0, f1 = N.face_span(a, x, x + min(d, 1.5)), N.face_span(a, max(x, y - 1.5), y)   # bám mặt người nói (YuNet theo từng khung chính)
             m1 = round(m * (1 + min(.06, .018 * d)), 4)
