@@ -1678,6 +1678,13 @@ def fix_vol():   # chủ dặn 11/11: SFX + nhạc nền 0 dB (không giảm âm
     except Exception as e: log('  không sửa được âm lượng project cũ:', e)
 
 RT = 'r6'   # đợt thu hồi (chủ dặn 11/11 chiều): thu hồi mọi project AI dựng (chưa bị người dùng sửa) rồi dựng lại bằng bản mới nhất
+def share_sys():   # cho tài khoản 2 (miccgroup.media) quyền XEM thư mục hệ thống (kịch bản, trạng thái) → đọc file bằng tài khoản 2
+    try:
+        for f in lq("'%s' in parents and name='MICC media · Hệ thống (không xóa)' and mimeType='%s'" % (L.ROOT, L.FOLDER), 'id,appProperties'):
+            if (f.get('appProperties') or {}).get('dungSh2') == '1': continue
+            L.drive('files/%s/permissions' % f['id'], {'role': 'reader', 'type': 'user', 'emailAddress': 'miccgroup.media@gmail.com'}, params={'supportsAllDrives': 'true', 'sendNotificationEmail': 'false'})
+            L.mark(f['id'], dungSh2='1'); log('  đã cho tài khoản 2 xem thư mục hệ thống')
+    except Exception as e: log('  không chia sẻ được thư mục hệ thống cho tài khoản 2:', str(e)[:200])
 def restore_r6():   # chủ dặn 11/11 tối: đưa lại các project đã thu hồi lên CapCut (bản mới dựng xong sẽ gắn ❌ bản cũ rồi thay)
     try:
         fid = list_file()
@@ -1737,7 +1744,7 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
 
 def pending():
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
-    restore_r6()
+    share_sys(); restore_r6()
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
@@ -1746,7 +1753,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    mark_root(); fix_public(); retract_all(); restore_r6(); free_stale(); rename_old(); fix_vol(); heal_list(); setup_bat()
+    mark_root(); fix_public(); retract_all(); share_sys(); restore_r6(); free_stale(); rename_old(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
