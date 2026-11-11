@@ -551,13 +551,13 @@ def zcfg():  # nhóm Zalo: zn = nhóm thông báo (+ test), zt = nhóm test; má
 def groups():  # tin XONG: bản 263.38 (chủ dặn) – việc AI làm chỉ báo nhóm test, không báo nhóm thông báo
     g = zcfg(); return list(dict.fromkeys(g['zt']))
 SAID = set()
-def tsay(text, once=None, photo=None):  # báo NGAY vào nhóm test: bắt đầu lọc, lỗi, hết việc (chủ yêu cầu 08/11); photo = link ảnh kèm
+def tsay(text, once=None):  # báo NGAY vào nhóm test: bắt đầu lọc, lỗi, hết việc (chủ yêu cầu 08/11)
     if once:
         if once in SAID: return
         SAID.add(once)
     log('  [Zalo test]', text.replace('\n', ' | ')[:160])
     for g in zcfg()['zt']:
-        try: zsend(g, text, photo)
+        try: zsend(g, text)
         except Exception as e: log('  Zalo test lỗi:', str(e)[:100])
 def ix(files=None, dele=None, link=None):  # báo máy chủ đưa ngay vào kho web (không tốn hạn mức gọi mạng của máy chủ)
     b = {'files': files or []}
