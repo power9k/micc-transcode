@@ -437,6 +437,17 @@ def rule_plan(jb):   # lớp dự phòng không cần AI: lấy câu theo thứ 
 CW, CH = 1080, 1920
 def s0(a): w, h = a.get('w') or 1080, a.get('h') or 1920; return (w / h) / (CW / CH) if w / h > CW / CH + .01 else 1.0
 def words(a, s, e): return [w for sg in a['segs'] for w in sg['w'] if w[0] >= s - .05 and w[1] <= e + .05]
+def kat(keys, t):   # khung máy [t, zoom, u, v, xoay] tại thời điểm t (nội suy giữa các khóa)
+    if t <= keys[0][0]: return list(keys[0])
+    for a_, b_ in zip(keys, keys[1:]):
+        if a_[0] <= t <= b_[0]:
+            f = (t - a_[0]) / max(1e-6, b_[0] - a_[0]); return [t] + [x + (y - x) * f for x, y in zip(a_[1:], b_[1:])]
+    return list(keys[-1])
+def punch(keys, T, k1=1.14, k2=1.16):   # giật zoom tại T mà vẫn giữ đường bám mặt
+    kv = kat(keys, T)
+    return [k for k in keys if k[0] < T - .002] + [[round(T - .001, 3)] + kv[1:], [round(T + .08, 3), round(kv[1] * k1, 4)] + kv[2:]] + \
+           [[k[0], round(k[1] * k2, 4)] + list(k[2:]) for k in keys if k[0] > T + .08]
+
 def tighten(a, s, e):   # bỏ ngập ngừng: cắt ĐÚNG khoảng lặng giữa 2 từ, không cắt vào chữ
     W = [w for w in words(a, s, e) if L.norm(w[2]) not in L.FILL]
     if not W: return [(s, e)]
@@ -454,7 +465,7 @@ def tighten(a, s, e):   # bỏ ngập ngừng: cắt ĐÚNG khoảng lặng gi�
         x2, y2 = max(lo, x - .12), min(hi, y + .2)
         if y2 - x2 > .3: out.append((max(0.0, x2), min(y2, a['dur'] - .05)))
     return out
-def grade_of(a):   # đo màu gốc của từng cảnh (khung mẫu) → thông số Điều chỉnh CapCut để ra màu điện ảnh: ấm nhẹ, tương phản, highlight dịu
+def grade_of(a):   # đo màu gốc từng cảnh → thông số lớp Điều chỉnh để ra ĐÚNG màu mẫu chủ gửi
     try:
         import numpy as np, io
         from PIL import Image
@@ -467,13 +478,15 @@ def grade_of(a):   # đo màu gốc của từng cảnh (khung mẫu) → thông
         hi, lo = float((Y > .92).mean()), float((Y < .06).mean())
         sat = float((x.max(1) - x.min(1)).mean()); cast = float(R.mean() - B.mean()); gm = float(G.mean() - (R.mean() + B.mean()) / 2)
         c = lambda v, a_, b_: round(max(a_, min(b_, v)), 3)
-        g = dict(brightness=c((.47 - m) * 1.1, -.25, .3),
-                 contrast=c((.23 - sd) * 2.2 + .12, -.1, .5),                 # cảnh phẳng (log / trời mù) tăng tương phản mạnh hơn
-                 highlight=c(-.12 - hi * 3, -.45, 0),                        # dịu vùng cháy sáng
-                 shadow=c(-.08 if lo < .03 else .06, -.2, .2),               # đổ bóng sâu cho có khối, trừ khi đã quá tối
-                 temperature=c(.1 - cast * 1.6, -.35, .35),                  # khử ám màu rồi đẩy ấm nhẹ kiểu điện ảnh
-                 tone=c(-gm * 2.0, -.25, .25))                               # khử ám xanh lá / tím
-        if sat < .12: g['white'] = c(.05, 0, .1)
+        # MÀU MẪU CỦA CHỦ (ảnh mẫu 10/11 + 2 video mẫu BĐS): sáng trong, trắng sạch, ấm nhẹ, xanh lá tươi, da hồng hào, tương phản vừa
+        TG = dict(m=.50, sd=.22, sat=.13, cast=.045, gm=.015)   # + 5 ảnh mẫu 11/11: sáng thoáng, trắng sạch gần trung tính, da ấm, cỏ cây tươi, tương phản mềm, bóng không bệt
+        g = dict(brightness=c((TG['m'] - m) * 1.2, -.3, .35),
+                 contrast=c((TG['sd'] - sd) * 2.0, -.2, .45),
+                 saturation=c((TG['sat'] - sat) * 3.0, -.3, .4),
+                 temperature=c((TG['cast'] - cast) * 1.8, -.35, .35),
+                 tone=c(-(gm - TG['gm']) * 2.0, -.25, .25),
+                 highlight=c(-hi * 3 - .04, -.4, 0),
+                 shadow=c((lo - .03) * 2.0 + .04, -.05, .3))   # nâng nhẹ vùng tối cho thoáng, sang
         return g
     except Exception as e: log('  không đo được màu', a.get('name'), e); return {}
 FX_TR = [('Pull in', '6724226861666144779'), ('Glare II', '6952697917563998722'), ('Flash', '6987208055511323137'), ('Pull out', '6724226338418332167')]
@@ -515,8 +528,14 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             m1 = round(m * (1 + min(.06, .018 * d)), 4)
             uv = lambda f, mm: (round(f[0], 3), round(min(.75, f[1] + .1 / mm), 3)) if f else (.5, .42)   # mặt nằm ở 1/3 trên khung
             u0, v0 = uv(f0, m); u1, v1 = uv(f1 or f0, m1)
-            shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A', face=f0 or f1,
-                              keys=[[round(t, 3), m, u0, v0, 0.0], [round(t + d, 3), m1, u1, v1, 0.0]], punch_abs=[]))
+            kp = [[round(t, 3), m, u0, v0, 0.0]]
+            su, sv = u0, v0
+            for fr in sorted(f_ for f_ in (a.get('see') or {}).get('faces') or [] if x + .3 < f_[0] < y - .3):   # TRACKING: khung bám theo người nói di chuyển
+                mm = m + (m1 - m) * (fr[0] - x) / max(d, 1e-6); fu, fv = uv(fr[1:], mm)
+                su, sv = su + (fu - su) * .6, sv + (fv - sv) * .6   # làm mượt, không giật theo từng khung
+                if abs(su - kp[-1][2]) > .01 or abs(sv - kp[-1][3]) > .01: kp.append([round(t + fr[0] - x, 3), round(mm, 4), round(su, 3), round(sv, 3), 0.0])
+            kp.append([round(t + d, 3), m1, u1 if len(kp) == 1 else su, v1 if len(kp) == 1 else sv, 0.0])
+            shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A', face=f0 or f1, keys=kp, punch_abs=[]))
             speech.append(dict(media=k, src_in=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), vol=1.0))
             pieces.append((a['i'], x, y, t, ai)); t += d
         if t > 118: break
@@ -658,8 +677,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh['t0'] + .2 < T < sh['t1'] - .35:
                     T = N.snap(T, beats, .12) if beats else T   # giật zoom trùng phách nếu phách ở rất gần từ khóa
-                    k0, k1 = sh['keys'][0], sh['keys'][-1]; m = k0[1]
-                    sh['keys'] = [k0, [round(T - .001, 3), m] + k0[2:], [round(T + .08, 3), round(m * 1.14, 4)] + k0[2:], [k1[0], round(m * 1.16, 4)] + k1[2:]]; break
+                    sh['keys'] = punch(sh['keys'], T); break
     # (bỏ phần tự thêm chữ từ lời nói: chủ phản ánh ra cụm vô nghĩa như "NINH VÀ", "TRƯỜNG SỐNG" – chữ chỉ lấy từ AI, có kiểm tra trọn nghĩa)
     titles.sort(key=lambda z: z['t0'])
     for n, z in enumerate(titles): z['anim'] = n
@@ -670,8 +688,8 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         if not sh: return None
         a = AK.get(sh['media']); f = N.face_at(a, sh['src'] + T - sh['t0']) if a else None
         if not f: return None
-        k = sh['keys'][0]; m = k[1]; lim = max(0.0, (m - 1) / (2 * m)); v = max(.5 - lim, min(.5 + lim, k[3]))   # engine giới hạn khung không lộ viền
-        return (.5 + (f[1] - f[3] / 2 - v) * m) * 100, (.5 + (f[1] + f[3] / 2 - v) * m) * 100
+        k = kat(sh['keys'], T); m = k[1]; lim = max(0.0, (m - 1) / (2 * m)); v = max(.5 - lim, min(.5 + lim, k[3])); u = max(.5 - lim, min(.5 + lim, k[2]))   # engine giới hạn khung không lộ viền
+        return (.5 + (f[1] - f[3] / 2 - v) * m) * 100, (.5 + (f[1] + f[3] / 2 - v) * m) * 100, (.5 + (f[0] - u) * m) * 100
     for z in titles:
         hh = sum(l[2] for l in z['lines']) * .75 + 2
         for T in (z['t0'] + .05, (z['t0'] + z['t1']) / 2):
@@ -679,13 +697,24 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             if not fc or fc[1] < z['y_pct'] - hh / 2 - 1 or fc[0] > z['y_pct'] + hh / 2 + 1: continue
             below, above = fc[1] + hh / 2 + 3, fc[0] - hh / 2 - 3
             z['y_pct'] = round(below if below <= 76 else (above if above >= 14 else 76), 1); z['ne_mat'] = 1; break
+    # ---- TRACKING CHỮ: chữ trôi theo người / cảnh (như gắn vào cảnh) + phóng nhẹ cho sống động
+    for n_, z in enumerate(titles):
+        pts, base = [], None
+        tt = z['t0']
+        while tt <= z['t1'] + 1e-3:
+            fc = face_canvas(tt)
+            if fc and base is None: base = fc
+            dx = ((fc[2] - base[2]) / 100 * .35) if fc and base else 0.0
+            dy = (((fc[0] + fc[1]) / 2 - (base[0] + base[1]) / 2) / 100 * .35) if fc and base else 0.0
+            pts.append([round(tt, 3), round(dx, 4), round(dy, 4), round(1 + .05 * (tt - z['t0']) / max(.3, z['t1'] - z['t0']), 4)])
+            tt += .4
+        if n_ % 3 == 1: pts = [[p_[0], round(p_[1] + .012 * (p_[0] - z['t0']), 4), p_[2], p_[3]] for p_ in pts]   # xen kẽ: chữ trượt ngang nhẹ
+        z['trk'] = pts
     # ---- điểm dồn của nhạc (drop) → giật zoom mạnh đúng lúc nhạc dồn
     for dp in (mmap.get('drops') or [])[:2]:
         if 2 < dp < total - 2:
-            sh = next((x for x in shots if x['t0'] + .2 < dp < x['t1'] - .3 and x['line'] == 'A' and len(x['keys']) == 2), None)
-            if sh:
-                k0, k1 = sh['keys']; m = k0[1]
-                sh['keys'] = [k0, [round(dp - .001, 3), m] + k0[2:], [round(dp + .06, 3), round(m * 1.18, 4)] + k0[2:], [k1[0], round(m * 1.2, 4)] + k1[2:]]
+            sh = next((x for x in shots if x['t0'] + .2 < dp < x['t1'] - .3 and x['line'] == 'A'), None)
+            if sh: sh['keys'] = punch(sh['keys'], dp, 1.18, 1.2)
     for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
     sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn

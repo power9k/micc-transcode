@@ -80,7 +80,8 @@ def grade_mats(md):
     out = []
     for gt, gv in (md.get('grade') or {}).items():   # Điều chỉnh của CapCut: sáng, tương phản, nhiệt độ…
         if abs(gv) < 0.01: continue
-        gm = copy.deepcopy(ib.load(V3 + '/presets/effect_effects_%s.json' % gt)['materials']['effects'][0])
+        pf = V3 + '/presets/effect_effects_%s.json' % gt
+        gm = copy.deepcopy(ib.load(pf if os.path.exists(pf) else V3 + '/presets/effect_effects_brightness.json')['materials']['effects'][0]); gm['type'] = gt   # bão hòa: cùng bộ Điều chỉnh, khác loại
         gm['id'] = U(); gm['value'] = float(gv); gm['path'] = ''; gm['request_id'] = ''
         if 'lumi_hub_path' in gm: gm['lumi_hub_path'] = ''
         OM.setdefault('effects', []).append(gm); out.append(gm['id'])
