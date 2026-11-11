@@ -117,15 +117,27 @@ function Install-TeamFonts($dir) {
   }
 }
 Install-TeamFonts (Join-Path $root 'SETUP\Kho AI tải về\Font chữ')   # kho chung: font của team
+# CHI XU LY 1 LAN moi khi file project thay doi (khong doc / ghi lai lien tuc -> khong ton han muc tai xuong cua Drive)
+$stF = Join-Path $env:LOCALAPPDATA 'MICC\da-noi.txt'; $St = @{}
+if (Test-Path -LiteralPath $stF) { foreach ($l in (Get-Content -LiteralPath $stF -Encoding UTF8)) { $i = $l.LastIndexOf('|'); if ($i -gt 0) { $St[$l.Substring(0, $i)] = $l.Substring($i + 1) } } }
+function Sig($f) { $it = Get-Item -LiteralPath $f -ErrorAction SilentlyContinue; if ($it) { return "$($it.Length)-$($it.LastWriteTimeUtc.Ticks)" } else { return '' } }
+function Seen($f) {
+  if (-not $St.ContainsKey($f)) { return $false }
+  $v = $St[$f]; $sg = Sig $f
+  if ($v -eq $sg) { return $true }
+  if ($v -like ($sg + '~*')) { return ([DateTime]::UtcNow.Ticks - [int64]($v.Split('~')[1])) -lt 18000000000 }   # con thieu file -> 30 phut thu lai 1 lan
+  return $false
+}
+function Mark($f) { $St[$f] = Sig $f }
 function Fix-Paths($dir) {
   foreach ($fn in @('draft_content.json', 'draft_info.json')) {
     $f = Join-Path $dir $fn
-    if (-not (Test-Path -LiteralPath $f)) { continue }
+    if (-not (Test-Path -LiteralPath $f) -or (Seen $f)) { continue }
     try {
       $t = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
       $n = [regex]::Replace($t, $rxRoot.Normalize([Text.NormalizationForm]::FormC), ('"' + $rootF.Replace('$', '$$')))
       $n = [regex]::Replace($n, $rxRoot.Normalize([Text.NormalizationForm]::FormD), ('"' + $rootF.Replace('$', '$$')))
-      if ($n -cne $t) { [IO.File]::WriteAllText($f, $n, (New-Object Text.UTF8Encoding($false))); Log "sua duong dan theo o Drive cua may nay: $(Split-Path $dir -Leaf)" }
+      if ($n.Normalize([Text.NormalizationForm]::FormC) -cne $t.Normalize([Text.NormalizationForm]::FormC)) { [IO.File]::WriteAllText($f, $n, (New-Object Text.UTF8Encoding($false))); Log "sua duong dan theo o Drive cua may nay: $(Split-Path $dir -Leaf)" }
     } catch { Log ("khong sua duoc duong dan " + $f + ": " + $_.Exception.Message) }
   }
 }
@@ -172,7 +184,7 @@ function Resolve-LooseFile($base, $rel) {
 function Fix-Media($dir) {
   foreach ($fn in @('draft_content.json', 'draft_info.json')) {
     $f = Join-Path $dir $fn
-    if (-not (Test-Path -LiteralPath $f)) { continue }
+    if (-not (Test-Path -LiteralPath $f) -or (Seen $f)) { continue }
     try {
       $t = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8); $n = $t; $fix = 0; $miss = 0
       $ps = [regex]::Matches($t, '"(?:path|font_path)":"([A-Za-z]:/[^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
@@ -186,7 +198,8 @@ function Fix-Media($dir) {
         if ($LooseCache[$p]) { $n = $n.Replace('"' + $p + '"', '"' + $LooseCache[$p] + '"'); $fix++ } else { $miss++ }
       }
       if ($n -cne $t) { [IO.File]::WriteAllText($f, $n, (New-Object Text.UTF8Encoding($false))); Log "noi lai $fix file trong $(Split-Path $dir -Leaf)" }
-      if ($miss) { Log "con $miss file chua thay tren may (Drive chua dong bo xong?) trong $(Split-Path $dir -Leaf)" }
+      if ($miss) { Log "con $miss file chua thay tren may (Drive chua dong bo xong?) trong $(Split-Path $dir -Leaf)" } else { Mark $f }
+      if ($miss) { $St[$f] = (Sig $f) + '~' + [DateTime]::UtcNow.Ticks }   # thieu file -> lan sau thu lai; du roi -> khong dong toi nua cho den khi file doi
     } catch { Log ("khong noi lai duoc file " + $f + ": " + $_.Exception.Message) }
   }
 }
@@ -251,6 +264,7 @@ foreach ($line in (Get-Content -LiteralPath $list -Encoding UTF8)) {
   if ($ok) { $made += $name }
 }
 
+try { ($St.GetEnumerator() | ForEach-Object { $_.Key + '|' + $_.Value }) | Set-Content -LiteralPath $stF -Encoding UTF8 } catch {}
 # 3b) Loi tat cu (project da doi ten / bo khoi danh sach) -> chi go LOI TAT (khong dung toi file tren Drive) va bo khoi danh sach CapCut
 $want = @((Get-Content -LiteralPath $list -Encoding UTF8) | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { Split-Path $_ -Leaf })
 $gone = @()
