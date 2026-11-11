@@ -1652,26 +1652,28 @@ RT = 'r6'   # đợt thu hồi (chủ dặn 11/11 chiều): thu hồi mọi proj
 def restore_r6():   # chủ dặn 11/11 tối: đưa lại các project đã thu hồi lên CapCut (bản mới dựng xong sẽ gắn ❌ bản cũ rồi thay)
     try:
         fid = list_file()
-        if (get(fid, 'appProperties').get('appProperties') or {}).get('dungRS2') == '1' or not lock(fid, 'dungRS2L'): return
+        if (get(fid, 'appProperties').get('appProperties') or {}).get('dungRS3') == '1' or not lock(fid, 'dungRS3L'): return
         q = "mimeType='%s' and trashed=true and (appProperties has { key='dungP' and value='1' } or name contains 'CapCut - Center Avenue')" % L.FOLDER
-        got = [c for c in L.listq(q, 'id,name,parents,createdTime,appProperties,trashedTime', L.corpora()) if (c.get('trashedTime') or '') > '2026-11-11T06:00:00']
+        got = [c for c in L.listq(q, 'id,name,parents,createdTime,appProperties', L.corpora()) if c['createdTime'] > '2026-11-09']
         best = {}
         for c in got:   # mỗi chỗ (thư mục cha + tên) chỉ lấy bản mới nhất
             k = ((c.get('parents') or [''])[0], re.sub(r'( v\d+| \(\d+\))$', '', nf(c['name'])))
             if k not in best or c['createdTime'] > best[k]['createdTime']: best[k] = c
+        live = {((c.get('parents') or [''])[0], re.sub(r'( v\d+| \(\d+\))$', '', bare_nm(c['name']))) for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,parents')}
         n = 0
-        for c in best.values():
+        for k, c in best.items():
+            if (k[0], bare_nm(k[1])) in live: continue   # đã có bản đang hiện → không đưa bản cũ lên trùng
             try:
                 body = {'trashed': False}
                 if (c.get('appProperties') or {}).get('dungP') != '1': body['appProperties'] = {'dungP': '1'}
                 L.drive('files/' + c['id'], body, method='PATCH'); n += 1
             except Exception as e: log('  không đưa lại được', c['name'], e)
         list_edit()
-        L.mark(fid, dungRS2='1', dungRS2L=None)
+        L.mark(fid, dungRS3='1', dungRS3L=None)
         log('  đã đưa lại %d project lên CapCut' % n)
     except Exception as e:
         log('  không đưa lại được project:', str(e)[:300])
-        try: L.mark(list_file(), dungRS2L=None)
+        try: L.mark(list_file(), dungRS3L=None)
         except Exception: pass
 def retract_all():
     try:
