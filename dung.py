@@ -915,7 +915,7 @@ def publish(jb, sc, n):
     slot = '%s:%d' % (jb['id'], n)
     if any((c.get('appProperties') or {}).get('dungS') == slot or c['name'] == proj for c in new_):
         log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)
-    pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV})   # đánh dấu thư mục project (tên không còn chữ CapCut)
+    pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV, 'dungVol': '1'})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
         af = mkdir('AI tải về', pf)
         for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):
@@ -1176,6 +1176,23 @@ def rename_old():   # chủ dặn: mọi project AI dựng đổi tên "🤖 Tê
             log('  đổi tên project:', old, '→', new)
     except Exception as e: log('  không đổi được tên project cũ:', e)
 
+def fix_vol():   # chủ dặn 11/11: SFX + nhạc nền 0 dB (không giảm âm lượng, không tự hạ khi có lời) – sửa cả project đã giao
+    try:
+        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,appProperties'):
+            if (c.get('appProperties') or {}).get('dungVol') == '1' or not lock(c['id'], 'dungVL'): continue
+            for f in lq("'%s' in parents and (name='draft_content.json' or name='draft_info.json')" % c['id'], 'id,name'):
+                try:
+                    d = json.loads(raw(f['id']).decode('utf-8')); ch = 0
+                    for t in d.get('tracks') or []:
+                        if t.get('type') != 'audio' or not re.search(r'(?i)sfx|nhạc', t.get('name') or ''): continue
+                        for sg in t.get('segments') or []:
+                            sg['volume'] = 1.0; sg['last_nonzero_volume'] = 1.0
+                            sg['common_keyframes'] = [k for k in sg.get('common_keyframes') or [] if k.get('property_type') != 'KFTypeVolume']; ch += 1
+                    if ch: update(f['id'], json.dumps(d, ensure_ascii=False).encode('utf-8'), 'application/json')
+                except Exception as e: log('  âm lượng: không sửa được', c['name'], e)
+            L.mark(c['id'], dungVol='1', dungVL=None); log('  âm lượng 0 dB:', c['name'])
+    except Exception as e: log('  không sửa được âm lượng project cũ:', e)
+
 def heal_list():   # mọi project đã giao (kiểu mới) phải có trong danh sách CapCut – tự bù dòng thiếu
     try:
         fid = list_file(); have = {x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()}
@@ -1197,7 +1214,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    rename_old(); heal_list(); setup_bat()
+    rename_old(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
