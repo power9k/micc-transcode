@@ -104,7 +104,6 @@ function Install-TeamFonts($dir) {
     }
   }
 }
-Install-TeamFonts (Join-Path $root 'SETUP\Kho AI tải về\Font chữ')   # kho chung: font của team
 function Fix-Paths($dir) {
   foreach ($fn in @('draft_content.json', 'draft_info.json')) {
     $f = Join-Path $dir $fn
