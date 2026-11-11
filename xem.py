@@ -23,7 +23,7 @@ def _cv2():
 
 def _detector(cv2, w, h):
     if not _DET:
-        p = os.path.join(os.environ.get('LOC_TMP', '/tmp/loc'), 'yunet.onnx')
+        p = os.path.join(os.environ.get('LOC_TMP', '/tmp/loc'), 'yunet.onnx'); os.makedirs(os.path.dirname(p), exist_ok=True)
         try:
             for u in YUNET:
                 if os.path.exists(p) and os.path.getsize(p) > 100000: break
