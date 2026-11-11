@@ -54,23 +54,24 @@ $ErrorActionPreference = 'SilentlyContinue'
 $log = Join-Path $env:LOCALAPPDATA 'MICC\capcut-sync.log'
 trap { Log ("LOI: " + $_.Exception.Message + " @ dong " + $_.InvocationInfo.ScriptLineNumber); continue }
 function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $m" | Out-File -Append -Encoding utf8 $log }
-# 1) tim o Google Drive CUA TAI KHOAN tailieumkt (G, H, I... bat ky chu nao): o co file danh dau o goc "Drive cua toi" (may chu tao, chi tai khoan nay co)
+# 1) tim o Google Drive co thu muc PHÒNG TRUYỀN THÔNG MICC (G, H, I... bat ky chu nao). Uu tien o cua tai khoan MICC (co file danh dau o goc "Drive cua toi"),
+#    nhung o do bi Google chan tai (vuot han muc) thi tu dung o cua TAI KHOAN KHAC dang mo cung thu muc nay (them loi tat thu muc vao Drive cua tai khoan do)
 $root = $null
 $mark = 'MICC - nhận diện ổ Drive (không xóa).txt'
+$cands = @()
 foreach ($d in (Get-PSDrive -PSProvider FileSystem)) {
   foreach ($md in @('Drive của tôi', 'My Drive')) {
     $p = Join-Path $d.Root (Join-Path $md 'PHÒNG TRUYỀN THÔNG MICC')
-    if ((Test-Path -LiteralPath (Join-Path (Join-Path $d.Root $md) $mark)) -and (Test-Path -LiteralPath $p)) { $root = $p; break }
+    if (Test-Path -LiteralPath (Join-Path $p 'SETUP')) { $cands += [pscustomobject]@{ p = $p; m = (Test-Path -LiteralPath (Join-Path (Join-Path $d.Root $md) $mark)) } }
   }
-  if ($root) { break }
 }
-if (-not $root) { foreach ($d in (Get-PSDrive -PSProvider FileSystem)) {   # du phong (file danh dau chua dong bo ve may)
-  foreach ($md in @('Drive của tôi', 'My Drive')) {
-    $p = Join-Path $d.Root (Join-Path $md 'PHÒNG TRUYỀN THÔNG MICC')
-    if (Test-Path -LiteralPath (Join-Path $p 'SETUP')) { $root = $p; break }
-  }
-  if ($root) { break }
-} }
+function CanRead($p) {   # doc thu 1 file nho -> biet o nay con tai duoc khong
+  $f = Get-ChildItem -LiteralPath (Join-Path $p 'SETUP') -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*.bat' } | Select-Object -First 1
+  if (-not $f) { return $true }
+  try { $s = [IO.File]::OpenRead($f.FullName); $b = New-Object byte[] 512; $null = $s.Read($b, 0, 512); $s.Close(); return $true } catch { return $false }
+}
+foreach ($c in (@($cands | Where-Object { $_.m }) + @($cands | Where-Object { -not $_.m }))) { if (CanRead $c.p) { $root = $c.p; break } }
+if (-not $root -and $cands.Count) { $root = ($cands | Sort-Object { -not $_.m } | Select-Object -First 1).p; Log 'CHU Y: o Drive dang bi Google chan tai (vuot han muc) - them 1 tai khoan Google khac vao Google Drive tren may de dung tam' }
 if (-not $root) { Log 'Chua thay Google Drive cua tai khoan MICC (PHÒNG TRUYỀN THÔNG MICC)'; exit }
 Log ("o Drive cua tai khoan MICC tren may nay: " + $root)
 # 1b) O M: = thu muc PHÒNG TRUYỀN THÔNG MICC tren MOI may (Drive o chu nao, ten "Drive của tôi" hay "My Drive" cung vay)
@@ -120,7 +121,7 @@ Install-TeamFonts (Join-Path $root 'SETUP\Kho AI tải về\Font chữ')   # kho
 # CHI XU LY 1 LAN moi khi file project thay doi (khong doc / ghi lai lien tuc -> khong ton han muc tai xuong cua Drive)
 $stF = Join-Path $env:LOCALAPPDATA 'MICC\da-noi.txt'; $St = @{}
 if (Test-Path -LiteralPath $stF) { foreach ($l in (Get-Content -LiteralPath $stF -Encoding UTF8)) { $i = $l.LastIndexOf('|'); if ($i -gt 0) { $St[$l.Substring(0, $i)] = $l.Substring($i + 1) } } }
-function Sig($f) { $it = Get-Item -LiteralPath $f -ErrorAction SilentlyContinue; if ($it) { return "$($it.Length)-$($it.LastWriteTimeUtc.Ticks)" } else { return '' } }
+function Sig($f) { $it = Get-Item -LiteralPath $f -ErrorAction SilentlyContinue; if ($it) { return "$($it.Length)-$($it.LastWriteTimeUtc.Ticks)@$rootF" } else { return '' } }   # doi o Drive -> xu ly lai
 function Seen($f) {
   if (-not $St.ContainsKey($f)) { return $false }
   $v = $St[$f]; $sg = Sig $f
