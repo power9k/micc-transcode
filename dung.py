@@ -9,7 +9,8 @@ import os, sys, json, time, re, math, threading, queue, zipfile, base64, subproc
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '7'                                   # đổi số này = dựng lại mọi buổi quay
+DV = '8'
+LV = '2'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -346,7 +347,10 @@ def claude_plan(parts):
     return None
 def faceless(a):   # bản thu tiếng (không thấy người nói) → phải phủ kín cảnh phụ
     fc = (a.get('see') or {}).get('faces'); kt = a.get('kt') or []
-    return fc is not None and len(kt) >= 3 and len(fc) < .2 * len(kt)
+    if fc is None or len(kt) < 3 or len(fc) >= .2 * len(kt): return False
+    dn = (a.get('vlog') or {}).get('doan') or []   # mặt nhỏ / quay xa YuNet có thể sót → hỏi thêm nhật ký hình của Claude
+    ppl = sum(1 for x in dn if re.search(r'(?i)người|nói|dẫn|mc|cô gái|chàng trai|anh |chị |đứng|cầm mic', '%s %s' % (x.get('noi_dung', ''), x.get('canh', ''))))
+    return not (dn and ppl >= .3 * len(dn))
 
 def plan(jb, key, models, extra=''):
     parts = [{'text': extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nSource có các thư mục con "Kịch bản N": MỖI thư mục Kịch bản = đúng 1 video (1 script), A-roll lấy từ chính thư mục đó; thư mục khác = kho cảnh phụ dùng chung.' if jb.get('kbtop') else '\nTự phân tích toàn bộ source để chia các kịch bản, mỗi kịch bản 1 video dưới 2 phút.')}]
@@ -664,8 +668,27 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     mus, mt = [], 0.0
     while mt < total - .5:
         d = min(MF[1] - .1, total - mt); mus.append(dict(file=MF[0], dur=MF[1], src_in=0.0, t0=round(mt, 3), t1=round(mt + d, 3), fi=.3 if mt else 0.0, fo=1.5)); mt += d
+    # ---- tách lớp như người dựng: A-roll liền mạch dưới cùng (kể cả dưới cảnh phụ), cảnh phụ lớp trên
+    ashots, bshots, lastk = [], [], [1.0, .5, .42, 0.0]
+    for sh in shots:
+        if sh['line'] == 'A': ashots.append(sh); lastk = list(sh['keys'][-1][1:]); continue
+        bshots.append(sh)
+        for sp in speech:
+            s_, e_ = max(sh['t0'], sp['t0']), min(sh['t1'], sp['t1'])
+            if e_ - s_ > .005:
+                ashots.append(dict(media=sp['media'], src=round(sp['src_in'] + s_ - sp['t0'], 3), t0=round(s_, 3), t1=round(e_, 3), line='A',
+                                   keys=[[round(s_, 3)] + lastk, [round(e_, 3)] + lastk], punch_abs=[]))
+    ashots.sort(key=lambda x: x['t0'])
+    for a_, b_ in zip(ashots, ashots[1:]):   # khít liền, không hở
+        if abs(a_['t1'] - b_['t0']) < .02: a_['t1'] = b_['t0']; a_['keys'][-1][0] = b_['t0']
+    # SFX sinh động: whoosh khi cảnh phụ vào (cách nhau ≥ 2 s), "tách" nhẹ khi đổi cảnh phụ liền nhau
+    wt = [x['t'] for x in sfx if 'whoosh' in x['file']]
+    for k_, b in enumerate(bshots):
+        prev = bshots[k_ - 1] if k_ else None
+        if prev is not None and abs(prev['t1'] - b['t0']) < .01: continue
+        if all(abs(b['t0'] - w) >= 2.0 for w in wt): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(b['t0'] - .22, 3)), vol=.22, dur=0.58)); wt.append(b['t0'])
     return dict(project=proj, out_dir=os.path.join(L.TMP, 'out'), asset_dir=adir, media=media, total=total, lines=[dict(id='A', t0=0.0, t1=total)],
-                apieces=[[p[4], round(p[3], 3), round(p[3] + p[2] - p[1], 3)] for p in pieces], speech=speech, shots=shots, titles=titles, transitions=trans, effects=fx, music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
+                apieces=[[p[4], round(p[3], 3), round(p[3] + p[2] - p[1], 3)] for p in pieces], ashots=ashots, bshots=bshots, speech=speech, shots=shots, titles=titles, transitions=trans, effects=fx, music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
 
 
 # ---------------------------------------------------------------- nhạc nền: mỗi project 1 bài KHÁC NHAU (ưu tiên nhạc chủ để trong thư mục buổi quay, rồi tới Kho nhạc nền)
@@ -702,6 +725,9 @@ def engine():
     if os.path.exists(os.path.join(ENG, 'build.py')): return
     z = lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), ENG_NAME))[0]['id']
     os.makedirs(ENG, exist_ok=True); p = os.path.join(L.TMP, 'eng.zip'); open(p, 'wb').write(raw(z)); zipfile.ZipFile(p).extractall(ENG)
+    for fn in ('build.py',):   # mã bộ dựng mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
+        src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'eng', fn)
+        if os.path.exists(src): open(os.path.join(ENG, fn), 'wb').write(open(src, 'rb').read())
     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'fonttools'], capture_output=True)
 
 # ---------------------------------------------------------------- 4) đưa project lên Drive + danh sách lối tắt
@@ -793,13 +819,15 @@ def publish(jb, sc, n):
     r = subprocess.run([sys.executable, os.path.join(ENG, 'build.py'), pp], capture_output=True, text=True, timeout=600)
     od = os.path.join(pl['out_dir'], proj)
     if not os.path.exists(os.path.join(od, 'draft_content.json')): raise RuntimeError('dựng lỗi: ' + (r.stderr or r.stdout)[-300:])
-    if host in set((jb.get('kbtop') or {}).values()) and lq("'%s' in parents and appProperties has { key='dungP' and value='1' }" % host, 'id'):
+    inhost = [c for c in lq("'%s' in parents and appProperties has { key='dungP' and value='1' } and trashed=false" % host, 'id,name,appProperties')]
+    new_ = [c for c in inhost if (c.get('appProperties') or {}).get('dungL') == LV]
+    old_ = [c for c in inhost if (c.get('appProperties') or {}).get('dungL') != LV]   # bản dựng kiểu cũ (1 track) → chủ dặn dựng lại rồi thay
+    if host in set((jb.get('kbtop') or {}).values()) and new_:
         log('  thư mục này đã có project – giữ nguyên:', path_of(host)); return dict(proj=proj, dur=0, exists=True)   # mỗi thư mục Kịch bản 1 project
     slot = '%s:%d' % (jb['id'], n)
-    if lq("'%s' in parents and appProperties has { key='dungS' and value='%s' } and trashed=false" % (host, slot), 'id') or \
-       lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (host, proj.replace("'", "\\'"), L.FOLDER), 'id'):
-        log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)   # chủ dặn: đã đẩy lên thì không tự rút / thay
-    pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot})   # đánh dấu thư mục project (tên không còn chữ CapCut)
+    if any((c.get('appProperties') or {}).get('dungS') == slot or c['name'] == proj for c in new_):
+        log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)
+    pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
         af = mkdir('AI tải về', pf)
         for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):
@@ -816,6 +844,11 @@ def publish(jb, sc, n):
             except Exception: put(mu[1], af, raw(mu[0]), 'audio/mpeg')
         list_edit(add=[rel])
         if mu: used_music(add=mu[3])
+        for c in old_:   # bản mới đã lên xong → mới bỏ bản cũ (vào thùng rác Drive, khôi phục được)
+            try:
+                L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); list_edit(remove=[path_of(host) + '/' + c['name']])
+                log('  đã thay bản cũ:', c['name'])
+            except Exception as e: log('  không bỏ được bản cũ', c['name'], e)
     except Exception:   # hỏng giữa chừng → bỏ thư mục dở, không để rác
         try: L.drive('files/' + pf, {'trashed': True}, method='PATCH')
         except Exception: pass
@@ -830,12 +863,16 @@ def edit(jb, key, models):
         try: redo = json.loads(raw(jb['idx'][redo_nm]).decode('utf-8'))
         except Exception: redo = None
     if redo == []: log('  đã làm xong các kịch bản của thư mục này'); L.mark(jb['id'], dungV=DV, dungFail=None); return []
-    if not redo and ((tops and all(lq("'%s' in parents and appProperties has { key='dungP' and value='1' }" % t, 'id') for t in tops)) or
-       lq("appProperties has { key='dungS' and value='%s:1' } and mimeType='%s'" % (jb['id'], L.FOLDER), 'id')):
+    if not redo and ((tops and all(lq("'%s' in parents and appProperties has { key='dungL' and value='%s' } and trashed=false" % (t, LV), 'id') for t in tops)) or
+       lq("appProperties has { key='dungS' and value='%s:1' } and appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (jb['id'], LV, L.FOLDER), 'id')):
         log('  đã có project, bỏ qua:', jb['name']); L.mark(jb['id'], dungV=DV, dungFail=None); return []
     engine()
     if redo: log('  làm lại %d kịch bản bị kiểm duyệt loại lượt trước (không lên kế hoạch lại)' % len(redo))
-    scs, done = (redo or plan(jb, key, models)), []
+    olds = [] if redo else [c['name'] for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'name,appProperties')
+                            if str((c.get('appProperties') or {}).get('dungS', '')).startswith(jb['id'] + ':') and (c.get('appProperties') or {}).get('dungL') != LV]
+    if olds: log('  dựng lại theo kiểu nhiều lớp:', ', '.join(olds))
+    hint = ('CHỦ YÊU CẦU DỰNG LẠI (giữ đúng chủ đề, làm tốt hơn) các video đã giao: %s. Đưa các chủ đề này vào danh sách kịch bản trước.\n\n' % '; '.join(olds)) if olds else ''
+    scs, done = (redo or (plan(jb, key, models, hint) if hint else plan(jb, key, models))), []
     for rnd in range(2):   # lần 2: Gemini chọn thiếu câu nói → hỏi lại 1 lần, nói rõ lỗi
         log('  Claude: %d kịch bản' % len(scs))
         for n, sc in enumerate(scs, 1):
