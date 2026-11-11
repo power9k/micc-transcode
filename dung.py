@@ -1587,9 +1587,9 @@ RT = 'r6'   # đợt thu hồi (chủ dặn 11/11 chiều): thu hồi mọi proj
 def restore_r6():   # chủ dặn 11/11 tối: đưa lại các project đã thu hồi lên CapCut (bản mới dựng xong sẽ gắn ❌ bản cũ rồi thay)
     try:
         fid = list_file()
-        if (get(fid, 'appProperties').get('appProperties') or {}).get('dungRS') == '1' or not lock(fid, 'dungRSL'): return
-        q = "mimeType='%s' and trashed=true and trashedTime > '2026-11-11T06:00:00Z' and (appProperties has { key='dungP' and value='1' } or name contains 'CapCut - Center Avenue')" % L.FOLDER
-        got = L.listq(q, 'id,name,parents,createdTime,appProperties', L.corpora())
+        if (get(fid, 'appProperties').get('appProperties') or {}).get('dungRS2') == '1' or not lock(fid, 'dungRS2L'): return
+        q = "mimeType='%s' and trashed=true and (appProperties has { key='dungP' and value='1' } or name contains 'CapCut - Center Avenue')" % L.FOLDER
+        got = [c for c in L.listq(q, 'id,name,parents,createdTime,appProperties,trashedTime', L.corpora()) if (c.get('trashedTime') or '') > '2026-11-11T06:00:00']
         best = {}
         for c in got:   # mỗi chỗ (thư mục cha + tên) chỉ lấy bản mới nhất
             k = ((c.get('parents') or [''])[0], re.sub(r'( v\d+| \(\d+\))$', '', nf(c['name'])))
@@ -1602,9 +1602,12 @@ def restore_r6():   # chủ dặn 11/11 tối: đưa lại các project đã thu
                 L.drive('files/' + c['id'], body, method='PATCH'); n += 1
             except Exception as e: log('  không đưa lại được', c['name'], e)
         list_edit()
-        L.mark(fid, dungRS='1', dungRSL=None)
+        L.mark(fid, dungRS2='1', dungRS2L=None)
         log('  đã đưa lại %d project lên CapCut' % n)
-    except Exception as e: log('  không đưa lại được project:', e)
+    except Exception as e:
+        log('  không đưa lại được project:', str(e)[:300])
+        try: L.mark(list_file(), dungRS2L=None)
+        except Exception: pass
 def retract_all():
     try:
         fid = list_file()
