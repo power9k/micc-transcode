@@ -78,6 +78,10 @@ def update(fid, data, mime):
                   {'Authorization': 'Bearer ' + L.tok(), 'Content-Type': mime}, method='PATCH')
 def mkdir(name, parent, ap=None): return L.drive('files', dict({'name': name, 'parents': [parent], 'mimeType': L.FOLDER}, **({'appProperties': ap} if ap else {})), params={'fields': 'id'})['id']
 def safe(s, k=70): return re.sub(r'\s+', ' ', re.sub(r'[\\/:*?"<>|\n\r\t]+', ' ', str(s))).strip()[:k].strip()
+def tsafe(s, k=40):   # chữ trên hình: giữ "/" (9/11, TRIỆU/M2); font không có ² → M2
+    s = re.sub(r'[\\:*?"<>|\n\r\t]+', ' ', str(s or '')).replace('²', '2').replace('³', '3')
+    s = re.sub(r'(?i)(triệu|tỷ|tỉ|nghìn|ngàn|tr)\s*/?\s*m2\b', lambda m: m.group(1) + '/m2', s)
+    return re.sub(r'\s+', ' ', s).strip()[:k].strip()
 def nf(s): return unicodedata.normalize('NFC', s or '')
 
 # ---------------------------------------------------------------- tìm buổi quay
@@ -555,6 +559,15 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
                 out.append(dict(media=key(b), src=round(bs, 3), t0=round(t, 3), t1=round(t + d, 3), line='B', bi=-1, phu=1, keys=[[round(t, 3)] + list(k0), [round(t + d, 3)] + list(k1)], punch_abs=[]))
                 t += d
         shots = sorted(out, key=lambda x: x['t0'])
+    # mẩu hình < 0.6 s (thừa ra sau khi chèn cảnh phụ) → nhập vào cảnh liền trước, không để giật hình
+    out = []
+    for sh in shots:
+        if out and sh['t1'] - sh['t0'] < .6:
+            pv = out[-1]; pv['t1'] = sh['t1']; pv['keys'] = pv['keys'][:-1] + [[sh['t1']] + pv['keys'][-1][1:]]; continue
+        if not out and sh['t1'] - sh['t0'] < .6 and len(shots) > 1:
+            nx = shots[1]; d_ = nx['t0'] - sh['t0']; nx['src'] = round(max(0, nx['src'] - d_), 3); nx['t0'] = sh['t0']; nx['keys'][0][0] = sh['t0']; continue
+        out.append(sh)
+    shots = out
     # khớp chuyển cảnh với chỗ cắt thật sau khi chèn
     cuts = {round(s_['t1'], 3) for s_ in shots}
     trans = [x for x in trans if round(x['at'], 3) in cuts]
@@ -577,7 +590,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for T, si, ti in cand:   # xếp theo GIÂY TRÊN TIMELINE (không theo giây gốc của từng video)
         if T is None: continue
         if titles and T < titles[-1]['t0'] + 1.2: continue   # chữ dày: 1 cụm mỗi 1–3 s
-        big = safe(str(ti.get('big', '')).replace('²', '2').replace('³', '3'), 32).upper(); small = safe(ti.get('small', ''), 48)
+        big = tsafe(ti.get('big', ''), 32).upper(); small = tsafe(ti.get('small', ''), 48)
         if not big: continue
         bw = [L.norm(w) for w in big.split()]
         BAD = {'và', 'của', 'là', 'thì', 'mà', 'với', 'cho', 'các', 'những', 'một', 'này', 'đó', 'để', 'từ', 'đến', 'ở', 'tại', 'ra', 'vào', 'nhưng', 'cũng', 'rất', 'được', 'có', 'như', 'khi', 'thể'}

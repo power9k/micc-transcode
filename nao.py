@@ -129,7 +129,7 @@ def _tile(a, t):
 def preview(pl, A_by_key, times, fontdir=None):
     """dựng khung xem trước 9:16 tại các mốc: hình (đã zoom theo keyframe) + chữ đúng vị trí → tờ ảnh 4 cột"""
     from PIL import Image, ImageDraw, ImageFont
-    W, H = 216, 384; tiles = []
+    W, H = 288, 512; tiles = []
     FK = {'BIG': 'SVN-Nexa Rush Sans Black.ttf', 'BEB': 'UTM Bebas.ttf', 'SCR': 'SVN-Dancing script.ttf', 'ITA': 'SVN-Georgia Italic.ttf'}
     def font(sz, fk='BIG'):
         p = os.path.join(fontdir or '', FK.get(fk, FK['BIG']))
@@ -183,6 +183,10 @@ def qa(pl, timeline, pv_imgs, log=print):
          'Xem kỹ rồi trả JSON: {"dat":true/false,"loi":["mô tả ngắn từng lỗi"],'
          '"sua":{"bo_chu":[số T],"doi_chu":[{"T":số,"big":"chữ mới","small":"dòng phụ mới hoặc rỗng"}],"doi_vi_tri":[{"T":số,"y":phần trăm chiều cao 12–80}],'
          '"bo_canh_phu":[số B],"them_chu":[{"cau":"mã câu C…","tu":"chữ người nói (chép y nguyên)","big":"TỪ KHÓA","small":""}]}}\n'
-         '"dat" = true chỉ khi KHÔNG còn lỗi đáng kể ở danh sách kiểm tra.')
+         'Mỗi lỗi ghi mở đầu bằng [NẶNG] hoặc [NHẸ]. NẶNG = chữ sai nghĩa / sai chính tả / cụt nghĩa, chữ đè mặt, đang có lời mà hình không có người cũng không có cảnh phụ, '
+         'cắt mất chữ / lặp câu / nói hỏng còn sót, cảnh hỏng (mờ, rung mạnh, đen) dài > 1 s, khoảng trống không chữ > 6 s, không có mở đầu hoặc kết cụt. '
+         'Còn lại (hook có thể mạnh hơn, trống chữ 3–6 s, cảnh phụ chưa thật đẹp, chưa đa dạng…) là NHẸ. '
+         'Ảnh xem trước nhỏ nên dấu tiếng Việt có thể nhòe: KHÔNG báo lỗi dấu trừ khi chắc chắn sai chữ.\n'
+         '"dat" = true khi KHÔNG còn lỗi NẶNG (lỗi NHẸ vẫn ghi vào "loi" và "sua" để sửa nếu được).')
     return ask_json(q, [('Xem trước %d:' % (k + 1), b) for k, b in enumerate(pv_imgs)], model='opus', key='dat',
                     sys_p='Bạn là trưởng nhóm kiểm duyệt video ngắn (TikTok/Reels) cực kỳ khó tính. Chỉ trả JSON.', log=log)
