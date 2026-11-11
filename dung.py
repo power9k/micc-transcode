@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '16'
-LV = '10'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '17'
+LV = '11'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -1326,6 +1326,7 @@ def publish(jb, sc, n):
 # ---- chủ dặn 11/11: motion graphic (HyperFrames) + file Word kịch bản + ảnh cover riêng (không trùng project khác) – tất cả lưu TRONG thư mục project
 MGDIR = 'Motion graphic'
 MGURL = 'https://drive.usercontent.google.com/download?id=%s&export=download&confirm=t'
+MGW = os.path.join(L.TMP, 'mg_work')   # thư mục tạm TRÊN MÁY (adir là đường dẫn Drive của CapCut, không ghi file vào đó được)
 MGLOG = []   # nhật ký motion graphic / cover của project đang dựng (lưu vào kho phân tích để kiểm tra)
 def mlog(*a): MGLOG.append(' '.join(map(str, a))[:600]); log('  ' + ' '.join(map(str, a))[:300])
 def add_mg(jb, sc, pl, proj, host, adir):
@@ -1350,10 +1351,10 @@ def add_mg(jb, sc, pl, proj, host, adir):
             if a and not (a['vid'].get('broll') or not a.get('segs')): a = None   # chỉ đặt CẢNH PHỤ vào thẻ (không lấy người nói)
             if a:
                 g = float(p.get('giay') if p.get('giay') is not None else (best_seg(a, 0) or 0)); g = max(0.0, min(g, a['dur'] - (e_ - s_) - .1))
-                clip = os.path.join(adir, 'mgsrc%d.mp4' % len(out))
+                os.makedirs(MGW, exist_ok=True); clip = os.path.join(MGW, 'mgsrc%d.mp4' % len(out))
                 L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(a['vid']['id'], g, e_ - s_ + .3) + ['-an', '-vf', 'scale=1280:-2', '-c:v', 'libx264', '-crf', '21', '-pix_fmt', 'yuv420p', clip], timeout=400)
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
-            o = os.path.join(adir, nm)
+            os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
             MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('chieu') or 1))
             out.append((s_, e_, o, nm)); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
@@ -1410,7 +1411,7 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
     cand.sort(key=lambda x: (x[0], abs(x[1] - pl['total'] * .3)))
     best = None
     for k, (_, _, a, t) in enumerate(cand[:8]):
-        f = os.path.join(adir, 'cover%d.jpg' % k)
+        os.makedirs(MGW, exist_ok=True); f = os.path.join(MGW, 'cover%d.jpg' % k)
         try:
             L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(a['vid']['id'], t) + ['-frames:v', '1', '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-q:v', '3', f], timeout=200)
             h = int(_dh(f), 16); dmin = min([bin(h ^ o).count('1') for o in others] or [64])
