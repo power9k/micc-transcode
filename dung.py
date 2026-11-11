@@ -11,7 +11,7 @@ import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, m
 
 DV = '10'
 LV = '5'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
-EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
+EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
 def cache_dir():
@@ -1403,7 +1403,7 @@ def tasks(jobs=None):
             out += [(2, 'read', jb, v) for v in unread if not _fresh((v.get('appProperties') or {}).get('dungRL'))]
         elif not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))
     import random
-    random.shuffle(out); out.sort(key=lambda x: (x[0], 0 if 'academy' in L.norm1(path_of(x[2]['id'])) else 1))   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
+    random.shuffle(out); out.sort(key=lambda x: (1 if 'center avenue' in L.norm1(path_of(x[2]['id'])) else 0, x[0], 0 if 'academy' in L.norm1(path_of(x[2]['id'])) else 1))   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
     return out
 
 _JB = {}
@@ -1558,7 +1558,7 @@ def fix_vol():   # chủ dặn 11/11: SFX + nhạc nền 0 dB (không giảm âm
             L.mark(c['id'], dungVol='1', dungVL=None); log('  âm lượng 0 dB:', c['name'])
     except Exception as e: log('  không sửa được âm lượng project cũ:', e)
 
-RT = 'r5'   # đợt thu hồi (chủ dặn 11/11 chiều): thu hồi mọi project AI dựng (chưa bị người dùng sửa) rồi dựng lại bằng bản mới nhất
+RT = 'r6'   # đợt thu hồi (chủ dặn 11/11 chiều): thu hồi mọi project AI dựng (chưa bị người dùng sửa) rồi dựng lại bằng bản mới nhất
 def retract_all():
     try:
         fid = list_file()
@@ -1570,6 +1570,15 @@ def retract_all():
             if user_edited(c): kept.append(nf(c['name'])); continue
             try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); rem.append(rel); gone += 1
             except Exception as e: log('  thu hồi lỗi', c['name'], e)
+        for x in [x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()]:   # bản Center Avenue (dựng tay trước đây) – chủ cho thu hồi
+            if '/CapCut - Center Avenue' in x:
+                par = '/'.join(x.split('/')[:-1]); nm = x.split('/')[-1]
+                try:
+                    host = next((f['id'] for f in lq("name='%s' and mimeType='%s'" % (par.split('/')[-1].replace("'", "\\'"), L.FOLDER), 'id,parents') if path_of(f['id']) == par), None)
+                    for c in (lq("'%s' in parents and name='%s' and mimeType='%s'" % (host, nm.replace("'", "\\'"), L.FOLDER), 'id') if host else []):
+                        L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); gone += 1
+                    rem.append(x)
+                except Exception as e: log('  thu hồi Center Avenue lỗi', nm, e)
         if rem: list_edit(remove=rem)
         L.mark(fid, dungRT=RT, dungRTL=None)
         log('  đã thu hồi %d project AI dựng%s' % (gone, ('; giữ %d project người dùng đã sửa: %s' % (len(kept), '; '.join(kept))) if kept else ''))
