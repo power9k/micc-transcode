@@ -211,6 +211,7 @@ def look(jb, ad, idx):   # Claude Sonnet XEM tờ ảnh mẫu (mọi khung chín
 
 # ---------------------------------------------------------------- 2) Claude chia kịch bản + chọn cảnh
 RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
+- LỖI HAY BỊ KIỂM DUYỆT LOẠI – tránh ngay từ đầu: chữ nhấn cụt nghĩa ("SẮP CÓ", "VỪA Ở", "CÓ MUỐN", "RẤT ĐÁNG" → phải là "SẮP CÓ DỰ ÁN LỚN", "VỪA Ở VỪA KINH DOANH"); chữ đọc như khẳng định sai ý người nói; câu A-roll bị cụt / thiếu con số (chọn trọn câu, kể cả số liệu); cảnh phụ mờ, rung, trắng xóa, logo, chữ in sẵn; mở đầu người nói nhìn lệch máy / ngập ngừng (chọn câu hút nhất làm câu đầu); kết cụt (phải có câu chốt / kêu gọi).
 - Mỗi kịch bản = 1 video DƯỚI 2 PHÚT (tổng A-roll 45–110 giây). Buổi quay dài (đào tạo, hội thảo) → tách thành nhiều tập, mỗi tập 1 ý trọn vẹn, có câu mở hút (hook) và kết.
 - Nếu có file kịch bản: theo đúng kịch bản. Nếu thư mục con đặt tên "Kịch bản 1/2" thì mỗi thư mục con là 1 kịch bản.
 - A-roll: chỉ lấy câu người nói ĐÚNG lời thoại, nói trôi chảy, diễn xuất tốt (không đứng nhẩm, không nói lại, không nhăn mặt). Mỗi câu nói lại nhiều lần → chọn 1 bản hay nhất. Giữ TRỌN câu, không cắt giữa câu.
@@ -468,12 +469,12 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     def conv(x): return C.get(str(x).strip().upper()) if isinstance(x, str) else None
     def vid(x): m = re.search(r'\d+', str(x)); return int(m.group()) if m else 0
     if any(isinstance(x, str) for x in sc.get('aroll', [])):
-        sc = dict(sc); sc['aroll'] = [{'video': c[0], 's': c[1], 'e': c[2]} for c in map(conv, sc.get('aroll', [])) if c]
+        sc = dict(sc); sc['aroll'] = [{'video': c[0], 's': c[1], 'e': c[2]} if c else {'video': 0, 's': 0, 'e': 0} for c in map(conv, sc.get('aroll', []))]   # giữ số thứ tự để Claude kiểm duyệt bỏ đúng câu
         sc['broll'] = [dict(b, luc=[conv(b.get('cau'))[0], conv(b.get('cau'))[1]]) if conv(b.get('cau')) else dict(b, video=0) for b in sc.get('broll', [])]   # giữ đúng số thứ tự (Claude kiểm duyệt gọi theo số)
         sc['titles'] = [dict(t, video=conv(t.get('cau'))[0], s=conv(t.get('cau'))[1], e=conv(t.get('cau'))[2]) if conv(t.get('cau')) else dict(t, video=0) for t in sc.get('titles', [])]
     # ---- A-roll: câu nói nối liền, cắt ở khoảng lặng; mỗi CÂU 1 cỡ khung (rộng / cận) để nhảy cỡ che vết cắt
     t, pieces, why, n_sent = 0.0, [], {}, 0
-    for it in sc.get('aroll', []):
+    for ai, it in enumerate(sc.get('aroll', [])):
         a = A.get(vid(it.get('video', 0))); s, e = float(it.get('s', 0)), float(it.get('e', 0))
         if not a: why['sai số video'] = why.get('sai số video', 0) + 1; continue
         if a['vid'].get('broll'): why['chọn nhầm cảnh phụ'] = why.get('chọn nhầm cảnh phụ', 0) + 1; continue
@@ -488,12 +489,12 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             shots.append(dict(media=k, src=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), line='A', face=f0 or f1,
                               keys=[[round(t, 3), m, u0, v0, 0.0], [round(t + d, 3), m1, u1, v1, 0.0]], punch_abs=[]))
             speech.append(dict(media=k, src_in=round(x, 3), t0=round(t, 3), t1=round(t + d, 3), vol=1.0))
-            pieces.append((a['i'], x, y, t)); t += d
+            pieces.append((a['i'], x, y, t, ai)); t += d
         if t > 118: break
     if t < 15: log('  A-roll chỉ %.0fs (%d đoạn Gemini chọn, bỏ: %s)' % (t, len(sc.get('aroll', [])), why or 'không')); return None
     total = round(t, 3)
     def tl(vi, st):
-        for i, x, y, t0 in pieces:
+        for i, x, y, t0, *_ in pieces:
             if i == vi and x - .05 <= st <= y + .05: return t0 + max(0, min(y, st) - x)
         return None
     # ---- cảnh phụ: mỗi cảnh 1 kiểu chuyển động máy khác nhau; ≤1 cảnh / 5 s; 3–4 chuyển cảnh có hiệu ứng ở chỗ đổi ý
@@ -536,7 +537,8 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
              and float(x.get('diem') or 6) >= 6 and not BADW.search('%s %s' % (x.get('chat_luong', ''), x.get('noi_dung', '')))]
         d.sort(key=lambda x: -float(x.get('diem') or 0))
         out_ = [(float(x['s']), float(x['e'])) for x in d] or ([] if (a.get('vlog') or {}).get('doan') else [(min(1.0, a['dur'] / 4), a['dur'] - .2)])
-        return [g for g in out_ if clean(a, g[0], min(g[1], g[0] + 2.6))]
+        bad_ = [(int(v), float(g)) for v, g in sc.get('_bad') or []]
+        return [g for g in out_ if clean(a, g[0], min(g[1], g[0] + 2.6)) and not any(v == a['i'] and g[0] - .5 <= x_ <= g[1] + .5 for v, x_ in bad_)]
     def clean(a, s0_, e0_):   # đo thật trên khung hình: bỏ đoạn trắng xóa / đen / phẳng (logo mờ dần, màn hình trống)
         try:
             import numpy as _np
@@ -663,7 +665,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     while mt < total - .5:
         d = min(MF[1] - .1, total - mt); mus.append(dict(file=MF[0], dur=MF[1], src_in=0.0, t0=round(mt, 3), t1=round(mt + d, 3), fi=.3 if mt else 0.0, fo=1.5)); mt += d
     return dict(project=proj, out_dir=os.path.join(L.TMP, 'out'), asset_dir=adir, media=media, total=total, lines=[dict(id='A', t0=0.0, t1=total)],
-                speech=speech, shots=shots, titles=titles, transitions=trans, effects=fx, music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
+                apieces=[[p[4], round(p[3], 3), round(p[3] + p[2] - p[1], 3)] for p in pieces], speech=speech, shots=shots, titles=titles, transitions=trans, effects=fx, music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
 
 
 # ---------------------------------------------------------------- nhạc nền: mỗi project 1 bài KHÁC NHAU (ưu tiên nhạc chủ để trong thư mục buổi quay, rồi tới Kho nhạc nền)
@@ -730,7 +732,7 @@ def timeline(jb, sc, pl):   # dòng thời gian bằng chữ cho Claude kiểm d
 def review(jb, sc, pl, proj, adir, mu):
     sc0 = sc
     A = {'V%d' % a['i']: a for a in jb['A']}
-    for rnd in range(3):
+    for rnd in range(4):   # 1 lần kiểm + tối đa 3 lần sửa
         ts = sorted({round((z['t0'] + z['t1']) / 2, 2) for z in pl['titles']} | {round(x['t0'] + .3, 2) for x in pl['shots'] if x['line'] != 'A'})
         if len(ts) > 24: ts = ts[::math.ceil(len(ts) / 24)]
         try: pv = N.preview(pl, A, ts, os.path.join(ENG, 'fonts'))
@@ -739,7 +741,7 @@ def review(jb, sc, pl, proj, adir, mu):
         if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
         log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
         if r.get('dat'): return pl
-        if rnd == 2: break
+        if rnd == 3: break
         fx = r.get('sua') or {}; sc = json.loads(json.dumps(sc)); T = sc.get('titles') or []
         for d in fx.get('doi_chu') or []:
             try: T[int(d['T'])].update(big=d.get('big', T[int(d['T'])].get('big')), small=d.get('small', ''))
@@ -749,12 +751,24 @@ def review(jb, sc, pl, proj, adir, mu):
             except Exception: pass
         drop = {int(x) for x in fx.get('bo_chu') or [] if str(x).lstrip('-').isdigit()}
         sc['titles'] = [t for i, t in enumerate(T) if i not in drop] + [t for t in fx.get('them_chu') or [] if isinstance(t, dict) and t.get('cau')]
+        aro0 = list(sc.get('aroll') or [])
+        for c in fx.get('cat_doan') or []:   # bỏ câu bị cắt hỏng / nói hỏng (theo giây trên timeline)
+            try:
+                s_, e_ = float(c['s']), float(c['e'])
+                ai_ = {p[0] for p in pl.get('apieces') or [] if min(e_, p[2]) - max(s_, p[1]) > .15}
+                if ai_ and len(ai_) < len(sc.get('aroll') or []): sc['aroll'] = [x for i, x in enumerate(sc['aroll']) if i not in ai_]
+            except Exception: pass
+        for c in fx.get('doi_canh_tu_phu') or []:   # cảnh tự phủ xấu → không dùng đoạn đó nữa
+            try: sc.setdefault('_bad', []).append([int(c['video']), float(c['giay'])])
+            except Exception: pass
         bdrop = {int(x) for x in fx.get('bo_canh_phu') or [] if str(x).lstrip('-').isdigit()}
         sc['broll'] = [b for i, b in enumerate(sc.get('broll') or []) if i not in bdrop]
         pl2 = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None, mu[4] if mu else None)
+        if not pl2 and fx.get('cat_doan') and aro0 is not None:   # bỏ câu làm video quá ngắn → giữ lại câu đó
+            sc['aroll'] = aro0; pl2 = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None, mu[4] if mu else None)
         if not pl2: break
         pl = pl2
-    log('  ✗ Claude kiểm tra chưa đạt sau 2 vòng sửa – KHÔNG giao project này:', proj); jb['qa_rej'] = jb.get('qa_rej', 0) + 1; jb.setdefault('rej_sc', []).append(sc0); return None
+    log('  ✗ Claude kiểm tra chưa đạt sau 3 vòng sửa – KHÔNG giao project này:', proj); jb['qa_rej'] = jb.get('qa_rej', 0) + 1; jb.setdefault('rej_sc', []).append(sc0); return None
 def publish(jb, sc, n):
     a0 = jb['A'][0]; A_ = {a['i']: a for a in jb['A']}; cnt = {}
     for it in sc.get('aroll', []):   # project nằm trong thư mục (Kịch bản N) chứa phần lớn câu nói của kịch bản
