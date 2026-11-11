@@ -1378,6 +1378,21 @@ MGURL = 'https://drive.usercontent.google.com/download?id=%s&export=download&con
 MGW = os.path.join(L.TMP, 'mg_work')   # thư mục tạm TRÊN MÁY (adir là đường dẫn Drive của CapCut, không ghi file vào đó được)
 MGLOG = []   # nhật ký motion graphic / cover của project đang dựng (lưu vào kho phân tích để kiểm tra)
 def mlog(*a): MGLOG.append(' '.join(map(str, a))[:600]); log('  ' + ' '.join(map(str, a))[:300])
+_LITE = {}
+def lite(fid):   # bản nhẹ 480p/720p của video (máy chuyển đổi tạo, faststart) – dùng khi bản gốc bị Google chặn tải nguyên file
+    if fid not in _LITE:
+        try:
+            xs = lq("appProperties has { key='pxOf' and value='%s' } and trashed=false" % fid, 'id,name,videoMediaMetadata(height)')
+            xs.sort(key=lambda x: -int((x.get('videoMediaMetadata') or {}).get('height') or 0)); _LITE[fid] = xs[0]['id'] if xs else None
+        except Exception: _LITE[fid] = None
+    return _LITE[fid]
+def ffgrab(fid, ss, t, outargs, timeout=400):   # đọc 1 đoạn / 1 khung từ video: thử bản gốc, bị chặn thì dùng bản nhẹ
+    err = None
+    for f in [fid, lite(fid)]:
+        if not f: continue
+        try: return L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(f, ss, t) + outargs, timeout=timeout)
+        except Exception as e: err = e
+    raise err or RuntimeError('không có bản đọc được')
 def add_mg(jb, sc, pl, proj, host, adir):
     try:
         if ENG not in sys.path: sys.path.insert(0, ENG)
@@ -1401,7 +1416,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
             if a:
                 g = float(p.get('giay') if p.get('giay') is not None else (best_seg(a, 0) or 0)); g = max(0.0, min(g, a['dur'] - (e_ - s_) - .1))
                 os.makedirs(MGW, exist_ok=True); clip = os.path.join(MGW, 'mgsrc%d.mp4' % len(out))
-                L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(a['vid']['id'], g, e_ - s_ + .3) + ['-an', '-vf', 'scale=1280:-2', '-c:v', 'libx264', '-crf', '21', '-pix_fmt', 'yuv420p', clip], timeout=400)
+                ffgrab(a['vid']['id'], g, e_ - s_ + .3, ['-an', '-vf', 'scale=1280:-2', '-c:v', 'libx264', '-crf', '21', '-pix_fmt', 'yuv420p', clip])
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
             os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
             MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_))
@@ -1469,7 +1484,7 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
     for k, (_, _, a, t) in enumerate(cand[:8]):
         os.makedirs(MGW, exist_ok=True); f = os.path.join(MGW, 'cover%d.jpg' % k)
         try:
-            L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(a['vid']['id'], t) + ['-frames:v', '1', '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-q:v', '3', f], timeout=200)
+            ffgrab(a['vid']['id'], t, None, ['-frames:v', '1', '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-q:v', '3', f], timeout=200)
             h = int(_dh(f), 16); dmin = min([bin(h ^ o).count('1') for o in others] or [64])
             if not best or dmin > best[0]: best = (dmin, f, h)
             if dmin >= 14: break
