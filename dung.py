@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '15'
-LV = '9'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '16'
+LV = '10'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -1325,18 +1325,20 @@ def publish(jb, sc, n):
 
 # ---- chủ dặn 11/11: motion graphic (HyperFrames) + file Word kịch bản + ảnh cover riêng (không trùng project khác) – tất cả lưu TRONG thư mục project
 MGDIR = 'Motion graphic'
+MGLOG = []   # nhật ký motion graphic / cover của project đang dựng (lưu vào kho phân tích để kiểm tra)
+def mlog(*a): MGLOG.append(' '.join(map(str, a))[:600]); log('  ' + ' '.join(map(str, a))[:300])
 def add_mg(jb, sc, pl, proj, host, adir):
     try:
         if ENG not in sys.path: sys.path.insert(0, ENG)
         import mg as MG
-    except Exception as e: log('  chưa có bộ motion graphic:', e); return pl
+    except Exception as e: mlog('chưa có bộ motion graphic:', repr(e)); return pl
     A_ = {a['i']: a for a in jb['A']}; rows = []
     for a in jb['A']:
         if not (a['vid'].get('broll') or not a.get('segs')): continue
         for x in sorted(((a.get('vlog') or {}).get('doan') or []), key=lambda x: -float(x.get('diem') or 0))[:2]:
             if float(x.get('diem') or 0) >= 7: rows.append('#%d %.1f–%.1fs: %s' % (a['i'], float(x['s']), float(x['e']), str(x.get('noi_dung') or '')[:90]))
-    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log)
-    except Exception as e: log('  Claude chưa chọn được đoạn motion graphic:', e); return pl
+    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log); mlog('Claude chọn motion:', json.dumps(picks, ensure_ascii=False)[:400])
+    except Exception as e: mlog('Claude chưa chọn được đoạn motion graphic:', repr(e)); return pl
     out, last = [], -9.0
     for p in sorted([p for p in picks if isinstance(p, dict)], key=lambda p: float(p.get('s') or 0)):
         try:
@@ -1354,7 +1356,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
             MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('chieu') or 1))
             out.append((s_, e_, o, nm)); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
-        except Exception as e: log('  bỏ 1 motion graphic:', str(e)[:200])
+        except Exception as e: mlog('bỏ 1 motion graphic:', repr(e)[:500])
     shots = pl['shots']
     for i, (s_, e_, o, nm) in enumerate(out):
         k = 'M%d' % (i + 1)
@@ -1413,7 +1415,8 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
             h = int(_dh(f), 16); dmin = min([bin(h ^ o).count('1') for o in others] or [64])
             if not best or dmin > best[0]: best = (dmin, f, h)
             if dmin >= 14: break
-        except Exception: pass
+        except Exception as e: mlog('cover lỗi:', repr(e)[:300])
+    mlog('cover:', len(cand), 'ứng viên', 'chọn' if best else 'KHÔNG có', best[0] if best else '')
     return (best[1], '%016x' % best[2]) if best else (None, None)
 
 def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
@@ -1435,9 +1438,15 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     pl = review(jb, sc, pl, proj, adir, mu)   # Claude Opus tự kiểm tra (xem ảnh xem trước + dòng thời gian), sửa tối đa 2 vòng
     if not pl: return None
-    pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
-    cf, ch_ = pick_cover(jb, pl, adir)
-    if cf: pl['cover'], pl['coverh'] = cf, ch_
+    del MGLOG[:]
+    try: pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
+    except Exception as e: mlog('add_mg hỏng:', repr(e)[:400])
+    try:
+        cf, ch_ = pick_cover(jb, pl, adir)
+        if cf: pl['cover'], pl['coverh'] = cf, ch_
+    except Exception as e: mlog('pick_cover hỏng:', repr(e)[:400])
+    try: ad_, ix_ = idx_now(); jput('mglog_%s.json' % re.sub(r'[^A-Za-z0-9]+', '_', L.norm1(proj))[:80], dict(t=time.time(), proj=proj, log=MGLOG), ad_, ix_)
+    except Exception: pass
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
     if not 40 <= pl['total'] <= 120: bad.append('dài %.0fs (cần 40–120s)' % pl['total'])
     if len(pl.get('titles') or []) < pl['total'] / 8.0: bad.append('chỉ %d chữ nhấn / %.0fs (cần ~1 cụm mỗi 1–3 s)' % (len(pl.get('titles') or []), pl['total']))
