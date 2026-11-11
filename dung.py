@@ -1355,7 +1355,7 @@ def tasks(jobs=None):
             out += [(2, 'read', jb, v) for v in unread if not _fresh((v.get('appProperties') or {}).get('dungRL'))]
         elif not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))
     import random
-    random.shuffle(out); out.sort(key=lambda x: (0 if 'academy' in L.norm1(path_of(x[2]['id'])) else 1, x[0]))   # chủ dặn: ưu tiên MICC Academy   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
+    random.shuffle(out); out.sort(key=lambda x: (x[0], 0 if 'academy' in L.norm1(path_of(x[2]['id'])) else 1))   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
     return out
 
 _JB = {}
