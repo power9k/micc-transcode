@@ -1284,7 +1284,7 @@ def release(jb):
     except Exception: pass
 
 _NC = [0, False]
-CODE = ('dung.py', 'nao.py', 'xem.py', 'loc.py', 'eng/')
+CODE = ('dung.py', 'nao.py', 'xem.py', 'loc.py', 'eng/', 'capcut/')   # công cụ đồng bộ mới → lượt máy mới đưa lên SETUP ngay
 def newer_code():   # có bản sửa mới trên GitHub (mã dựng) → làm nốt kịch bản đang dở rồi dừng, lượt sau chạy ngay bằng mã mới
     if _NC[1] or time.time() - _NC[0] < 90: return _NC[1]
     _NC[0] = time.time(); d = os.path.dirname(os.path.abspath(__file__))
