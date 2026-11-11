@@ -138,20 +138,6 @@ if LAYER:
         sg['common_keyframes'] = []; sg['keyframe_refs'] = []; sg['group_id'] = ''; sg['raw_segment_id'] = ''
         ADJ.append(sg)
 
-# khung nổi (PIP): người nói thu nhỏ ở góc trong lúc cảnh phụ chiếu toàn màn hình – keys [t, cỡ, X, Y, xoay] theo khung 9:16 (không ép phủ kín)
-PIPS = []
-for k, p in enumerate(PL.get('pips') or []):
-    md = MEDIA[p['media']]
-    sg = vseg(p['media'], p['src'], p['t0'], p['t1'], 0.0, [(p['t0'], 1.0, 0.0, 0.0)])
-    off = lambda t: int(round((p['src'] + (t - p['t0'])) * S))
-    cl = [(t, round(md['S0'] * m, 5), x, y, r) for t, m, x, y, r in p['keys']]
-    sg['clip']['scale'] = {'x': cl[0][1], 'y': cl[0][1]}; sg['clip']['transform'] = {'x': cl[0][2], 'y': cl[0][3]}; sg['clip']['rotation'] = cl[0][4]
-    ib.add_keyframes(sg, [ib.kf_track('KFTypeScaleX', [(off(c[0]), c[1]) for c in cl]), ib.kf_track('KFTypePositionX', [(off(c[0]), c[2]) for c in cl]),
-                          ib.kf_track('KFTypePositionY', [(off(c[0]), c[3]) for c in cl]), ib.kf_track('KFTypeRotation', [(off(c[0]), c[4]) for c in cl])])
-    nm, aid, d = B_IN[k % len(B_IN)]; vanim(sg, nm, aid, 'in', min(.35, (p['t1'] - p['t0']) / 3))
-    vanim(sg, 'Fade Out', '6798320902548230669', 'out', min(.25, (p['t1'] - p['t0']) / 4))
-    PIPS.append(sg)
-
 # transitions (team presets; non-overlap types need no handles)
 TRANS_PRESET = {'6952697917563998722': 'transition_glare_ii.json', '6724226861666144779': 'transition_pull_in.json',
                 '6724226338418332167': 'transition_pull_out.json', '6987208055511323137': 'transition_flash.json'}
@@ -332,7 +318,6 @@ def nonover(segs):
 TOTAL = PL['total']
 tr = [track('video', V1, name='A-roll (người nói, tiếng gốc)' if LAYER else 'V1 hình chính (phim dự án 4K + người dẫn)')]
 for k, lane in enumerate(nonover(BSEGS)): tr.append(track('video', lane, flag=2, name='B-roll %d' % (k + 1)))
-for lane in nonover(PIPS): tr.append(track('video', lane, flag=2, name='Khung nổi người nói'))
 for lane in nonover(ADJ): tr.append(track('adjust', lane, name='Màu từng cảnh'))
 for lane in nonover(BEH_SEGS): tr.append(track('text', lane, name='Chữ SAU người dẫn'))
 tr.append(track('video', MATTE_SEGS, flag=2, name='Người dẫn bản sao - Xóa nền'))
