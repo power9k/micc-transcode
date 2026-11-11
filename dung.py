@@ -5,7 +5,7 @@
 #     chọn câu nói hay nhất (đủ ý, đúng diễn xuất), cảnh phụ khớp lời, chữ nhấn ý chính
 #  3) DỰNG: bỏ ngập ngừng / ầm à, che vết cắt bằng giật zoom, cảnh phụ, chữ, nhạc, hiệu ứng âm thanh → draft CapCut
 #  4) Đưa project vào thư mục buổi quay (1 phiên bản duy nhất) + thêm vào MICC media · Hệ thống (không xóa)/AI dựng CapCut/Danh sách project CapCut.txt (máy nhân viên tự có lối tắt)
-import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse
+import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse, urllib.error
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
@@ -65,8 +65,12 @@ def raw(fid, anon=False):   # file nhỏ hay đổi (danh sách, trạng thái, 
         with urllib.request.urlopen(urllib.request.Request(L.aurl(fid)), timeout=300) as r:
             if 'text/html' not in (r.headers.get('Content-Type') or ''): return r.read()
       except Exception: pass
-    req = urllib.request.Request(L.durl(fid), headers={'Authorization': 'Bearer ' + L.tok()})
-    with urllib.request.urlopen(req, timeout=300) as r: return r.read()
+    for t in dict.fromkeys([L.rtok(), L.tok()]):   # đọc bằng tài khoản 2 trước, lỗi thì tài khoản MICC
+        try:
+            with urllib.request.urlopen(urllib.request.Request(L.durl(fid), headers={'Authorization': 'Bearer ' + t}), timeout=300) as r: return r.read()
+        except urllib.error.HTTPError as e:
+            if t == L.tok(): raise
+            L.log('  tài khoản 2 không đọc được file, dùng tài khoản MICC:', e.code)
 def put(name, parent, data, mime):  # tải file nhỏ lên Drive (multipart), thử lại khi Drive báo quá hạn mức
     for k in range(4):
         try: return _put(name, parent, data, mime)
@@ -274,7 +278,7 @@ def doc_text(jb):
     for d in jb['docs'][:3]:
         try:
             if d['mimeType'] == 'application/vnd.google-apps.document':
-                req = urllib.request.Request(L.G + '/drive/v3/files/%s/export?mimeType=text/plain' % d['id'], headers={'Authorization': 'Bearer ' + L.tok()})
+                req = urllib.request.Request(L.G + '/drive/v3/files/%s/export?mimeType=text/plain' % d['id'], headers={'Authorization': 'Bearer ' + L.rtok()})
                 with urllib.request.urlopen(req, timeout=120) as r: out.append('FILE KỊCH BẢN "%s":\n%s' % (d['name'], r.read().decode('utf-8', 'replace')[:12000]))
             elif d['name'].lower().endswith('.txt'): out.append('FILE KỊCH BẢN "%s":\n%s' % (d['name'], raw(d['id']).decode('utf-8', 'replace')[:12000]))
         except Exception as e: log('  không đọc được file kịch bản', d['name'], e)
@@ -1607,14 +1611,14 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
     except Exception as e: log('  không làm mới được danh sách CapCut:', e)
 
 def pending():
-    if PAUSE: heal_list(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
+    if PAUSE: heal_list(); setup_bat(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
     return 1
 
 def run(key, models, until):
-    if PAUSE: heal_list(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
+    if PAUSE: heal_list(); setup_bat(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     mark_root(); fix_public(); retract_all(); rename_old(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0

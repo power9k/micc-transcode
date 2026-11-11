@@ -59,12 +59,27 @@ function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $m" | Out-File -Ap
 $root = $null
 $mark = 'MICC - nhận diện ổ Drive (không xóa).txt'
 $cands = @()
-foreach ($d in (Get-PSDrive -PSProvider FileSystem)) {
-  foreach ($md in @('Drive của tôi', 'My Drive')) {
-    $p = Join-Path $d.Root (Join-Path $md 'PHÒNG TRUYỀN THÔNG MICC')
-    if (Test-Path -LiteralPath (Join-Path $p 'SETUP')) { $cands += [pscustomobject]@{ p = $p; m = (Test-Path -LiteralPath (Join-Path (Join-Path $d.Root $md) $mark)) } }
+$want = 'PHÒNG TRUYỀN THÔNG MICC'.Normalize([Text.NormalizationForm]::FormC)
+function Add-Cand($p, $base) {
+  if (-not (Test-Path -LiteralPath (Join-Path $p 'SETUP'))) { return }
+  if ($script:cands | Where-Object { $_.p -eq $p }) { return }
+  $script:cands += [pscustomobject]@{ p = $p; m = (Test-Path -LiteralPath (Join-Path $base $mark)) }
+}
+# tim thu muc PHÒNG TRUYỀN THÔNG MICC o MOI o / moi kieu gan cua Google Drive (o chu rieng, thu muc trong o G chung nhieu tai khoan,
+# "Drive của tôi"/"My Drive", loi tat dat trong thu muc con...) - quet toi da 3 cap, bo qua thu muc he thong
+$skip = '^(Windows|Program Files.*|ProgramData|\$Recycle\.Bin|System Volume Information|Recovery|PerfLogs|AppData)$'
+function Scan($dir, $lvl) {
+  foreach ($c in (Get-ChildItem -LiteralPath $dir -Directory -Force -ErrorAction SilentlyContinue)) {
+    if ($c.Name -match $skip) { continue }
+    if ($c.Name.Normalize([Text.NormalizationForm]::FormC) -eq $want) { Add-Cand $c.FullName $dir; continue }
+    if ($lvl -lt 3) { Scan $c.FullName ($lvl + 1) }
   }
 }
+foreach ($d in (Get-PSDrive -PSProvider FileSystem)) {
+  if ($d.Root -match '^[A-Za-z]:\\$' -and $d.Name -ne 'C') { Scan $d.Root 1 }
+}
+Scan (Join-Path $env:USERPROFILE '') 1   # Drive gan dang thu muc trong C:\Users\<ten>
+Log ("thay " + $cands.Count + " o Drive co PHÒNG TRUYỀN THÔNG MICC: " + (($cands | ForEach-Object { $_.p + $(if ($_.m) { ' (tai khoan MICC)' } else { ' (tai khoan khac)' }) }) -join ' | '))
 $blkF = Join-Path $env:LOCALAPPDATA 'MICC\o-bi-chan.txt'
 function CanRead($p) {   # doc thu 1 file nho -> biet o nay con tai duoc khong (o vua bi chan thi 1 tieng sau moi thu lai, khong de Drive bao lien tuc)
   if ((Test-Path -LiteralPath $blkF) -and ((Get-Content -LiteralPath $blkF -Raw) -match [regex]::Escape($p)) -and ((Get-Date) - (Get-Item -LiteralPath $blkF).LastWriteTime).TotalMinutes -lt 60) { return $false }

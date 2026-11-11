@@ -54,6 +54,19 @@ TK = {'v': None, 't': 0}
 def tok():
     if time.time() - TK['t'] > 1500: TK['v'] = api('pxToken')['token']; TK['t'] = time.time()
     return TK['v']
+# TÀI KHOẢN 2 (miccgroup.media) – chỉ dùng để ĐỌC nội dung file → chia hạn mức tải với tài khoản MICC (chủ dặn 11/11)
+API2 = os.environ.get('MICC_API2') or ''
+TK2 = {'v': None, 't': 0, 'bad': 0}
+def rtok():
+    if API2 and time.time() - TK2['bad'] > 600:
+        if time.time() - TK2['t'] > 1500:
+            try:
+                j = http(API2, dict(s=SEC), timeout=60)
+                if not j.get('token'): raise RuntimeError(j.get('error') or 'không có token')
+                TK2['v'], TK2['t'] = j['token'], time.time()
+            except Exception as e: log('  tài khoản 2 chưa dùng được:', e); TK2['bad'] = time.time(); return tok()
+        return TK2['v']
+    return tok()
 def drive(path, data=None, method=None, params='supportsAllDrives=true'):
     if isinstance(params, dict): params = urllib.parse.urlencode(dict({'supportsAllDrives': 'true'}, **params))
     for i in range(5):
@@ -79,7 +92,7 @@ def fin(fid, ss=None, t=None):
     if ss is not None: a += ['-ss', '%.3f' % ss]
     if t is not None: a += ['-t', '%.3f' % t]
     if anon_ok(fid): return a + ['-i', aurl(fid)]
-    return a + ['-headers', 'Authorization: Bearer %s\r\n' % tok(), '-i', durl(fid)]
+    return a + ['-headers', 'Authorization: Bearer %s\r\n' % rtok(), '-i', durl(fid)]
 def run(cmd, timeout=None):
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if p.returncode != 0: raise RuntimeError((cmd[0] + ': ' + p.stderr.strip().splitlines()[-1]) if p.stderr.strip() else cmd[0] + ' lỗi')
@@ -90,7 +103,7 @@ def download(fid, size, dst):
     if os.path.exists(dst): os.remove(dst)
     for tries in range(8):
         try:
-            req = urllib.request.Request(aurl(fid), headers={'Range': 'bytes=%d-' % got}) if anon_ok(fid) else urllib.request.Request(durl(fid), headers={'Authorization': 'Bearer ' + tok(), 'Range': 'bytes=%d-' % got})
+            req = urllib.request.Request(aurl(fid), headers={'Range': 'bytes=%d-' % got}) if anon_ok(fid) else urllib.request.Request(durl(fid), headers={'Authorization': 'Bearer ' + rtok(), 'Range': 'bytes=%d-' % got})
             with urllib.request.urlopen(req, timeout=120) as r, open(dst, 'ab') as w:
                 if r.status == 200 and got: w.truncate(0); got = 0
                 while True:
@@ -868,7 +881,7 @@ def tc_img(fid, mime):
     try:
         tl = drive('files/' + fid, params={'fields': 'thumbnailLink'}).get('thumbnailLink')
         if tl:
-            req = urllib.request.Request(re.sub(r'=s\d+$', '', tl) + '=s480', headers={'Authorization': 'Bearer ' + tok()})
+            req = urllib.request.Request(re.sub(r'=s\d+$', '', tl) + '=s480', headers={'Authorization': 'Bearer ' + rtok()})
             with urllib.request.urlopen(req, timeout=60) as r: b = r.read()
             if len(b) > 800: return b
     except Exception: pass
