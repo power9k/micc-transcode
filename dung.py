@@ -891,7 +891,7 @@ def publish(jb, sc, n):
                 try: put(f['name'], af, raw(f['id']), f.get('mimeType') or 'application/octet-stream')
                 except Exception as e: log('  bỏ file thư viện', f['name'], e)
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
-            put(fn, pf, open(os.path.join(od, fn), 'rb').read(), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
+            put(fn, pf, to_m(open(os.path.join(od, fn), 'rb').read()), 'application/json')
         put('draft_cover.jpg', pf, base64.b64decode(a0['thumbs'][len(a0['thumbs']) // 2][1]), 'image/jpeg')
         if mu:
             try: L.drive('files/%s/copy' % mu[0], {'name': mu[1], 'parents': [af]}, params={'fields': 'id'})
@@ -1109,21 +1109,6 @@ def do_build(jb, n):
     jput(st_name(jb, n), stt, ad, idx)
     log('  kịch bản %d chưa đạt (lần %d/%d) – sẽ dựng / sửa tiếp' % (n, stt['tries'], MAXT))
 
-def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên SETUP (máy người dùng tự lấy bản mới mỗi 2 phút)
-    try:
-        import hashlib
-        src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'capcut', 'dong-bo-capcut.bat')
-        if not os.path.exists(src): return
-        data = open(src, 'rb').read(); md = hashlib.md5(data).hexdigest()
-        st = lq("'%s' in parents and name='SETUP' and mimeType='%s'" % (L.ROOT, L.FOLDER), 'id')
-        if not st: return
-        f = lq("'%s' in parents and name='Cài đặt đồng bộ CapCut.bat'" % st[0]['id'], 'id,md5Checksum')
-        if f and f[0].get('md5Checksum') == md: return
-        if f: update(f[0]['id'], data, 'application/octet-stream')
-        else: put('Cài đặt đồng bộ CapCut.bat', st[0]['id'], data, 'application/octet-stream')
-        log('  đã cập nhật công cụ đồng bộ CapCut trong SETUP')
-    except Exception as e: log('  không cập nhật được công cụ đồng bộ:', e)
-
 def heal_list():   # mọi project đã giao (kiểu mới) phải có trong danh sách CapCut – tự bù dòng thiếu
     try:
         fid = list_file(); have = {x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()}
@@ -1145,7 +1130,9 @@ def pending():
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    heal_list(); setup_bat()
+    try: migrate_m()
+    except Exception as e: log('AI dựng: đổi ổ M lỗi', e)
+    heal_list()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
