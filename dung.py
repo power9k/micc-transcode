@@ -1219,6 +1219,37 @@ def user_edited(c):   # người dùng đã mở CapCut và lưu chỉnh sửa �
         ut = ut / 1e6 if ut > 1e11 else ut
         return ut > L.ts(c['createdTime']) + 300
     except Exception: return True   # không chắc → coi như đã sửa, giữ lại cho an toàn
+VRE = re.compile(r'(?: \(AI dựng lại\)| v(\d+))\s*$')   # chủ dặn 11/11: không ghi "(AI dựng lại)", chỉ thêm v2, v3… ở cuối tên
+def vnum(nm): m = VRE.search(bare_nm(nm)); return (int(m.group(1)) if m.group(1) else 2) if m else 1
+def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
+def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
+def dedupe_proj():   # chủ dặn 11/11: mỗi kịch bản chỉ còn 1 project – bản mới nhất (bản thừa vào thùng rác Drive, khôi phục được 30 ngày)
+    try:
+        cs = lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'id,name,parents,appProperties,createdTime,modifiedTime')
+        pn = {}
+        def pname(p):
+            if p not in pn:
+                try: pn[p] = L.drive('files/' + p, params={'fields': 'name'}).get('name') or ''
+                except Exception: pn[p] = ''
+            return pn[p]
+        grp = {}
+        for c in cs:
+            par = (c.get('parents') or [''])[0]
+            k = (par, '') if re.match(r'(?i)^\s*k(ị|i)ch b(ả|a)n\s*\d', nf(pname(par))) else (par, vbase(c['name']).lower())   # thư mục "Kịch bản N" = đúng 1 project
+            grp.setdefault(k, []).append(c)
+        ch = 0
+        for k, g in grp.items():
+            if len(g) < 2 or any((c.get('appProperties') or {}).get('dungEd') for c in g): continue   # đang sửa ✏️ → để lượt sau
+            g.sort(key=lambda c: ((c.get('appProperties') or {}).get('dungL') == LV, vnum(c['name']), c.get('modifiedTime') or ''), reverse=True)
+            for c in g[1:]:
+                try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); log('  bỏ bản cũ trùng kịch bản:', c['name']); ch += 1
+                except Exception as e: log('  không bỏ được', c['name'], e)
+        for c in cs:
+            if '(AI dựng lại)' in c['name']:
+                try: ren(c, (c.get('parents') or [''])[0], vname(vbase(c['name']), max(2, vnum(c['name'])))); ch += 1
+                except Exception as e: log('  không đổi tên được', c['name'], e)
+        if ch: list_edit(); log('  mỗi kịch bản còn 1 project mới nhất (%d thay đổi)' % ch)
+    except Exception as e: log('  không dọn được project trùng:', e)
 def ren(c, par, new):   # đổi tên thư mục project + đường dẫn bên trong + danh sách CapCut
     old = nf(c['name']); oldrel, newrel = path_of(par) + '/' + old, path_of(par) + '/' + new
     for f in lq("'%s' in parents and (name='draft_content.json' or name='draft_info.json' or name='draft_meta_info.json')" % c['id'], 'id,name'):
@@ -1315,17 +1346,24 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if host in set((jb.get('kbtop') or {}).values()) and new_:
         log('  thư mục này đã có project – giữ nguyên:', path_of(host)); return dict(proj=proj, dur=0, exists=True)   # mỗi thư mục Kịch bản 1 project
     slot = '%s:%d' % (jb['id'], n)
-    if any((c.get('appProperties') or {}).get('dungS') == slot or c['name'] == proj for c in new_):
+    if any((c.get('appProperties') or {}).get('dungS') == slot or vbase(c['name']) == vbase(proj) for c in new_):
         log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)
     bare = bare_nm
-    old_ = [c for c in old_ if (c.get('appProperties') or {}).get('dungS') == slot or bare(c['name']) == proj]   # chỉ bản cũ của ĐÚNG kịch bản này (không đụng project khác cùng thư mục)
+    old_ = [c for c in old_ if (c.get('appProperties') or {}).get('dungS') == slot or vbase(c['name']) == vbase(proj)]   # chỉ bản cũ của ĐÚNG kịch bản này (không đụng project khác cùng thư mục)
     keep_ = [c for c in old_ if user_edited(c)]
     old_ = [c for c in old_ if c not in keep_]
-    if any(c['name'] == proj for c in keep_):   # bản người dùng đã sửa trùng tên → bản AI mới đặt tên khác, đứng cạnh
-        proj = safe(proj + ' (AI dựng lại)', 120); rel = path_of(host) + '/' + proj
-    for c in keep_: log('  giữ nguyên project người dùng đã chỉnh sửa:', c['name'])
+    proj0 = proj
+    if old_ or keep_:   # chủ dặn 11/11: bản dựng lại chỉ thêm v2, v3… ở cuối; mỗi kịch bản chỉ giữ 1 bản mới nhất
+        proj = vname(vbase(proj), max(vnum(c['name']) for c in old_ + keep_) + 1); rel = path_of(host) + '/' + proj
+    ued = {c['id'] for c in keep_}; old_ = old_ + keep_; keep_ = []
+    def rd(fn):   # tên có v2, v3… → sửa tên / đường dẫn bên trong file dựng cho khớp thư mục
+        b_ = open(os.path.join(od, fn), 'rb').read()
+        if proj != proj0:
+            j_ = lambda x: json.dumps(x, ensure_ascii=False)[1:-1].encode('utf-8')
+            b_ = b_.replace(j_('/' + proj0), j_('/' + proj)).replace(j_(proj0), j_(proj))
+        return b_
     # chủ dặn 11/11: project cũ CHƯA ai sửa → GHI ĐÈ thẳng vào thư mục đó (giữ nguyên lối tắt CapCut, không xoá rồi tạo lại)
-    tgt = sorted(old_, key=lambda c: (bare(c['name']) != proj, c['createdTime']), reverse=False)[0] if old_ else None
+    tgt = (sorted([c for c in old_ if c['id'] not in ued], key=lambda c: c['createdTime']) or [None])[0]   # ghi đè vào bản chưa ai sửa; bản người dùng đã sửa → vào thùng rác khi bản mới lên
     if tgt:
         try:
             for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # bỏ bản lưu tạm / Timelines CapCut sinh ra để CapCut đọc đúng bản mới
@@ -1336,7 +1374,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
             for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)
             have = {x['name']: x['id'] for x in lq("'%s' in parents" % tgt['id'], 'id,name')}
             for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
-                b_ = open(os.path.join(od, fn), 'rb').read()
+                b_ = rd(fn)
                 if fn in have: update(have[fn], b_, 'application/json')
                 else: put(fn, tgt['id'], b_, 'application/json')
             for p_ in (mu or []): used_music(add=p_['key'])
@@ -1354,7 +1392,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     try:
         for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)   # nhạc dùng → vào Kho/Nhạc nền
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
-            put(fn, pf, open(os.path.join(od, fn), 'rb').read(), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
+            put(fn, pf, rd(fn), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
         list_edit(add=[rel])
         for p_ in (mu or []): used_music(add=p_['key'])
         for c in old_:   # bản mới đã lên xong → mới bỏ bản cũ (vào thùng rác Drive, khôi phục được)
@@ -1753,7 +1791,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    mark_root(); fix_public(); retract_all(); share_sys(); restore_r6(); free_stale(); rename_old(); fix_vol(); heal_list(); setup_bat()
+    mark_root(); fix_public(); retract_all(); share_sys(); restore_r6(); free_stale(); rename_old(); dedupe_proj(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
