@@ -1319,7 +1319,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
             list_edit(); pf = tgt['id']
             log('  đã ghi đè bản mới vào project cũ (giữ lối tắt):', proj)
             vid0 = next((A_[int(sh['media'][1:])]['vid']['id'] for sh in pl['shots'] if sh.get('line') == 'A' and sh['media'][1:].isdigit() and int(sh['media'][1:]) in A_), None) if (A_ := {a['i']: a for a in jb['A']}) else None
-            return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0)
+            return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0, edited=True)
         except Exception as e: log('  không ghi đè được, tạo project mới:', e)
     pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV, 'dungVol': '1'})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
@@ -1578,7 +1578,7 @@ def do_build(jb, n):
             except Exception: pass
             link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
             mm, ss = divmod(int(time.time() - t0), 60)
-            L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], r['dur'], mm, ss, link),
+            L.tsay(('✏️ AI ĐÃ SỬA XONG PROJECT – MỞ LẠI CAPCUT LÀ BẢN MỚI' if r.get('edited') else '✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT') + '\n🎬 %s (%d giây)\n⏱ %s mất %d phút %02d giây\n🔗 %s' % (r['proj'], r['dur'], 'Sửa' if r.get('edited') else 'Dựng', mm, ss, link),
                    photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # ảnh thumbnail: khung hình người nói của project
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
