@@ -1263,6 +1263,13 @@ VRE = re.compile(r'(?: \(AI dựng lại\)| v(\d+))\s*$')   # chủ dặn 11/11:
 def vnum(nm): m = VRE.search(bare_nm(nm)); return (int(m.group(1)) if m.group(1) else 2) if m else 1
 def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
 def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
+LVT = 1794437808   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
+def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG KỊCH BẢN (gồm cả chờ máy, tải cảnh phụ / nhạc, dựng motion graphic…)
+    try:
+        f = idx_now()[1].get('%s_kichban.json' % jb['id'])
+        mt = L.ts(L.drive('files/' + f, params={'fields': 'createdTime'})['createdTime']) if f else 0   # lúc ghi kịch bản lần đầu (file còn được ghi tiếp khi dựng)
+    except Exception: mt = 0
+    return max(LVT, mt)
 def purge_old():   # chủ dặn 12/11: xóa HẾT project AI kiểu dựng cũ (vào thùng rác Drive) – chỉ giữ project dựng theo quy tắc mới nhất
     try:
         cs = [c for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'id,name,appProperties')
@@ -1675,7 +1682,7 @@ def edit(jb, key, models):
                 if not r.get('exists'):
                     try: tot = len(lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (LV, L.FOLDER), 'id'))
                     except Exception: tot = 0
-                    mm, ss = divmod(int(time.time() - tp_), 60); L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, weblink(r['id'])), video=MGURL % r['mg'][0] if r.get('mg') else None)   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
+                    mm, ss = divmod(int(time.time() - kb_start(jb)), 60); L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, weblink(r['id'])), video=MGURL % r['mg'][0] if r.get('mg') else None)   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
             else:
                 book['tries'][str(n)] = int(book['tries'].get(str(n), 0)) + 1
                 if not jb.get('qa_rej'): book['tries'][str(n)] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
@@ -1840,7 +1847,7 @@ def do_build(jb, n):
             try: L.ix(link=r['id'])   # báo kho web có thư mục mới
             except Exception: pass
             link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
-            mm, ss = divmod(int(time.time() - t0), 60)
+            mm, ss = divmod(int(time.time() - kb_start(jb)), 60)
             L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
                    photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None,   # ảnh thumbnail: khung hình người nói của project
                    video=MGURL % r['mg'][0] if r.get('mg') else None)   # chủ dặn 12/11: có motion graphic → gửi clip motion graphic thay ảnh
