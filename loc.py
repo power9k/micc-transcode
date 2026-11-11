@@ -565,13 +565,13 @@ def zcfg():  # nhóm Zalo: zn = nhóm thông báo (+ test), zt = nhóm test; má
 def groups():  # tin XONG: bản 263.38 (chủ dặn) – việc AI làm chỉ báo nhóm test, không báo nhóm thông báo
     g = zcfg(); return list(dict.fromkeys(g['zt']))
 SAID = set()
-def tsay(text, once=None, photo=None):  # báo NGAY vào nhóm test: bắt đầu lọc, lỗi, hết việc (chủ yêu cầu 08/11); photo = link ảnh kèm
+def tsay(text, once=None, photo=None, video=None):  # báo NGAY vào nhóm test: bắt đầu lọc, lỗi, hết việc (chủ yêu cầu 08/11); photo = link ảnh kèm
     if once:
         if once in SAID: return
         SAID.add(once)
     log('  [Zalo test]', text.replace('\n', ' | ')[:160])
     for g in zcfg()['zt']:
-        try: zsend(g, text, photo)
+        try: zsend(g, text, photo, video)
         except Exception as e: log('  Zalo test lỗi:', str(e)[:100])
 def ix(files=None, dele=None, link=None):  # báo máy chủ đưa ngay vào kho web (không tốn hạn mức gọi mạng của máy chủ)
     b = {'files': files or []}
@@ -579,8 +579,14 @@ def ix(files=None, dele=None, link=None):  # báo máy chủ đưa ngay vào kho
     if link: b['link'] = link
     try: return api('locIx', **b)
     except Exception as e: log('  (chưa báo được kho web: %s)' % str(e)[:80]); return {}
-def zsend(chat, text, photo=None):
+def zsend(chat, text, photo=None, video=None):
     tk = cfg()['zalo']
+    if video:   # clip motion graphic kèm tin (Zalo không nhận video → gửi ảnh + link clip)
+        text = text + '\n🎞 Motion graphic: ' + video
+        try:
+            j = http(ZALO + tk + '/sendVideo', {'chat_id': chat, 'video': video, 'caption': text[:1900]}, timeout=120)
+            if j.get('ok') is not False: return True
+        except Exception as e: log('  Zalo video lỗi:', str(e).replace(tk, '***')[:160])
     if photo:  # tin kèm ảnh (ảnh ghép các file lọc)
         try:
             j = http(ZALO + tk + '/sendPhoto', {'chat_id': chat, 'photo': photo, 'caption': text[:1900]}, timeout=90)

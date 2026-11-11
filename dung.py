@@ -1325,6 +1325,7 @@ def publish(jb, sc, n):
 
 # ---- chủ dặn 11/11: motion graphic (HyperFrames) + file Word kịch bản + ảnh cover riêng (không trùng project khác) – tất cả lưu TRONG thư mục project
 MGDIR = 'Motion graphic'
+MGURL = 'https://drive.usercontent.google.com/download?id=%s&export=download&confirm=t'
 MGLOG = []   # nhật ký motion graphic / cover của project đang dựng (lưu vào kho phân tích để kiểm tra)
 def mlog(*a): MGLOG.append(' '.join(map(str, a))[:600]); log('  ' + ' '.join(map(str, a))[:300])
 def add_mg(jb, sc, pl, proj, host, adir):
@@ -1420,17 +1421,19 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
     return (best[1], '%016x' % best[2]) if best else (None, None)
 
 def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
+    ids = []
     try:
         if pl.get('mg'):
             md_ = mkdir(MGDIR, pf)
-            for o, nm in pl['mg']: put(nm, md_, open(o, 'rb').read(), 'video/mp4')
-    except Exception as e: log('  không lưu được motion graphic:', e)
+            for o, nm in pl['mg']: ids.append(put(nm, md_, open(o, 'rb').read(), 'video/mp4')['id'])
+    except Exception as e: mlog('không lưu được motion graphic:', repr(e))
     try: put('Kịch bản - %s.docx' % safe(proj, 90), pf, script_doc(jb, pl, proj), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
     except Exception as e: log('  không tạo được file Word kịch bản:', e)
     try:
         if pl.get('cover'):
             put('draft_cover.jpg', pf, open(pl['cover'], 'rb').read(), 'image/jpeg'); L.mark(pf, dungCH=pl['coverh'])
     except Exception as e: log('  không lưu được ảnh cover:', e)
+    return ids
 def _publish(jb, sc, n, host, proj, rel, adir):
     a0 = jb['A'][0]
     mu = pick_mix(jb, sc); claude_grades(jb, sc)
@@ -1495,7 +1498,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
                 if fn in have: update(have[fn], b_, 'application/json')
                 else: put(fn, tgt['id'], b_, 'application/json')
             for p_ in (mu or []): used_music(add=p_['key'])
-            put_extra(tgt['id'], jb, pl, proj)
+            mgi = put_extra(tgt['id'], jb, pl, proj)
             L.drive('files/' + tgt['id'], {'name': proj, 'appProperties': {'dungEd': None}}, method='PATCH')   # ghi xong mới gỡ ✏️ → mở được
             for c in old_:
                 if c['id'] == tgt['id']: continue
@@ -1504,14 +1507,14 @@ def _publish(jb, sc, n, host, proj, rel, adir):
             list_edit(); pf = tgt['id']
             log('  đã ghi đè bản mới vào project cũ (giữ lối tắt):', proj)
             vid0 = next((A_[int(sh['media'][1:])]['vid']['id'] for sh in pl['shots'] if sh.get('line') == 'A' and sh['media'][1:].isdigit() and int(sh['media'][1:]) in A_), None) if (A_ := {a['i']: a for a in jb['A']}) else None
-            return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0, edited=True)
+            return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0, edited=True, mg=mgi)
         except Exception as e: log('  không ghi đè được, tạo project mới:', e)
     pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV, 'dungVol': '1'})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
         for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)   # nhạc dùng → vào Kho/Nhạc nền
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
             put(fn, pf, rd(fn), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
-        put_extra(pf, jb, pl, proj)
+        mgi = put_extra(pf, jb, pl, proj)
         list_edit(add=[rel])
         for p_ in (mu or []): used_music(add=p_['key'])
         for c in old_:   # bản mới đã lên xong → mới bỏ bản cũ (vào thùng rác Drive, khôi phục được)
@@ -1525,7 +1528,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         except Exception: pass
         raise
     vid0 = next((A_[int(sh['media'][1:])]['vid']['id'] for sh in pl['shots'] if sh.get('line') == 'A' and sh['media'][1:].isdigit() and int(sh['media'][1:]) in A_), None) if (A_ := {a['i']: a for a in jb['A']}) else None
-    return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0)
+    return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0, mg=mgi)
 
 # ---- nhiều máy GitHub chạy song song: mỗi máy giữ 1 thư mục source (khóa trên Drive), máy khác bỏ qua
 WID = '%s-%s' % (os.environ.get('GITHUB_RUN_ID', 'local'), os.environ.get('WORKER', '1'))
@@ -1599,7 +1602,7 @@ def edit(jb, key, models):
                 if not r.get('exists'):
                     try: tot = len(lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (LV, L.FOLDER), 'id'))
                     except Exception: tot = 0
-                    L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n📊 Tổng đã hoàn thành: %d project\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id']), tot))
+                    L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n📊 Tổng đã hoàn thành: %d project\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id']), tot), video=MGURL % r['mg'][0] if r.get('mg') else None)
             else:
                 book['tries'][str(n)] = int(book['tries'].get(str(n), 0)) + 1
                 if not jb.get('qa_rej'): book['tries'][str(n)] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
@@ -1765,7 +1768,8 @@ def do_build(jb, n):
             link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
             mm, ss = divmod(int(time.time() - t0), 60)
             L.tsay(('✏️ AI ĐÃ SỬA XONG PROJECT – MỞ LẠI CAPCUT LÀ BẢN MỚI' if r.get('edited') else '✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT') + '\n🎬 %s (%d giây)\n⏱ %s mất %d phút %02d giây\n🔗 %s' % (r['proj'], r['dur'], 'Sửa' if r.get('edited') else 'Dựng', mm, ss, link),
-                   photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # ảnh thumbnail: khung hình người nói của project
+                   photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None,   # ảnh thumbnail: khung hình người nói của project
+                   video=MGURL % r['mg'][0] if r.get('mg') else None)   # chủ dặn 12/11: có motion graphic → gửi clip motion graphic thay ảnh
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
     if not jb.get('qa_rej'): stt['tries'] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
