@@ -155,8 +155,16 @@ def read(jb):
     from concurrent.futures import ThreadPoolExecutor
     try: ad, idx = ana_dir()
     except Exception as e: ad, idx = None, {}; log('  không mở được kho phân tích:', e)
-    def one(iv):
-        i, v = iv; br = bool(v.get('broll')); nm = '%s_%s%s_v2.json' % (v['id'], v.get('size') or 0, '' if br else '_loi')   # v2 = có tờ ảnh mọi khung chính + mặt + nhãn âm thanh
+    def one(iv): return read_video(iv[0], iv[1], len(vids), ad, idx, t0)
+    with ThreadPoolExecutor(3) as ex: A = [a for a in ex.map(one, enumerate(vids)) if a]
+    return read_tail(jb, vids, A, ad, idx, t0)
+
+def ana_name(v): return '%s_%s%s_v2.json' % (v['id'], v.get('size') or 0, '' if v.get('broll') else '_loi')   # v2 = có tờ ảnh mọi khung chính + mặt + nhãn âm thanh
+def xem_name(v): return '%s_%s_xem.json' % (v['id'], v.get('size') or 0)
+def hong_name(v): return '%s_%s_hong.json' % (v['id'], v.get('size') or 0)   # video hỏng / không đọc được → bỏ qua, không đọc lại
+def read_video(i, v, nv, ad, idx, t0):
+        br = bool(v.get('broll')); nm = ana_name(v)
+        if hong_name(v) in idx: return None
         a = _MEM.get(nm)
         if a is None and nm in idx:
             try: a = json.loads(raw(idx[nm]).decode('utf-8'))
@@ -170,10 +178,11 @@ def read(jb):
             if ad:
                 try: put(nm, ad, json.dumps(a, ensure_ascii=False).encode('utf-8'), 'application/json')
                 except Exception as e: log('  không lưu được phân tích', v['name'], e)
-            log('  đọc video %d/%d: %s (%.1f phút từ đầu)' % (i + 1, len(vids), v['name'], (time.time() - t0) / 60))
+            log('  đọc video %d/%d: %s (%.1f phút từ đầu)' % (i + 1, nv, v['name'], (time.time() - t0) / 60))
         _MEM[nm] = a
         return dict(a, i=i + 1, vid=v)
-    with ThreadPoolExecutor(3) as ex: A = [a for a in ex.map(one, enumerate(vids)) if a]
+
+def read_tail(jb, vids, A, ad, idx, t0):
     if not A: raise RuntimeError('không đọc được video nào')
     log('  %d video, %d video đã đọc từ trước (dùng lại, không đọc lại)' % (len(A), sum(1 for v in vids if any(k.startswith(v['id'] + '_') for k in idx))))
     gb = sum(int(v.get('size') or 0) for v in vids) / 1e9
@@ -954,51 +963,141 @@ def edit(jb, key, models):
     return done
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
+ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
+PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+# ================================================================ HÀNG VIỆC CHUNG cho mọi máy GitHub (chủ dặn 11/11)
+# mọi máy = 1 cỗ máy: việc chia nhỏ (ĐỌC 1 video · LÊN KỊCH BẢN 1 source · DỰNG 1 kịch bản); máy rảnh nhận việc gần xong nhất trước
+# (dựng → lên kịch bản → đọc) → project ra lần lượt, các máy còn lại vẫn đọc song song các source khác. Khóa từng việc trên Drive.
+MAXT = 6
+def _fresh(t):
+    try: return t and time.time() - float(str(t).rsplit(':', 1)[1]) < LOCK_TTL
+    except Exception: return False
+def lock(fid, k):
+    try:
+        cur = (get(fid, 'appProperties').get('appProperties') or {}).get(k) or ''
+        if cur and not cur.startswith(WID + ':') and _fresh(cur): return False
+        L.mark(fid, **{k: '%s:%d' % (WID, time.time())}); time.sleep(4)
+        return ((get(fid, 'appProperties').get('appProperties') or {}).get(k) or '').startswith(WID + ':')
+    except Exception as e: log('  khóa lỗi', e); return False
+def unlock(fid, k):
+    try: L.mark(fid, **{k: None})
+    except Exception: pass
+def idx_now():
+    ad, _ = ana_dir(); _ANA[1] = {x['name']: x['id'] for x in lq("'%s' in parents" % ad, 'id,name')}; return ad, _ANA[1]
+def jget(name, idx):
+    if name not in idx: return None
+    try: return json.loads(raw(idx[name]).decode('utf-8'))
+    except Exception: return None
+def jput(name, obj, ad, idx):
+    data = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+    if name in idx: update(idx[name], data, 'application/json')
+    else: idx[name] = put(name, ad, data, 'application/json')['id']
+def st_name(jb, n): return '%s_kb%d.json' % (jb['id'], n)
+
+def tasks(jobs=None):
+    ad, idx = idx_now(); out = []
+    for jb in (jobs if jobs is not None else scan()):
+        kb = '%s_kichban.json' % jb['id']
+        if kb in idx:
+            book = jget(kb, idx) or {}; locks = get(idx[kb], 'appProperties').get('appProperties') or {}
+            left = 0
+            for sc in book.get('scripts') or []:
+                n = sc['_n']; stt = jget(st_name(jb, n), idx) or {}
+                if n in (book.get('done') or []) or stt.get('done') or int(stt.get('tries') or 0) >= MAXT: continue   # 'done' = sổ kiểu cũ
+                left += 1
+                if not _fresh(locks.get('L%d' % n)): out.append((0, 'build', jb, n))
+            if not left: L.mark(jb['id'], dungV=DV, dungFail=None); log('  %s: đã dựng xong mọi kịch bản' % jb['name'])
+            continue
+        unread = [v for v in jb['vids'] if hong_name(v) not in idx and (ana_name(v) not in idx or xem_name(v) not in idx)]
+        if unread:
+            out += [(2, 'read', jb, v) for v in unread if not _fresh((v.get('appProperties') or {}).get('dungRL'))]
+        elif not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))
+    import random
+    random.shuffle(out); out.sort(key=lambda x: x[0])   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
+    return out
+
+_JB = {}
+def load(jb):   # nạp đủ dữ liệu 1 source (đã đọc hết → chỉ tải bộ nhớ đệm, ~30 giây); giữ trong máy cho các kịch bản sau
+    if jb['id'] not in _JB: _JB[jb['id']] = read(jb)
+    return _JB[jb['id']]
+
+def do_read(jb, v):
+    ad, idx = idx_now(); t0 = time.time()
+    a = read_video(0, v, 1, ad, idx, t0)
+    if a is None: jput(hong_name(v), {'loi': 'không đọc được'}, ad, idx); return
+    if xem_name(v) not in idx:
+        r = N.see([(1, a['name'], a['dur'], not v.get('broll'), (a.get('see') or {}).get('sheets', [])[:30])], log=log) if (a.get('see') or {}).get('sheets') else {1: {'tong': '', 'doan': []}}
+        if 1 not in r: raise ClaudeWait('Claude chưa xem được video')
+        jput(xem_name(v), r[1], ad, idx)
+    log('  ✓ đọc + xem: %s › %s (%.1f phút)' % (jb['name'], v['name'], (time.time() - t0) / 60))
+
+def do_plan(jb, key, models):
+    jb = load(jb); ad, idx = idx_now(); engine()
+    olds = [c['name'] for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'name,appProperties')
+            if str((c.get('appProperties') or {}).get('dungS', '')).startswith(jb['id'] + ':') and (c.get('appProperties') or {}).get('dungL') != LV]
+    hint = ('CHỦ YÊU CẦU DỰNG LẠI (giữ đúng chủ đề, làm tốt hơn) các video đã giao: %s. Đưa các chủ đề này vào danh sách kịch bản trước.\n\n' % '; '.join(olds)) if olds else ''
+    scs = plan(jb, key, models, hint)
+    for n, sc in enumerate(scs, 1): sc['_n'] = n
+    jput('%s_kichban.json' % jb['id'], {'scripts': scs}, ad, idx)
+    log('  ✓ lên kịch bản: %s – %d kịch bản (lưu lại, không lên lại)' % (jb['name'], len(scs)))
+
+def do_build(jb, n):
+    t0 = time.time(); jb = load(jb); ad, idx = idx_now(); engine(); codes(jb)
+    book = jget('%s_kichban.json' % jb['id'], idx) or {}; stt = jget(st_name(jb, n), idx) or {}
+    sc = stt.get('sc') or next(x for x in book['scripts'] if x['_n'] == n)
+    jb['fixed'] = None; jb['qa_rej'] = 0
+    try: r = publish(jb, sc, n)
+    except ClaudeWait: raise
+    except Exception as e: r = None; log('  ✗ kịch bản', n, e)
+    if r:
+        stt.update(done=True); jput(st_name(jb, n), stt, ad, idx)
+        log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
+        if not r.get('exists'):
+            try: tot = len(lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (LV, L.FOLDER), 'id'))
+            except Exception: tot = 0
+            L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n📊 Tổng đã hoàn thành: %d project\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id']), tot))
+        return
+    stt['tries'] = int(stt.get('tries') or 0) + 1
+    if not jb.get('qa_rej'): stt['tries'] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
+    if jb.get('fixed'): stt['sc'] = jb['fixed']   # giữ chỗ Claude đã sửa → lần sau sửa tiếp, không làm lại từ đầu
+    jput(st_name(jb, n), stt, ad, idx)
+    log('  kịch bản %d chưa đạt (lần %d/%d) – sẽ dựng / sửa tiếp' % (n, stt['tries'], MAXT))
+
 def pending():
     if PAUSE: return 0
     for k in range(3):
-        try:   # thư mục đang có máy khác giữ (khóa còn hạn) thì không tính → máy rảnh tắt ngay, không cài đặt thừa
-            def free(j):
-                lk = (j.get('ap') or {}).get('dungLock') or ''
-                try: return not lk or time.time() - float(lk.rsplit(':', 1)[1]) >= LOCK_TTL
-                except Exception: return True
-            return len([j for j in scan() if free(j)])
+        try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
-    return 1   # quét lỗi mãi → vẫn giữ lượt chạy để run() thử lại, không bỏ việc
-ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
-PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+    return 1
+
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     try: migrate_m()
     except Exception as e: log('AI dựng: đổi ổ M lỗi', e)
-    q, busy = queue.Queue(maxsize=1), set()
-    def reader():
-        while time.time() < until - 20 * 60 and not newer_code():
-            try: J = [j for j in scan() if j['id'] not in busy]
-            except Exception as e: log('AI dựng: quét lỗi', e); time.sleep(60); continue
-            if not J: q.put(None); return
-            jb = J[0]; busy.add(jb['id'])
-            if not claim(jb): log('AI dựng: %s đang do máy khác làm – bỏ qua' % jb['name']); continue
-            log('AI dựng – đọc:', jb['src'], '›', jb['name'], '(%d video)' % len(jb['vids']))
-            try: r_ = read(jb); keep(jb); q.put(r_)
-            except ClaudeWait as e: log('⏸ đọc:', e); busy.discard(jb['id']); q.put(None); return   # hết hạn mức Claude → dừng, lượt sau đọc tiếp
-            except Exception as e:
-                log('  đọc lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
-        q.put(None)
-    th = threading.Thread(target=reader, daemon=True); th.start()
-    built = [0]
-    while True:
-        jb = q.get()
-        if jb is None or newer_code(): break
-        try: built[0] += len([r for r in (edit(jb, key, models) or []) if not r.get('exists')]); release(jb)
+    idle, done_n = 0, 0
+    while time.time() < until - 15 * 60 and not newer_code():
+        try: T = tasks()
+        except Exception as e: log('AI dựng: quét lỗi', e); time.sleep(60); continue
+        got = None
+        for pr, kind, jb, x in T[:12]:
+            fid, k = (jb['id'], 'dungLock') if kind == 'plan' else ((x['id'], 'dungRL') if kind == 'read' else (idx_now()[1]['%s_kichban.json' % jb['id']], 'L%d' % x))
+            if lock(fid, k): got = (kind, jb, x, fid, k); break
+        if not got:
+            idle += 1
+            if idle >= 2: log('AI dựng: hết việc cho máy này'); break
+            time.sleep(60); continue
+        idle = 0; kind, jb, x, fid, k = got
+        log('AI dựng [%s] %s: %s' % (WID, {'read': 'ĐỌC', 'plan': 'LÊN KỊCH BẢN', 'build': 'DỰNG'}[kind], jb['name'] + (' › ' + x['name'] if kind == 'read' else (' › kịch bản %d' % x if kind == 'build' else ''))))
+        try:
+            if kind == 'read': do_read(jb, x)
+            elif kind == 'plan': do_plan(jb, key, models)
+            else: do_build(jb, x)
+            done_n += 1
         except ClaudeWait as e:
-            release(jb); log('⏸', e); L.mark(jb['id'], dungErr='chờ Claude'); break   # không tính là lỗi, lượt sau (10 phút / lần) làm tiếp
+            log('⏸', e); unlock(fid, k); break   # hết hạn mức Claude → dừng, lượt sau làm tiếp
         except Exception as e:
-            release(jb); log('✗ AI dựng lỗi:', e); L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
-            if (int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1 >= 3: L.tsay('❌ AI DỰNG LỖI (đã thử 3 lần)\n📁 %s\n%s' % (jb['name'], str(e)[:300]))   # lỗi tạm thời tự thử lại, không báo ồn
-    try:
-        if built[0] and not scan():
-            tot = len(lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id'))
-            L.tsay('🏁 AI ĐÃ DỰNG HẾT CÁC THƯ MỤC SOURCE\n📊 Tổng đã hoàn thành: %d project' % tot)
-    except Exception as e: log('  không báo được tổng:', e)
+            log('✗ AI dựng lỗi (%s):' % kind, e)
+            if kind == 'plan': L.mark(jb['id'], dungFail=(int(jb['ap'].get('dungFail') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1, dungFailV=DV, dungErr=str(e)[:100])
+        unlock(fid, k)
+    log('AI dựng [%s]: xong %d việc' % (WID, done_n))
