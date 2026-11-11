@@ -539,7 +539,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for T, si, ti in cand:   # xếp theo GIÂY TRÊN TIMELINE (không theo giây gốc của từng video)
         if T is None: continue
         if titles and T < titles[-1]['t0'] + 1.2: continue   # chữ dày: 1 cụm mỗi 1–3 s
-        big = safe(ti.get('big', ''), 32).upper(); small = safe(ti.get('small', ''), 48)
+        big = safe(str(ti.get('big', '')).replace('²', '2').replace('³', '3'), 32).upper(); small = safe(ti.get('small', ''), 48)
         if not big: continue
         bw = [L.norm(w) for w in big.split()]
         BAD = {'và', 'của', 'là', 'thì', 'mà', 'với', 'cho', 'các', 'những', 'một', 'này', 'đó', 'để', 'từ', 'đến', 'ở', 'tại', 'ra', 'vào', 'nhưng', 'cũng', 'rất', 'được', 'có', 'như', 'khi', 'thể'}
@@ -689,7 +689,7 @@ def review(jb, sc, pl, proj, adir, mu):
         pl2 = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None, mu[4] if mu else None)
         if not pl2: break
         pl = pl2
-    log('  ✗ Claude kiểm tra chưa đạt sau 2 vòng sửa – KHÔNG giao project này:', proj); return None
+    log('  ✗ Claude kiểm tra chưa đạt sau 2 vòng sửa – KHÔNG giao project này:', proj); jb['qa_rej'] = jb.get('qa_rej', 0) + 1; return None
 def publish(jb, sc, n):
     a0 = jb['A'][0]; A_ = {a['i']: a for a in jb['A']}; cnt = {}
     for it in sc.get('aroll', []):   # project nằm trong thư mục (Kịch bản N) chứa phần lớn câu nói của kịch bản
@@ -762,7 +762,7 @@ def edit(jb, key, models):
                     except Exception: tot = 0
                     L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n📁 %s\n📊 Tổng đã hoàn thành: %d project\n💻 Mở CapCut là thấy (lối tắt tự vào máy trong ~2 phút)' % (r['proj'], r['dur'], path_of(jb['id']), tot))
             except Exception as e: log('  ✗ kịch bản', n, e)
-        if done or not scs or rnd: break
+        if done or not scs or rnd or jb.get('qa_rej'): break   # Claude kiểm tra đã loại → không lên lại trong lượt này (tránh tốn token), lượt sau làm tiếp
         log('  Claude chọn thiếu câu nói → hỏi lại')
         scs = plan(jb, key, models, 'LẦN TRƯỚC KẾ HOẠCH HỎNG: tổng A-roll dưới 15 giây. Lần này BẮT BUỘC chọn đủ 45–110 giây câu nói (số # của video CÓ LỜI THOẠI của buổi quay, không phải KHO CẢNH PHỤ; chỉ ghi MÃ CÂU C…).\n\n')
     if scs and not done: raise RuntimeError('không dựng được kịch bản nào – thử lại lượt sau')
