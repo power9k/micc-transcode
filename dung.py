@@ -1782,7 +1782,7 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
 
 def pending():
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
-    share_sys(); restore_r6()
+    share_sys(); restore_r6(); dedupe_proj()   # dọn trùng ngay cả khi không có việc dựng
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
