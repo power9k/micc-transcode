@@ -1219,7 +1219,7 @@ def publish(jb, sc, n):
     host = max(cnt, key=cnt.get) if cnt else jb['id']
     proj = safe(full_name(path_of(host), safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)), 110)   # 🤖 dự án - nội dung
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + kho()['rel']   # tài nguyên dựng lấy từ kho chung SETUP/Kho AI tải về
-    slot0 = '%s:%d' % (jb['id'], n); mark_old(host, slot0, True)
+    slot0 = '%s:%d' % (jb['id'], n)   # ghi đè thẳng → không cần gắn ❌
     try: r_ = _publish(jb, sc, n, host, proj, rel, adir)
     except Exception: mark_old(host, slot0, False); raise
     if not r_ or r_.get('exists'): mark_old(host, slot0, False)
@@ -1257,6 +1257,34 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if any(c['name'] == proj for c in keep_):   # bản người dùng đã sửa trùng tên → bản AI mới đặt tên khác, đứng cạnh
         proj = safe(proj + ' (AI dựng lại)', 120); rel = path_of(host) + '/' + proj
     for c in keep_: log('  giữ nguyên project người dùng đã chỉnh sửa:', c['name'])
+    # chủ dặn 11/11: project cũ CHƯA ai sửa → GHI ĐÈ thẳng vào thư mục đó (giữ nguyên lối tắt CapCut, không xoá rồi tạo lại)
+    tgt = sorted(old_, key=lambda c: (bare(c['name']) != proj, c['createdTime']), reverse=False)[0] if old_ else None
+    if tgt:
+        try:
+            for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # bỏ bản lưu tạm / Timelines CapCut sinh ra để CapCut đọc đúng bản mới
+                if x['name'] not in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
+                    try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
+                    except Exception: pass
+            if nf(tgt['name']) != proj:
+                L.drive('files/' + tgt['id'], {'name': proj}, method='PATCH')
+                list_edit()
+            L.drive('files/' + tgt['id'], {'appProperties': {'dungS': slot, 'dungL': LV, 'dungVol': '1'}}, method='PATCH')
+            for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)
+            have = {x['name']: x['id'] for x in lq("'%s' in parents" % tgt['id'], 'id,name')}
+            for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
+                b_ = open(os.path.join(od, fn), 'rb').read()
+                if fn in have: update(have[fn], b_, 'application/json')
+                else: put(fn, tgt['id'], b_, 'application/json')
+            for p_ in (mu or []): used_music(add=p_['key'])
+            for c in old_:
+                if c['id'] == tgt['id']: continue
+                try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); log('  đã bỏ bản cũ thừa:', c['name'])
+                except Exception: pass
+            list_edit(); pf = tgt['id']
+            log('  đã ghi đè bản mới vào project cũ (giữ lối tắt):', proj)
+            vid0 = next((A_[int(sh['media'][1:])]['vid']['id'] for sh in pl['shots'] if sh.get('line') == 'A' and sh['media'][1:].isdigit() and int(sh['media'][1:]) in A_), None) if (A_ := {a['i']: a for a in jb['A']}) else None
+            return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0)
+        except Exception as e: log('  không ghi đè được, tạo project mới:', e)
     pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV, 'dungVol': '1'})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
         for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)   # nhạc dùng → vào Kho/Nhạc nền
