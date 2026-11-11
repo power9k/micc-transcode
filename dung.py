@@ -10,7 +10,7 @@ import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
 DV = '10'
-LV = '5'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+LV = '4'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -1558,25 +1558,6 @@ def fix_vol():   # chủ dặn 11/11: SFX + nhạc nền 0 dB (không giảm âm
             L.mark(c['id'], dungVol='1', dungVL=None); log('  âm lượng 0 dB:', c['name'])
     except Exception as e: log('  không sửa được âm lượng project cũ:', e)
 
-RT = 'r5'   # đợt thu hồi (chủ dặn 11/11 chiều): thu hồi mọi project AI dựng (chưa bị người dùng sửa) rồi dựng lại bằng bản mới nhất
-def retract_all():
-    try:
-        fid = list_file()
-        if (get(fid, 'appProperties').get('appProperties') or {}).get('dungRT') == RT or not lock(fid, 'dungRTL'): return
-        kept, gone, rem = [], 0, []
-        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'id,name,parents,appProperties,createdTime'):
-            par = (c.get('parents') or [''])[0]; rel = path_of(par) + '/' + nf(c['name'])
-            if (c.get('appProperties') or {}).get('dungL') == LV: continue
-            if user_edited(c): kept.append(nf(c['name'])); continue
-            try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); rem.append(rel); gone += 1
-            except Exception as e: log('  thu hồi lỗi', c['name'], e)
-        if rem: list_edit(remove=rem)
-        L.mark(fid, dungRT=RT, dungRTL=None)
-        log('  đã thu hồi %d project AI dựng%s' % (gone, ('; giữ %d project người dùng đã sửa: %s' % (len(kept), '; '.join(kept))) if kept else ''))
-        try: L.tsay('♻️ ĐÃ THU HỒI %d PROJECT AI DỰNG – đang dựng lại bằng bản mới nhất, xong cái nào báo cái đó%s' % (gone, ('\n(giữ nguyên %d project anh/chị đã chỉnh sửa)' % len(kept)) if kept else ''))
-        except Exception: pass
-    except Exception as e: log('  không thu hồi được:', e)
-
 def heal_list():   # mọi project đã giao (kiểu mới) phải có trong danh sách CapCut – tự bù dòng thiếu
     try:
         fid = list_file(); have = {x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()}
@@ -1598,7 +1579,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    mark_root(); fix_public(); retract_all(); rename_old(); fix_vol(); heal_list(); setup_bat()
+    mark_root(); fix_public(); rename_old(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
