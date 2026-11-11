@@ -862,6 +862,19 @@ def publish(jb, sc, n):
         raise
     return dict(proj=proj, dur=pl['total'], url='https://drive.google.com/drive/folders/' + pf)
 
+_NC = [0, False]
+CODE = ('dung.py', 'nao.py', 'xem.py', 'loc.py', 'eng/')
+def newer_code():   # có bản sửa mới trên GitHub (mã dựng) → làm nốt kịch bản đang dở rồi dừng, lượt sau chạy ngay bằng mã mới
+    if _NC[1] or time.time() - _NC[0] < 90: return _NC[1]
+    _NC[0] = time.time(); d = os.path.dirname(os.path.abspath(__file__))
+    try:
+        if subprocess.run(['git', '-C', d, 'fetch', '-q', '--depth=1', 'origin', 'main'], capture_output=True, timeout=60).returncode: return False
+        ch = subprocess.run(['git', '-C', d, 'diff', '--name-only', 'HEAD', 'FETCH_HEAD'], capture_output=True, text=True, timeout=30).stdout.split()
+        _NC[1] = any(f.startswith(CODE) for f in ch)
+        if _NC[1]: log('  có mã dựng mới trên GitHub → làm nốt việc đang dở rồi dừng để lượt sau dùng mã mới')
+    except Exception: pass
+    return _NC[1]
+
 def edit(jb, key, models):
     # chủ dặn: ĐỌC source 1 lần → LÊN KỊCH BẢN 1 lần (lưu lại, không lên lại) → chỉ lặp DỰNG → XEM → SỬA cho tới khi đạt
     t0 = time.time(); ad = jb.get('ad')
@@ -889,6 +902,7 @@ def edit(jb, key, models):
     log('  %d kịch bản cần dựng (đã xong %d / %d)' % (len(todo), len(book['done']), len(book['scripts'])))
     done = []
     for sc in todo:
+        if newer_code(): break
         n = sc['_n']; jb['fixed'] = None; jb['qa_rej'] = 0
         try:
             r = publish(jb, sc, n)
@@ -932,7 +946,7 @@ def run(key, models, until):
     except Exception as e: log('AI dựng: đổi ổ M lỗi', e)
     q, busy = queue.Queue(maxsize=1), set()
     def reader():
-        while time.time() < until - 20 * 60:
+        while time.time() < until - 20 * 60 and not newer_code():
             try: J = [j for j in scan() if j['id'] not in busy]
             except Exception as e: log('AI dựng: quét lỗi', e); time.sleep(60); continue
             if not J: q.put(None); return
@@ -946,7 +960,7 @@ def run(key, models, until):
     built = [0]
     while True:
         jb = q.get()
-        if jb is None: break
+        if jb is None or newer_code(): break
         try: built[0] += len([r for r in (edit(jb, key, models) or []) if not r.get('exists')])
         except ClaudeWait as e:
             log('⏸', e); L.mark(jb['id'], dungErr='chờ Claude'); break   # không tính là lỗi, lượt sau (10 phút / lần) làm tiếp
