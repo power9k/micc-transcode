@@ -10,7 +10,7 @@ import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
 DV = '14'
-LV = '8'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+LV = '9'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -1323,6 +1323,111 @@ def publish(jb, sc, n):
     if not r_ or r_.get('exists'): mark_old(host, slot0, False)
     return r_
 
+# ---- chủ dặn 11/11: motion graphic (HyperFrames) + file Word kịch bản + ảnh cover riêng (không trùng project khác) – tất cả lưu TRONG thư mục project
+MGDIR = 'Motion graphic'
+def add_mg(jb, sc, pl, proj, host, adir):
+    try:
+        if ENG not in sys.path: sys.path.insert(0, ENG)
+        import mg as MG
+    except Exception as e: log('  chưa có bộ motion graphic:', e); return pl
+    A_ = {a['i']: a for a in jb['A']}; rows = []
+    for a in jb['A']:
+        if not (a['vid'].get('broll') or not a.get('segs')): continue
+        for x in sorted(((a.get('vlog') or {}).get('doan') or []), key=lambda x: -float(x.get('diem') or 0))[:2]:
+            if float(x.get('diem') or 0) >= 7: rows.append('#%d %.1f–%.1fs: %s' % (a['i'], float(x['s']), float(x['e']), str(x.get('noi_dung') or '')[:90]))
+    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log)
+    except Exception as e: log('  Claude chưa chọn được đoạn motion graphic:', e); return pl
+    out, last = [], -9.0
+    for p in sorted([p for p in picks if isinstance(p, dict)], key=lambda p: float(p.get('s') or 0)):
+        try:
+            s_, e_ = float(p['s']), float(p['e']); e_ = min(e_, s_ + 5.0)
+            if e_ - s_ < 2.5: e_ = s_ + 2.5
+            if s_ < 1.5 or e_ > pl['total'] - .3 or s_ < last + 4: continue
+            a = A_.get(int(p.get('video') or 0)); clip = None
+            if a and not (a['vid'].get('broll') or not a.get('segs')): a = None   # chỉ đặt CẢNH PHỤ vào thẻ (không lấy người nói)
+            if a:
+                g = float(p.get('giay') if p.get('giay') is not None else (best_seg(a, 0) or 0)); g = max(0.0, min(g, a['dur'] - (e_ - s_) - .1))
+                clip = os.path.join(adir, 'mgsrc%d.mp4' % len(out))
+                L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(a['vid']['id'], g, e_ - s_ + .3) + ['-an', '-vf', 'scale=1280:-2', '-c:v', 'libx264', '-crf', '21', '-pix_fmt', 'yuv420p', clip], timeout=400)
+            nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
+            o = os.path.join(adir, nm)
+            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('chieu') or 1))
+            out.append((s_, e_, o, nm)); last = e_
+            log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
+        except Exception as e: log('  bỏ 1 motion graphic:', str(e)[:200])
+    shots = pl['shots']
+    for i, (s_, e_, o, nm) in enumerate(out):
+        k = 'M%d' % (i + 1)
+        pl['media'][k] = dict(path=DRV + '/' + path_of(host) + '/' + proj + '/' + MGDIR + '/' + nm, dur=round(e_ - s_ + .05, 3), w=1080, h=1920,
+                              kind='video', has_audio=False, name=nm, S0=1.0, grade=None)
+        new = []
+        for sh in shots:
+            if sh['t1'] <= s_ or sh['t0'] >= e_: new.append(sh); continue
+            if sh['t0'] < s_ - .05: new.append(dict(sh, t1=round(s_, 3), keys=[[sh['t0']] + sh['keys'][0][1:], [round(s_, 3)] + sh['keys'][-1][1:]]))
+            if sh['t1'] > e_ + .05: new.append(dict(sh, src=round(sh['src'] + (e_ - sh['t0']) * sh.get('spd', 1.0), 3), t0=round(e_, 3), keys=[[round(e_, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]]))
+        new.append(dict(media=k, src=0.0, t0=round(s_, 3), t1=round(e_, 3), line='B', bi=-1, keys=[[round(s_, 3), 1.0, .5, .5, 0.0], [round(e_, 3), 1.0, .5, .5, 0.0]], punch_abs=[]))
+        shots = sorted(new, key=lambda x: x['t0'])
+    pl['shots'] = shots; pl['mg'] = [(o, nm) for _, _, o, nm in out]
+    return pl
+
+def script_doc(jb, pl, proj):   # file Word kịch bản (lời thoại theo thứ tự + chữ trên hình)
+    import zipfile, html as H_
+    AK = {'V%d' % a['i']: a for a in jb['A']}; paras, cur = [], []
+    for sh in sorted([x for x in pl['shots'] if x.get('line') == 'A'], key=lambda x: x['t0']):
+        a = AK.get(sh['media'])
+        if not a: continue
+        tx = ' '.join(w[2] for w in words(a, sh['src'], sh['src'] + (sh['t1'] - sh['t0']) * sh.get('spd', 1.0))).strip()
+        if tx: cur.append(tx)
+        if tx.endswith(('.', '?', '!')) or len(' '.join(cur)) > 260: paras.append(' '.join(cur)); cur = []
+    if cur: paras.append(' '.join(cur))
+    ti = [' / '.join(l[0] for l in z['lines']) for z in pl.get('titles') or []]
+    P = lambda t, b=False, sz=24: '<w:p><w:r><w:rPr>%s<w:sz w:val="%d"/></w:rPr><w:t xml:space="preserve">%s</w:t></w:r></w:p>' % ('<w:b/>' if b else '', sz, H_.escape(t))
+    body = P('KỊCH BẢN – ' + proj, True, 32) + P('Thời lượng: %.0f giây' % pl['total']) + P('') + P('LỜI THOẠI', True, 28) + ''.join(P(x) for x in paras)
+    body += P('') + P('CHỮ TRÊN HÌNH', True, 28) + ''.join(P('• ' + x) for x in ti if x.strip())
+    doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>%s</w:body></w:document>' % body
+    b = io.BytesIO(); z = zipfile.ZipFile(b, 'w', zipfile.ZIP_DEFLATED)
+    z.writestr('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+    z.writestr('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+    z.writestr('word/document.xml', doc); z.close()
+    return b.getvalue()
+
+def _dh(path):   # dấu vân ảnh (dHash 64 bit) để không project nào trùng ảnh cover
+    from PIL import Image
+    im = Image.open(path).convert('L').resize((9, 8)); px = list(im.getdata())
+    return '%016x' % sum(1 << i for i in range(64) if px[(i // 8) * 9 + i % 8] > px[(i // 8) * 9 + i % 8 + 1])
+def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ mặt / cảnh đẹp, KHÁC HẲN cover mọi project khác
+    try:
+        others = [int((c.get('appProperties') or {}).get('dungCH'), 16) for c in lq("appProperties has { key='dungP' and value='1' } and trashed=false", 'id,appProperties')
+                  if (c.get('appProperties') or {}).get('dungCH') and c['id'] != me]
+    except Exception: others = []
+    AK = {'V%d' % a['i']: a for a in jb['A']}; cand = []
+    for sh in pl['shots']:
+        a = AK.get(sh['media'])
+        if a and sh['t1'] - sh['t0'] > .8: cand.append((0 if sh.get('line') == 'A' and N.face_span(a, sh['src'], sh['src'] + .8) else 1, sh['t0'], a, sh['src'] + .4))
+    cand.sort(key=lambda x: (x[0], abs(x[1] - pl['total'] * .3)))
+    best = None
+    for k, (_, _, a, t) in enumerate(cand[:8]):
+        f = os.path.join(adir, 'cover%d.jpg' % k)
+        try:
+            L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(a['vid']['id'], t) + ['-frames:v', '1', '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-q:v', '3', f], timeout=200)
+            h = int(_dh(f), 16); dmin = min([bin(h ^ o).count('1') for o in others] or [64])
+            if not best or dmin > best[0]: best = (dmin, f, h)
+            if dmin >= 14: break
+        except Exception: pass
+    return (best[1], '%016x' % best[2]) if best else (None, None)
+
+def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
+    try:
+        if pl.get('mg'):
+            md_ = mkdir(MGDIR, pf)
+            for o, nm in pl['mg']: put(nm, md_, open(o, 'rb').read(), 'video/mp4')
+    except Exception as e: log('  không lưu được motion graphic:', e)
+    try: put('Kịch bản - %s.docx' % safe(proj, 90), pf, script_doc(jb, pl, proj), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    except Exception as e: log('  không tạo được file Word kịch bản:', e)
+    try:
+        if pl.get('cover'):
+            put('draft_cover.jpg', pf, open(pl['cover'], 'rb').read(), 'image/jpeg'); L.mark(pf, dungCH=pl['coverh'])
+    except Exception as e: log('  không lưu được ảnh cover:', e)
 def _publish(jb, sc, n, host, proj, rel, adir):
     a0 = jb['A'][0]
     mu = pick_mix(jb, sc); claude_grades(jb, sc)
@@ -1330,6 +1435,9 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     pl = review(jb, sc, pl, proj, adir, mu)   # Claude Opus tự kiểm tra (xem ảnh xem trước + dòng thời gian), sửa tối đa 2 vòng
     if not pl: return None
+    pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
+    cf, ch_ = pick_cover(jb, pl, adir)
+    if cf: pl['cover'], pl['coverh'] = cf, ch_
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
     if not 40 <= pl['total'] <= 120: bad.append('dài %.0fs (cần 40–120s)' % pl['total'])
     if len(pl.get('titles') or []) < pl['total'] / 8.0: bad.append('chỉ %d chữ nhấn / %.0fs (cần ~1 cụm mỗi 1–3 s)' % (len(pl.get('titles') or []), pl['total']))
@@ -1378,6 +1486,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
                 if fn in have: update(have[fn], b_, 'application/json')
                 else: put(fn, tgt['id'], b_, 'application/json')
             for p_ in (mu or []): used_music(add=p_['key'])
+            put_extra(tgt['id'], jb, pl, proj)
             L.drive('files/' + tgt['id'], {'name': proj, 'appProperties': {'dungEd': None}}, method='PATCH')   # ghi xong mới gỡ ✏️ → mở được
             for c in old_:
                 if c['id'] == tgt['id']: continue
@@ -1393,6 +1502,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)   # nhạc dùng → vào Kho/Nhạc nền
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
             put(fn, pf, rd(fn), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
+        put_extra(pf, jb, pl, proj)
         list_edit(add=[rel])
         for p_ in (mu or []): used_music(add=p_['key'])
         for c in old_:   # bản mới đã lên xong → mới bỏ bản cũ (vào thùng rác Drive, khôi phục được)

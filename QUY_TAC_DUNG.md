@@ -37,3 +37,11 @@
 - Chữ sáng trên nền sáng → đổi màu đậm; không dùng nền ô chữ, viền đen dày, bóng loá.
 - SFX theo nghĩa: "tít"/tiền xu khi nói giá – số liệu, whoosh đúng điểm cắt (2 whoosh cách nhau ≥ 2 s), SFX nhỏ hơn giọng.
 - Nhạc thấp dưới giọng khi đang nói, lên ở chỗ nghỉ, mở đầu, kết.
+
+## 11/11 – chủ dặn thêm
+- Motion graphic dựng bằng HyperFrames (eng/mg.py): đồ họa KHÔNG CHỮ (chữ làm trên CapCut), ghép cảnh quay gốc trong thẻ / điện thoại; màu theo tông web (nền xanh than --k0..k4, vàng --g1..g6).
+- Thứ chỉ dùng cho 1 project (clip motion graphic, cover) lưu TRONG thư mục project; kho "AI tải về" chỉ giữ thứ dùng chung (nhạc, SFX, font).
+- Mỗi thư mục project có file Word "Kịch bản - <tên>.docx".
+- Mỗi project có ảnh cover riêng (draft_cover.jpg), khác hẳn cover mọi project khác (so dấu vân ảnh dungCH).
+- Dựng lại: tên thêm v2, v3… ở cuối (không ghi "AI dựng lại"); mỗi kịch bản chỉ còn 1 project mới nhất.
+- Máy dựng làm liên tục; bị chặn hạn mức thì tự ngưng chờ rồi chạy tiếp.
