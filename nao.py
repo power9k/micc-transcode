@@ -8,15 +8,10 @@ import loc as L
 
 class ClaudeWait(Exception): pass
 _OK = []
-# NHIỀU TÀI KHOẢN CLAUDE, 1 BỘ NÃO: cùng mô hình, cùng lời dặn – chỉ thêm hạn mức. Mỗi máy ưu tiên 1 tài khoản (chia đều), tài khoản nào hết hạn mức thì chuyển sang tài khoản kia.
-TOKS = [t.strip() for t in (os.environ.get('CLAUDE_CODE_OAUTH_TOKEN', ''), os.environ.get('CLAUDE_CODE_OAUTH_TOKEN_2', ''), os.environ.get('CLAUDE_CODE_OAUTH_TOKEN_3', '')) if t.strip()]
-_W = int(re.sub(r'\D', '', os.environ.get('WORKER', '1')) or 1)
-TOKS = TOKS[_W % len(TOKS):] + TOKS[:_W % len(TOKS)] if TOKS else TOKS
-_BLOCK = {}
 def ready():
     if _OK: return _OK[0]
     ok = False
-    if TOKS:
+    if os.environ.get('CLAUDE_CODE_OAUTH_TOKEN', '').strip():
         if not subprocess.run('command -v claude', shell=True, capture_output=True).stdout:
             subprocess.run('npm install -g @anthropic-ai/claude-code >/dev/null 2>&1', shell=True, timeout=300)
         ok = bool(subprocess.run('command -v claude', shell=True, capture_output=True).stdout)
@@ -32,22 +27,10 @@ def ask(text, images=(), model='opus', sys_p='Bạn là editor video ngắn chuy
         content.append({'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': b}})
     content.append({'type': 'text', 'text': text})
     msg = json.dumps({'type': 'user', 'message': {'role': 'user', 'content': content}}, ensure_ascii=False)
-    live = [t for t in TOKS if _BLOCK.get(t, 0) < time.time()]
-    if not live: raise ClaudeWait('mọi tài khoản Claude đang hết hạn mức tạm thời')
-    for k, tok in enumerate(live):
-        try:
-            res = _ask1(msg, model, sys_p, timeout, log, tok)
-            if res is None and k + 1 < len(live): continue   # tài khoản này lỗi (vd gói Pro không có mô hình này) → thử tài khoản kia
-            return res
-        except ClaudeWait as e:
-            _BLOCK[tok] = time.time() + 30 * 60
-            if k + 1 < len(live): log('  tài khoản Claude %d hết hạn mức → chuyển tài khoản khác' % (TOKS.index(tok) + 1)); continue
-            raise
-def _ask1(msg, model, sys_p, timeout, log, tok):
     try:
         r = subprocess.run(['claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--model', model,
                             '--tools', '', '--strict-mcp-config', '--system-prompt', sys_p], input=msg + '\n', capture_output=True, text=True,
-                           timeout=timeout, cwd=getattr(L, 'TMP', '/tmp'), env=dict(os.environ, CLAUDE_CODE_OAUTH_TOKEN=tok))
+                           timeout=timeout, cwd=getattr(L, 'TMP', '/tmp'))
     except subprocess.TimeoutExpired: log('  Claude quá giờ'); return None
     res, err, used = None, False, []
     for ln in r.stdout.splitlines():
@@ -99,7 +82,7 @@ def see(videos, log=print):
 def vlog_text(vl, k=40):
     if not vl: return '(chưa có nhật ký hình)'
     rows = ['  %.1f–%.1fs [%s] %s · %s · %s/10' % (float(d.get('s', 0)), float(d.get('e', 0)), d.get('canh', ''), d.get('noi_dung', ''), d.get('chat_luong', ''), d.get('diem', '?'))
-            for d in sorted(sorted(vl.get('doan', []), key=lambda d: -float(d.get('diem') or 0))[:k], key=lambda d: float(d.get('s', 0)))]   # k đoạn đẹp nhất, theo thứ tự thời gian
+            for d in vl.get('doan', [])[:k]]
     return 'Hình: ' + (vl.get('tong') or '') + '\n' + '\n'.join(rows)
 
 def sound_text(runs):
@@ -192,20 +175,20 @@ QA_LIST = '''DANH SÁCH KIỂM TRA (chủ đã dặn, lỗi nào cũng phải s�
 1. Chữ sai tên riêng / tên dự án (so với tên dự án chuẩn ở đầu dòng thời gian), sai chính tả / cụm vô nghĩa / không trọn nghĩa (vd "NINH VÀ", "TRƯỜNG SỐNG") / chữ không khớp lời đang nói / hiện sai lúc.
 2. Chữ đè lên mặt người, chữ tràn khung, chữ chồng chữ.
 3. Thiếu chữ (khoảng trống > 3 giây không có chữ) hoặc thừa (chữ dồn dập khó đọc, chép nguyên câu).
-4. Cảnh phụ không khớp lời đang nói / vớ vẩn / không chuyên nghiệp, cảnh phụ xấu (rung, mờ, lóa, có người lạ, chữ in sẵn), cảnh lặp lại → đổi bằng doi_canh_phu (chọn đoạn đẹp, đúng ý lời nói trong KHO CẢNH PHỤ).
+4. Cảnh phụ không khớp lời đang nói, cảnh phụ xấu (rung, mờ, lóa), cảnh lặp lại.
 5. Cắt mất chữ / cắt giữa câu, câu nói lặp lại 2 lần, người nói ngập ngừng / nói hỏng / ra hiệu cắt còn sót.
 6. Video đơn điệu: thiếu nhấn (zoom nhấn từ khóa, chuyển cảnh, hiệu ứng) hoặc lạm dụng hiệu ứng. ("giật zoom" ở từ khóa là CHỦ Ý nhấn nhá theo phong cách team – chỉ báo lỗi khi quá dày < 2 s/lần.)
-7. Mở đầu không có câu hút (hook), kết thúc cụt / không có đoạn kết → gắn câu kết bằng them_cau (chọn trong danh sách CÂU KẾT); hook yếu → gắn câu hút lên đầu. Đổi nhân vật chính giữa chừng (người nói khác) là lỗi NẶNG → cat_doan đoạn đó.
+7. Mở đầu không có câu hút (hook), kết thúc cụt.
 8. Đè tiếng: 2 giọng nói cùng lúc, tiếng cảnh phụ lẫn vào lời, nhạc / SFX át giọng.
 9. Lỗi font: ký tự hiện thành ô vuông / khối chữ nhỏ lạ, mất dấu tiếng Việt.
 11. Bố cục chữ: chữ đè lên người / ngực trong khi phía trên đầu hoặc bên cạnh còn khoảng trống (phải đặt chữ vào khoảng trống); nhạc nền không hợp phong thái người nói / giọng kịch bản (vd nhạc da diết cho video năng động).
 10. Video chán: ít hiệu ứng, cảnh đứng yên lâu, cảnh phụ không đa dạng, nhịp cắt đều đều không theo nhạc.'''
-def qa(pl, timeline, pv_imgs, log=print, extra=''):
-    q = (QA_LIST + '\n\nDÒNG THỜI GIAN BẢN DỰNG (mỗi mục chữ có số [T#], cảnh phụ có số [B#]):\n' + timeline + extra +
+def qa(pl, timeline, pv_imgs, log=print):
+    q = (QA_LIST + '\n\nDÒNG THỜI GIAN BẢN DỰNG (mỗi mục chữ có số [T#], cảnh phụ có số [B#]):\n' + timeline +
          '\n\nẢnh kèm theo = khung xem trước 9:16 của bản dựng tại các mốc (đúng vị trí chữ + khung hình đã zoom). '
          'Xem kỹ rồi trả JSON: {"dat":true/false,"loi":["mô tả ngắn từng lỗi"],'
          '"sua":{"bo_chu":[số T],"doi_chu":[{"T":số,"big":"chữ mới","small":"dòng phụ mới hoặc rỗng"}],"doi_vi_tri":[{"T":số,"y":phần trăm chiều cao 12–80}],'
-         '"bo_canh_phu":[số B],"doi_canh_phu":[{"B":số,"video":số # trong KHO CẢNH PHỤ,"s":giây bắt đầu}],"doi_canh_tu_phu":[{"video":số # nguồn,"giay":giây gốc}],"cat_doan":[{"s":giây timeline,"e":giây timeline}],"them_cau":[{"cau":"mã câu C…","vi_tri":"cuoi" hoặc "dau"}],"them_chu":[{"cau":"mã câu C…","tu":"chữ người nói (chép y nguyên)","big":"TỪ KHÓA","small":""}]}}\n'
+         '"bo_canh_phu":[số B],"doi_canh_tu_phu":[{"video":số # nguồn,"giay":giây gốc}],"cat_doan":[{"s":giây timeline,"e":giây timeline}],"them_chu":[{"cau":"mã câu C…","tu":"chữ người nói (chép y nguyên)","big":"TỪ KHÓA","small":""}]}}\n'
          'Mỗi lỗi ghi mở đầu bằng [NẶNG] hoặc [NHẸ]. NẶNG = chữ sai nghĩa / sai chính tả / cụt nghĩa, chữ đè mặt, đang có lời mà hình không có người cũng không có cảnh phụ, '
          'cắt mất chữ / lặp câu / nói hỏng còn sót, cảnh hỏng (mờ, rung mạnh, đen) dài > 1 s, khoảng trống không chữ > 6 s, không có mở đầu hoặc kết cụt. '
          'Còn lại (hook có thể mạnh hơn, trống chữ 3–6 s, cảnh phụ chưa thật đẹp, chưa đa dạng…) là NHẸ. '
