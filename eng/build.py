@@ -377,7 +377,7 @@ for r in TREC:
 js = json.dumps(OUT, ensure_ascii=False); json.loads(js)
 open(OD + '/draft_content.json', 'w', encoding='utf-8').write(js); open(OD + '/draft_info.json', 'w', encoding='utf-8').write(js)
 nowus = int(time.time() * S)
-meta = {'draft_cover': '', 'draft_fold_path': '', 'draft_id': DRAFT_ID, 'draft_name': PROJECT, 'draft_root_path': '',
+meta = {'draft_cover': 'draft_cover.jpg', 'draft_fold_path': '', 'draft_id': DRAFT_ID, 'draft_name': PROJECT, 'draft_root_path': '',
         'draft_removable_storage_device': '', 'draft_new_version': '', 'draft_is_invisible': False, 'draft_timeline_materials_size_': 0,
         'draft_materials': [{'type': i, 'value': []} for i in (0, 1, 2, 3, 6, 7, 8)], 'tm_draft_create': nowus, 'tm_draft_modified': nowus,
         'tm_draft_removed': 0, 'tm_duration': us(TOTAL)}
