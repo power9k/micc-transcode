@@ -24,7 +24,7 @@ def cache_dir():
     return _CD[0]
 LIB = '1ZIROORo_epCYmpf55Q0reoT8gOfCwyEX'  # thư mục nhạc + hiệu ứng âm thanh + font mẫu (AI tải về của Center Avenue KB2)
 LIB_SKIP = ('Phim ', 'Outro ')
-DRV = 'G:/Drive của tôi/PHÒNG TRUYỀN THÔNG MICC'   # đường dẫn lúc dựng; khi đưa lên Drive đổi sang ổ M: (máy nào công cụ đồng bộ cũng gán M: = thư mục này)
+DRV = 'C:/Users/Public/MICC Drive'   # đường dẫn chung cho MỌI máy: công cụ đồng bộ tạo lối tắt thư mục này trỏ vào Drive thật của từng máy (ổ nào cũng được)
 MROOT = re.compile(r'[A-Za-z]:(?:/|\\\\)+(?:Drive của tôi|My Drive)(?:/|\\\\)+PHÒNG TRUYỀN THÔNG MICC')
 def to_m(b): return MROOT.sub('M:', unicodedata.normalize('NFC', b.decode('utf-8'))).encode('utf-8')
 def migrate_m():   # project cũ (G:/Drive của tôi/...) → M:/... để máy nào mở cũng thấy file
@@ -899,7 +899,7 @@ def pick_music(jb, sc=None):
         return (c['id'], nm, round(dur, 3), nf(c['name']).lower(), mm)
     except Exception as e: log('  không chọn được nhạc riêng:', e); return None
 
-KHO_NAME = 'Kho AI tải về'; KSUB = {'font': 'Font chữ', 'sfx': 'Âm thanh hiệu ứng', 'music': 'Nhạc nền', 'map': 'Bản đồ 3D', 'broll': 'Cảnh phụ tải về'}   # cảnh phụ tải về đặt tên: "Dự án - nội dung"
+KHO_NAME = 'Kho AI tải về'; KSUB = {'font': 'Font chữ', 'sfx': 'Âm thanh hiệu ứng', 'music': 'Nhạc nền', 'broll': 'Cảnh phụ tải về'}   # bản đồ 3D: nằm trong thư mục project CapCut của từng video (chủ dặn)   # cảnh phụ tải về đặt tên: "Dự án - nội dung"
 _KHO = {}
 def kho():   # KHO DÙNG CHUNG (chủ dặn 11/11): SETUP/Kho AI tải về/{Font chữ, Âm thanh hiệu ứng, Nhạc nền, Bản đồ 3D} – mọi project lấy từ đây
     if _KHO: return _KHO
@@ -919,6 +919,10 @@ def kho():   # KHO DÙNG CHUNG (chủ dặn 11/11): SETUP/Kho AI tải về/{Fon
     kid = one(st, KHO_NAME)
     _KHO.update(id=kid, rel='SETUP/' + KHO_NAME)
     for key, nm in KSUB.items(): _KHO[key] = one(kid, nm)
+    for d in lq("'%s' in parents and name='Bản đồ 3D' and mimeType='%s'" % (kid, L.FOLDER), 'id'):   # bỏ thư mục cũ (nếu trống)
+        try:
+            if not lq("'%s' in parents" % d['id'], 'id'): L.drive('files/' + d['id'], {'trashed': True}, method='PATCH')
+        except Exception: pass
     have = {key: {x['name'] for x in lq("'%s' in parents" % _KHO[key], 'id,name')} for key in ('font', 'sfx', 'music')}
     for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):   # chép 1 lần từ thư viện mẫu cũ
         if f.get('mimeType') == L.FOLDER or f['name'].startswith(LIB_SKIP): continue
