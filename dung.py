@@ -1370,7 +1370,7 @@ def edit(jb, key, models):
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
 ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
-PAUSE = True   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 # ================================================================ HÀNG VIỆC CHUNG cho mọi máy GitHub (chủ dặn 11/11)
 # mọi máy = 1 cỗ máy: việc chia nhỏ (ĐỌC 1 video · LÊN KỊCH BẢN 1 source · DỰNG 1 kịch bản); máy rảnh nhận việc gần xong nhất trước
 # (dựng → lên kịch bản → đọc) → project ra lần lượt, các máy còn lại vẫn đọc song song các source khác. Khóa từng việc trên Drive.
@@ -1537,7 +1537,6 @@ def fix_public():   # project dựng lúc thử đường dẫn C:/Users/Public/
 def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên SETUP (máy người dùng tự lấy bản mới mỗi 2 phút)
     try:
         import hashlib
-        if os.environ.get('WORKER', '1') != '1': return   # chỉ 1 máy đưa lên → không ra 2 bản trùng
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'capcut', 'dong-bo-capcut.bat')
         if not os.path.exists(src): return
         data = open(src, 'rb').read(); md = hashlib.md5(data).hexdigest()
@@ -1549,6 +1548,11 @@ def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên
             try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
             except Exception: pass
         put('Cài đặt đồng bộ CapCut.bat', st[0]['id'], data, 'application/octet-stream')
+        time.sleep(5)   # nhiều máy cùng đưa lên → giữ đúng 1 bản (bản tạo sau cùng), xoá bản trùng
+        f = sorted(lq("'%s' in parents and name='Cài đặt đồng bộ CapCut.bat'" % st[0]['id'], 'id,createdTime'), key=lambda x: (x['createdTime'], x['id']))
+        for x in f[:-1]:
+            try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
+            except Exception: pass
         log('  đã cập nhật công cụ đồng bộ CapCut trong SETUP')
     except Exception as e: log('  không cập nhật được công cụ đồng bộ:', e)
 
@@ -1580,6 +1584,27 @@ def fix_vol():   # chủ dặn 11/11: SFX + nhạc nền 0 dB (không giảm âm
     except Exception as e: log('  không sửa được âm lượng project cũ:', e)
 
 RT = 'r6'   # đợt thu hồi (chủ dặn 11/11 chiều): thu hồi mọi project AI dựng (chưa bị người dùng sửa) rồi dựng lại bằng bản mới nhất
+def restore_r6():   # chủ dặn 11/11 tối: đưa lại các project đã thu hồi lên CapCut (bản mới dựng xong sẽ gắn ❌ bản cũ rồi thay)
+    try:
+        fid = list_file()
+        if (get(fid, 'appProperties').get('appProperties') or {}).get('dungRS') == '1' or not lock(fid, 'dungRSL'): return
+        q = "mimeType='%s' and trashed=true and trashedTime > '2026-11-11T06:00:00Z' and (appProperties has { key='dungP' and value='1' } or name contains 'CapCut - Center Avenue')" % L.FOLDER
+        got = L.listq(q, 'id,name,parents,createdTime,appProperties', L.corpora())
+        best = {}
+        for c in got:   # mỗi chỗ (thư mục cha + tên) chỉ lấy bản mới nhất
+            k = ((c.get('parents') or [''])[0], re.sub(r'( v\d+| \(\d+\))$', '', nf(c['name'])))
+            if k not in best or c['createdTime'] > best[k]['createdTime']: best[k] = c
+        n = 0
+        for c in best.values():
+            try:
+                body = {'trashed': False}
+                if (c.get('appProperties') or {}).get('dungP') != '1': body['appProperties'] = {'dungP': '1'}
+                L.drive('files/' + c['id'], body, method='PATCH'); n += 1
+            except Exception as e: log('  không đưa lại được', c['name'], e)
+        list_edit()
+        L.mark(fid, dungRS='1', dungRSL=None)
+        log('  đã đưa lại %d project lên CapCut' % n)
+    except Exception as e: log('  không đưa lại được project:', e)
 def retract_all():
     try:
         fid = list_file()
@@ -1613,6 +1638,7 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
 
 def pending():
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
+    restore_r6()
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
@@ -1621,7 +1647,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    mark_root(); fix_public(); retract_all(); rename_old(); fix_vol(); heal_list(); setup_bat()
+    mark_root(); fix_public(); retract_all(); restore_r6(); rename_old(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
