@@ -125,7 +125,9 @@ def _tile(a, t):
     _, s, k = best
     im = Image.open(io.BytesIO(base64.b64decode(s['b']))).convert('RGB')
     x, y = (k % s['cols']) * s['tw'], (k // s['cols']) * s['th']
-    return im.crop((x, y, x + s['tw'], y + s['th']))
+    t = im.crop((x, y, x + s['tw'], y + s['th']))
+    t.paste(t.crop((0, 17, 54, 34)), (0, 0))   # che nhãn giây của tờ ảnh mẫu (không phải chữ trong video gốc)
+    return t
 def preview(pl, A_by_key, times, fontdir=None):
     """dựng khung xem trước 9:16 tại các mốc: hình (đã zoom theo keyframe) + chữ đúng vị trí → tờ ảnh 4 cột"""
     from PIL import Image, ImageDraw, ImageFont

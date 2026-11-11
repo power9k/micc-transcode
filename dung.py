@@ -9,7 +9,7 @@ import os, sys, json, time, re, math, threading, queue, zipfile, base64, subproc
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '6'                                   # đổi số này = dựng lại mọi buổi quay
+DV = '7'                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -181,7 +181,7 @@ def read(jb):
     if newly > 0:
      try: L.tsay('📖 AI ĐÃ ĐỌC XONG SOURCE\n📁 %s\n🎬 %d video · %.1f GB · %.0f phút đọc\n➡️ Bắt đầu chia kịch bản + dựng project' % (path_of(jb['id']), len(A), gb, (time.time() - t0) / 60))
      except Exception as e: log('  không báo được:', e)   # chỉ báo khi thật sự có video mới đọc (đọc lại từ bộ nhớ thì im)
-    jb['A'] = A; look(jb, ad, idx); return jb
+    jb['A'] = A; jb['ad'], jb['idx'] = ad, idx; look(jb, ad, idx); return jb
 
 def look(jb, ad, idx):   # Claude Sonnet XEM tờ ảnh mẫu (mọi khung chính) của từng video → nhật ký hình; lưu Drive, video đã xem không xem lại
     need = []
@@ -717,6 +717,7 @@ def timeline(jb, sc, pl):   # dòng thời gian bằng chữ cho Claude kiểm d
     out.append('Chuyển cảnh: ' + ', '.join('%s@%.1fs' % (x['name'], x['at']) for x in pl['transitions']) + ' · tổng %.1fs' % pl['total'])
     return '\n'.join(out)
 def review(jb, sc, pl, proj, adir, mu):
+    sc0 = sc
     A = {'V%d' % a['i']: a for a in jb['A']}
     for rnd in range(3):
         ts = sorted({round((z['t0'] + z['t1']) / 2, 2) for z in pl['titles']} | {round(x['t0'] + .3, 2) for x in pl['shots'] if x['line'] != 'A'})
@@ -742,7 +743,7 @@ def review(jb, sc, pl, proj, adir, mu):
         pl2 = build_plan(jb, sc, proj, adir, (mu[1], mu[2]) if mu else None, mu[4] if mu else None)
         if not pl2: break
         pl = pl2
-    log('  ✗ Claude kiểm tra chưa đạt sau 2 vòng sửa – KHÔNG giao project này:', proj); jb['qa_rej'] = jb.get('qa_rej', 0) + 1; return None
+    log('  ✗ Claude kiểm tra chưa đạt sau 2 vòng sửa – KHÔNG giao project này:', proj); jb['qa_rej'] = jb.get('qa_rej', 0) + 1; jb.setdefault('rej_sc', []).append(sc0); return None
 def publish(jb, sc, n):
     a0 = jb['A'][0]; A_ = {a['i']: a for a in jb['A']}; cnt = {}
     for it in sc.get('aroll', []):   # project nằm trong thư mục (Kịch bản N) chứa phần lớn câu nói của kịch bản
@@ -799,14 +800,21 @@ def publish(jb, sc, n):
 def edit(jb, key, models):
     t0 = time.time()
     tops = set((jb.get('kbtop') or {}).values())
-    if (tops and all(lq("'%s' in parents and appProperties has { key='dungP' and value='1' }" % t, 'id') for t in tops)) or \
-       lq("appProperties has { key='dungS' and value='%s:1' } and mimeType='%s'" % (jb['id'], L.FOLDER), 'id'):   # mọi kịch bản đã có project → không tốn lượt Claude
+    redo_nm = '%s_redo_v%s.json' % (jb['id'], DV); redo = None
+    if redo_nm in (jb.get('idx') or {}):
+        try: redo = json.loads(raw(jb['idx'][redo_nm]).decode('utf-8'))
+        except Exception: redo = None
+    if redo == []: log('  đã làm xong các kịch bản của thư mục này'); L.mark(jb['id'], dungV=DV, dungFail=None); return []
+    if not redo and ((tops and all(lq("'%s' in parents and appProperties has { key='dungP' and value='1' }" % t, 'id') for t in tops)) or
+       lq("appProperties has { key='dungS' and value='%s:1' } and mimeType='%s'" % (jb['id'], L.FOLDER), 'id')):
         log('  đã có project, bỏ qua:', jb['name']); L.mark(jb['id'], dungV=DV, dungFail=None); return []
     engine()
-    scs, done = plan(jb, key, models), []
+    if redo: log('  làm lại %d kịch bản bị kiểm duyệt loại lượt trước (không lên kế hoạch lại)' % len(redo))
+    scs, done = (redo or plan(jb, key, models)), []
     for rnd in range(2):   # lần 2: Gemini chọn thiếu câu nói → hỏi lại 1 lần, nói rõ lỗi
         log('  Claude: %d kịch bản' % len(scs))
         for n, sc in enumerate(scs, 1):
+            n = int(sc.get('_n') or n); sc['_n'] = n   # giữ đúng số kịch bản khi làm lại
             try:
                 r = publish(jb, sc, n)
                 if r: done.append(r); log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
@@ -818,6 +826,14 @@ def edit(jb, key, models):
         if done or not scs or rnd or jb.get('qa_rej'): break   # Claude kiểm tra đã loại → không lên lại trong lượt này (tránh tốn token), lượt sau làm tiếp
         log('  Claude chọn thiếu câu nói → hỏi lại')
         scs = plan(jb, key, models, 'LẦN TRƯỚC KẾ HOẠCH HỎNG: tổng A-roll dưới 15 giây. Lần này BẮT BUỘC chọn đủ 45–110 giây câu nói (số # của video CÓ LỜI THOẠI của buổi quay, không phải KHO CẢNH PHỤ; chỉ ghi MÃ CÂU C…).\n\n')
+    rej = jb.get('rej_sc') or []
+    nr = (int(jb['ap'].get('dungRej') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1
+    if (redo is not None or rej) and jb.get('ad'):   # lưu kịch bản bị loại để lượt sau dựng lại (không gọi Opus lên kế hoạch lại)
+        try: put(redo_nm, jb['ad'], json.dumps(rej if nr < 6 else [], ensure_ascii=False).encode('utf-8'), 'application/json')
+        except Exception as e: log('  không lưu được kịch bản cần làm lại:', e)
+    if rej and done and nr < 6:
+        L.mark(jb['id'], dungRej=nr, dungFailV=DV, dungErr='còn %d kịch bản chờ làm lại' % len(rej))
+        log('  còn %d kịch bản bị loại – lượt sau dựng lại (lần %d/6)' % (len(rej), nr)); return done
     if scs and not done and jb.get('qa_rej'):   # Claude kiểm tra loại hết → không tính là lỗi máy; tối đa 3 lượt rồi chờ người xem
         nr = (int(jb['ap'].get('dungRej') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1
         L.mark(jb['id'], dungRej=nr, dungFailV=DV, dungFail=3 if nr >= 6 else None, dungErr='Claude kiểm tra loại %d lần' % nr)
