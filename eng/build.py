@@ -23,7 +23,7 @@ FD = ENG + '/fonts/'
 FONTS = {}
 for key, fn in (('BIG', 'SVN-Nexa Rush Sans Black.ttf'), ('ITA', 'SVN-Georgia Italic.ttf'), ('SCR', 'SVN-Dancing script.ttf'), ('BEB', 'UTM Bebas.ttf')):
     t = TTFont(FD + fn); o = t['OS/2']
-    FONTS[key] = dict(file=fn, path=(PL.get('font_dir') or AD) + '/' + fn, typo=(o.sTypoAscender - o.sTypoDescender) / t['head'].unitsPerEm,
+    FONTS[key] = dict(file=fn, path=AD + '/' + fn, typo=(o.sTypoAscender - o.sTypoDescender) / t['head'].unitsPerEm,
                       cap=(getattr(o, 'sCapHeight', 0) or 0.7 * t['head'].unitsPerEm) / t['head'].unitsPerEm, pf=ImageFont.truetype(FD + fn, 200))
 REP, E = [], []
 
