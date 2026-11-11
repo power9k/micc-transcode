@@ -369,7 +369,7 @@ for t in OUT['tracks']:
             if s['source_timerange']['start'] < 0: E.append('negative source')
 PATHS = sorted({m['path'] for k in ('videos', 'audios') for m in OM[k]} | {m['font_path'] for m in OM['texts']})
 for p in PATHS:
-    if not p.startswith(('C:/Users/Public/MICC Drive/', 'G:/Drive của tôi/PHÒNG TRUYỀN THÔNG MICC/')): E.append('bad path %s' % p)
+    if not p.startswith('G:/Drive của tôi/PHÒNG TRUYỀN THÔNG MICC/'): E.append('bad path %s' % p)
 # text safe area and in-group overlap
 for r in TREC:
     x0, x1 = r['x'] - r['w'] / 2, r['x'] + r['w'] / 2; y0, y1 = r['y'] - r['h'] / 2, r['y'] + r['h'] / 2
