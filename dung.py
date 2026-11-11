@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '13'
-LV = '7'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '14'
+LV = '8'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -656,6 +656,32 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             trans.append(dict(name=nm, effect_id=eid, at=round(T, 3), dur_s=.4))
             sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(T - .25, 3)), vol=.3, dur=0.58))
             if nm == 'Glare II' and not fx: fx.append(dict(preset='effect_lens_flare.json', t0=round(T, 3), dur_s=.6))
+    # ---- Claude kiểm duyệt yêu cầu PHỦ cảnh phụ lên đoạn đang có lời mà hình không có người / khung xấu (phu_canh_phu)
+    poolC = [a for a in A.values() if a['vid'].get('broll') or not a.get('segs')]
+    for c in sc.get('_cover') or []:
+        try:
+            S0, E0 = max(0.0, float(c['s'])), min(total - .1, float(c['e']))
+            a = A.get(vid(c.get('video', 0))); src0 = c.get('giay')
+            T = S0
+            while E0 - T > .4:
+                if not a or a['i'] in used and not c.get('video'):
+                    a = next((x for x in poolC if x['i'] not in used), None)
+                    src0 = None
+                if not a: break
+                d = min(3.0, E0 - T)
+                s_ = float(src0) if src0 is not None else (best_seg(a, 0) or 0)
+                if not seg_ok(a, s_, s_ + d):
+                    s2 = best_seg(a, s_); s_ = s2 if s2 is not None else s_
+                if s_ + d > a['dur']: s_ = max(0, a['dur'] - d)
+                k = key(a); used.add(a['i']); new = []
+                for sh in shots:
+                    if sh['t1'] <= T or sh['t0'] >= T + d: new.append(sh); continue
+                    if sh['t0'] < T - .05: new.append(dict(sh, t1=round(T, 3), keys=[[sh['t0']] + sh['keys'][0][1:], [round(T, 3)] + sh['keys'][-1][1:]]))
+                    if sh['t1'] > T + d + .05: new.append(dict(sh, src=round(sh['src'] + T + d - sh['t0'], 3), t0=round(T + d, 3), keys=[[round(T + d, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]]))
+                k0, k1 = BMOVES[mv % len(BMOVES)]; mv += 1
+                new.append(dict(media=k, src=round(s_, 3), t0=round(T, 3), t1=round(T + d, 3), line='B', bi=-1, keys=[[round(T, 3)] + list(k0), [round(T + d, 3)] + list(k1)], punch_abs=[]))
+                shots = sorted(new, key=lambda x: x['t0']); T += d; a = None; src0 = None
+        except Exception as e: log('  không phủ được cảnh phụ:', e)
     # ---- bản thu tiếng không thấy người: phủ kín cảnh phụ (mỗi cảnh ≤3 s, đổi video liên tục, ưu tiên đoạn Claude chấm điểm cao)
     keyA = {'V%d' % a['i']: a for a in A.values()}
     poolB = [A[vid(b.get('video', 0))] for b in sc.get('broll', []) if A.get(vid(b.get('video', 0)))]
@@ -1104,6 +1130,9 @@ def review(jb, sc, pl, proj, adir, mu):
             except Exception: pass
         for c in fx.get('khung_rong') or []:
             try: sc.setdefault('_wide', []).append([float(c['s']), float(c['e'])])
+            except Exception: pass
+        for c in fx.get('phu_canh_phu') or []:   # đang có lời mà hình không có người / khung xấu → phủ cảnh phụ đúng khoảng giây đó
+            try: sc.setdefault('_cover', []).append({'s': float(c['s']), 'e': float(c['e']), 'video': int(c.get('video') or 0), 'giay': c.get('giay')})
             except Exception: pass
         for c in fx.get('doi_canh_tu_phu') or []:   # cảnh tự phủ xấu → không dùng đoạn đó nữa
             try: sc.setdefault('_bad', []).append([int(c['video']), float(c['giay'])])

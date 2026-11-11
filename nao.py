@@ -206,11 +206,12 @@ def qa(pl, timeline, pv_imgs, log=print, extra=''):
          '\n\nẢnh kèm theo = khung xem trước 9:16 của bản dựng tại các mốc (đúng vị trí chữ + khung hình đã zoom). '
          'Xem kỹ rồi trả JSON: {"dat":true/false,"loi":["mô tả ngắn từng lỗi"],'
          '"sua":{"bo_chu":[số T],"doi_chu":[{"T":số,"big":"chữ mới","small":"dòng phụ mới hoặc rỗng"}],"doi_vi_tri":[{"T":số,"y":phần trăm chiều cao 12–80}],'
-         '"bo_canh_phu":[số B],"doi_canh_phu":[{"B":số,"video":số # trong KHO CẢNH PHỤ,"s":giây bắt đầu}],"doi_canh_tu_phu":[{"video":số # nguồn,"giay":giây gốc}],"cat_doan":[{"s":giây timeline,"e":giây timeline}],"them_cau":[{"cau":"mã câu C…","vi_tri":"cuoi" hoặc "dau"}],"khung_rong":[{"s":giây timeline,"e":giây timeline}],"them_chu":[{"cau":"mã câu C…","tu":"chữ người nói (chép y nguyên)","big":"TỪ KHÓA","small":""}]}}\n'
+         '"bo_canh_phu":[số B],"doi_canh_phu":[{"B":số,"video":số # trong KHO CẢNH PHỤ,"s":giây bắt đầu}],"doi_canh_tu_phu":[{"video":số # nguồn,"giay":giây gốc}],"phu_canh_phu":[{"s":giây timeline,"e":giây timeline,"video":số # trong KHO CẢNH PHỤ,"giay":giây bắt đầu}],"cat_doan":[{"s":giây timeline,"e":giây timeline}],"them_cau":[{"cau":"mã câu C…","vi_tri":"cuoi" hoặc "dau"}],"khung_rong":[{"s":giây timeline,"e":giây timeline}],"them_chu":[{"cau":"mã câu C…","tu":"chữ người nói (chép y nguyên)","big":"TỪ KHÓA","small":""}]}}\n'
          'Mỗi lỗi ghi mở đầu bằng [NẶNG] hoặc [NHẸ]. NẶNG = chữ sai nghĩa / sai chính tả / cụt nghĩa, chữ đè mặt, đang có lời mà hình không có người cũng không có cảnh phụ, '
          'cắt mất chữ / lặp câu / nói hỏng còn sót, cảnh hỏng (mờ, rung mạnh, đen) dài > 1 s, khoảng trống không chữ > 6 s, không có mở đầu hoặc kết cụt. '
          'Còn lại (hook có thể mạnh hơn, trống chữ 3–6 s, cảnh phụ chưa thật đẹp, chưa đa dạng…) là NHẸ. '
          'Ảnh xem trước nhỏ nên dấu tiếng Việt có thể nhòe: KHÔNG báo lỗi dấu trừ khi chắc chắn sai chữ.\n'
+         'phu_canh_phu = PHỦ cảnh phụ lên đoạn đang có lời mà hình không có người / người chưa vào khung / khung xấu (giữ nguyên lời) – dùng cách này thay vì cat_doan khi lời vẫn cần; '
          'cat_doan = bỏ hẳn câu nói bị cắt hỏng / nói hỏng / lặp ở khoảng giây đó; doi_canh_tu_phu = đổi cảnh phụ tự phủ xấu (ghi số video # và giây gốc như trong dòng thời gian).\n'
          '"dat" = true khi KHÔNG còn lỗi NẶNG (lỗi NHẸ vẫn ghi vào "loi" và "sua" để sửa nếu được).')
     return ask_json(q, [('Xem trước %d:' % (k + 1), b) for k, b in enumerate(pv_imgs)], model='opus', key='dat',
