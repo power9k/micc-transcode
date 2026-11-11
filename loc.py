@@ -55,7 +55,7 @@ def tok():
     if time.time() - TK['t'] > 1500: TK['v'] = api('pxToken')['token']; TK['t'] = time.time()
     return TK['v']
 # TÀI KHOẢN 2 (miccgroup.media) – chỉ dùng để ĐỌC nội dung file → chia hạn mức tải với tài khoản MICC (chủ dặn 11/11)
-API2 = os.environ.get('MICC_API2') or ''
+API2 = os.environ.get('MICC_API2') or 'https://script.google.com/macros/s/AKfycbwhoOCAPP6piE59kTUKoHOhWn3yXTtu6mmr_bFy1eb94kIylfIB5eMOT7z7dfMeZh-s4Q/exec'
 TK2 = {'v': None, 't': 0, 'bad': 0}
 def rtok():
     if API2 and time.time() - TK2['bad'] > 600:
@@ -63,6 +63,7 @@ def rtok():
             try:
                 j = http(API2, dict(s=SEC), timeout=60)
                 if not j.get('token'): raise RuntimeError(j.get('error') or 'không có token')
+                if not TK2['v']: log('  tài khoản 2 (miccgroup.media) dùng được – đọc file bằng tài khoản này')
                 TK2['v'], TK2['t'] = j['token'], time.time()
             except Exception as e: log('  tài khoản 2 chưa dùng được:', e); TK2['bad'] = time.time(); return tok()
         return TK2['v']
