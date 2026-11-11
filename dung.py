@@ -535,7 +535,18 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         d = [x for x in ((a.get('vlog') or {}).get('doan') or []) if float(x.get('e', 0)) - float(x.get('s', 0)) >= 1.4
              and float(x.get('diem') or 6) >= 6 and not BADW.search('%s %s' % (x.get('chat_luong', ''), x.get('noi_dung', '')))]
         d.sort(key=lambda x: -float(x.get('diem') or 0))
-        return [(float(x['s']), float(x['e'])) for x in d] or ([] if (a.get('vlog') or {}).get('doan') else [(min(1.0, a['dur'] / 4), a['dur'] - .2)])
+        out_ = [(float(x['s']), float(x['e'])) for x in d] or ([] if (a.get('vlog') or {}).get('doan') else [(min(1.0, a['dur'] / 4), a['dur'] - .2)])
+        return [g for g in out_ if clean(a, g[0], min(g[1], g[0] + 2.6))]
+    def clean(a, s0_, e0_):   # đo thật trên khung hình: bỏ đoạn trắng xóa / đen / phẳng (logo mờ dần, màn hình trống)
+        try:
+            import numpy as _np
+            for t_ in (s0_ + .1, (s0_ + e0_) / 2, e0_ - .1):
+                im = N._tile(a, t_)
+                if im is None: continue
+                g = _np.asarray(im.convert('L'), dtype=float)
+                if g.mean() > 215 or g.mean() < 25 or g.std() < 18: return False
+        except Exception: pass
+        return True
     cur = {id(a): 0 for a in poolB}; pi = [0]
     def next_b(dmin):
         for _ in range(len(poolB)):
