@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        w: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        w: [1, 2, 3, 4]   # 12/11: giảm còn 4 máy – tải Drive nhẹ nhàng, tránh Google chặn hạn mức tải của tài khoản
     concurrency:
       group: micc-loc-${{ matrix.w }}
       cancel-in-progress: false
@@ -39,10 +39,13 @@ jobs:
           path: ~/.cache/huggingface
           key: micc-models-loc-v1
       - if: steps.chk.outputs.todo == '1'
+        timeout-minutes: 25
         name: Dọn chỗ trống ổ đĩa (video 4K) + cài ffmpeg, Whisper
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          ok=0; for i in 1 2 3; do timeout 300 sudo apt-get update -qq && timeout 400 sudo apt-get install -y -qq ffmpeg && ok=1 && break; sleep 20; done
+          if [ $ok = 0 ]; then echo "apt lỗi → lấy ffmpeg dựng sẵn"; curl -fsSL --retry 3 -o /tmp/ff.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz && sudo tar -xJf /tmp/ff.tar.xz -C /opt && sudo ln -sf /opt/ffmpeg-master-latest-linux64-gpl/bin/ffmpeg /usr/local/bin/ffmpeg && sudo ln -sf /opt/ffmpeg-master-latest-linux64-gpl/bin/ffprobe /usr/local/bin/ffprobe; fi
+          ffmpeg -version | head -1
           pip install -q faster-whisper 'av<14' numpy pillow fonttools
       - if: steps.chk.outputs.todo == '1'
         name: AI lọc source (xem, nghe, chọn bản tốt nhất, cắt ghép → thư mục Lọc)
@@ -57,7 +60,7 @@ jobs:
           WORKER: ${{ matrix.w }}
         run: python loc.py
       - name: Báo nhóm test nếu máy GitHub lỗi khi chuẩn bị
-        if: failure() && steps.run.outcome != 'failure'
+        if: failure() && steps.run.outcome != 'failure' && matrix.w == 1   # nhiều máy cùng lỗi → chỉ 1 tin Zalo
         env:
           MICC_API: ${{ secrets.MICC_API }}
           MICC_SECRET: ${{ secrets.MICC_SECRET }}
