@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '9'
-LV = '3'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '10'
+LV = '4'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = {'16rYEIREpSv2N78zOi5cOoLlXn5qHzGK4', '1RkqwSNXvzJ8XFnUYuvQlQlh_B0oYhnR-'}   # Center Avenue KB1, KB2: chủ đã duyệt tay
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -1358,7 +1358,11 @@ def do_build(jb, n):
     t0 = time.time(); jb = load(jb); ad, idx = idx_now(); engine(); codes(jb)
     book = jget('%s_kichban.json' % jb['id'], idx) or {}; stt = jget(st_name(jb, n), idx) or {}
     if stt.get('done') or int(stt.get('tries') or 0) >= MAXT: return   # máy khác vừa làm xong
-    old = {} if stt else (jget('%s_kb%d.json' % (jb['id'], n), idx) or {})   # lấy lại chỗ Claude đã sửa ở kiểu dựng trước
+    old = {}
+    if not stt:   # lấy lại chỗ Claude đã sửa ở các kiểu dựng trước (mới nhất trước)
+        for nm_ in ['%s_kb%d_L%d.json' % (jb['id'], n, v) for v in range(int(LV) - 1, 2, -1)] + ['%s_kb%d.json' % (jb['id'], n)]:
+            old = jget(nm_, idx) or {}
+            if old.get('sc'): break
     sc = stt.get('sc') or old.get('sc') or next(x for x in book['scripts'] if x['_n'] == n)
     jb['fixed'] = None; jb['qa_rej'] = 0
     try: r = publish(jb, sc, n)
@@ -1433,7 +1437,7 @@ def heal_list():   # mọi project đã giao (kiểu mới) phải có trong dan
         fid = list_file(); have = {x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()}
         add = []
         for c in lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s'" % (LV, L.FOLDER), 'id,name,parents') + \
-                 lq("appProperties has { key='dungL' and value='2' } and mimeType='%s'" % L.FOLDER, 'id,name,parents'):
+                 [x for v in ('2', '3') for x in lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s'" % (v, L.FOLDER), 'id,name,parents')]:
             rel = path_of((c.get('parents') or [''])[0]) + '/' + c['name']
             if rel not in have: add.append(rel)
         if add: list_edit(add=add); log('  đã bù vào danh sách CapCut:', '; '.join(add))
