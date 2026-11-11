@@ -523,9 +523,9 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     # ---- chữ nhấn: hiện ĐÚNG lúc nói từ khóa (mốc từng chữ của Whisper), 1 cụm / 4–7 s
     def norm(x): return L.norm(x) if hasattr(L, 'norm') else x.lower()
     STY = [('#FFD54A', '#FFFFFF', 6.0), ('#FFFFFF', '#FFD54A', 5.4), ('#7FE3FF', '#FFFFFF', 5.6), ('#FFE08A', None, 6.4), ('#FFFFFF', None, 5.0), ('#FF6B5E', '#FFFFFF', 6.2)]
-    for si, ti in sorted(enumerate(sc.get('titles', [])[:80]), key=lambda x: float(x[1].get('s', x[1].get('t', 0)))):
+    def t_of(ti):
         vi = vid(ti.get('video', 0)); a = A.get(vi)
-        if not a: continue
+        if not a: return None
         s, e = float(ti.get('s', ti.get('t', 0))), float(ti.get('e', ti.get('t', 0)) or 0) or float(ti.get('t', 0)) + 4
         tu = [norm(w) for w in str(ti.get('tu') or ti.get('big') or '').split() if w.strip()]
         W = words(a, s - .1, e + .1); st = None
@@ -534,7 +534,10 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
                 if norm(w[2]) == tu[0] and (len(tu) == 1 or j + 1 >= len(W) or norm(W[j + 1][2]) == tu[1]): st = w[0]; break
             if st is None: st = next((w[0] for w in W if norm(w[2]) in tu), None)
         T = tl(vi, st if st is not None else s + .1)
-        if T is None or T > total - .8: continue
+        return None if T is None or T > total - .8 else T
+    cand = sorted(((t_of(ti), si, ti) for si, ti in enumerate(sc.get('titles', [])[:80])), key=lambda x: x[0] if x[0] is not None else 1e9)
+    for T, si, ti in cand:   # xếp theo GIÂY TRÊN TIMELINE (không theo giây gốc của từng video)
+        if T is None: continue
         if titles and T < titles[-1]['t0'] + 1.2: continue   # chữ dày: 1 cụm mỗi 1–3 s
         big = safe(ti.get('big', ''), 32).upper(); small = safe(ti.get('small', ''), 48)
         if not big: continue
