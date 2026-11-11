@@ -65,10 +65,12 @@ foreach ($d in (Get-PSDrive -PSProvider FileSystem)) {
     if (Test-Path -LiteralPath (Join-Path $p 'SETUP')) { $cands += [pscustomobject]@{ p = $p; m = (Test-Path -LiteralPath (Join-Path (Join-Path $d.Root $md) $mark)) } }
   }
 }
-function CanRead($p) {   # doc thu 1 file nho -> biet o nay con tai duoc khong
+$blkF = Join-Path $env:LOCALAPPDATA 'MICC\o-bi-chan.txt'
+function CanRead($p) {   # doc thu 1 file nho -> biet o nay con tai duoc khong (o vua bi chan thi 1 tieng sau moi thu lai, khong de Drive bao lien tuc)
+  if ((Test-Path -LiteralPath $blkF) -and ((Get-Content -LiteralPath $blkF -Raw) -match [regex]::Escape($p)) -and ((Get-Date) - (Get-Item -LiteralPath $blkF).LastWriteTime).TotalMinutes -lt 60) { return $false }
   $f = Get-ChildItem -LiteralPath (Join-Path $p 'SETUP') -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*.bat' } | Select-Object -First 1
   if (-not $f) { return $true }
-  try { $s = [IO.File]::OpenRead($f.FullName); $b = New-Object byte[] 512; $null = $s.Read($b, 0, 512); $s.Close(); return $true } catch { return $false }
+  try { $s = [IO.File]::OpenRead($f.FullName); $b = New-Object byte[] 512; $null = $s.Read($b, 0, 512); $s.Close(); return $true } catch { Set-Content -LiteralPath $blkF -Value $p -Encoding UTF8; return $false }
 }
 foreach ($c in (@($cands | Where-Object { $_.m }) + @($cands | Where-Object { -not $_.m }))) { if (CanRead $c.p) { $root = $c.p; break } }
 if (-not $root -and $cands.Count) { $root = ($cands | Sort-Object { -not $_.m } | Select-Object -First 1).p; Log 'CHU Y: o Drive dang bi Google chan tai (vuot han muc) - them 1 tai khoan Google khac vao Google Drive tren may de dung tam' }

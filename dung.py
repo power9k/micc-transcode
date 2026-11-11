@@ -1258,7 +1258,8 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         try: L.drive('files/' + pf, {'trashed': True}, method='PATCH')
         except Exception: pass
         raise
-    return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf)
+    vid0 = next((A_[int(sh['media'][1:])]['vid']['id'] for sh in pl['shots'] if sh.get('line') == 'A' and sh['media'][1:].isdigit() and int(sh['media'][1:]) in A_), None) if (A_ := {a['i']: a for a in jb['A']}) else None
+    return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0)
 
 # ---- nhiều máy GitHub chạy song song: mỗi máy giữ 1 thư mục source (khóa trên Drive), máy khác bỏ qua
 WID = '%s-%s' % (os.environ.get('GITHUB_RUN_ID', 'local'), os.environ.get('WORKER', '1'))
@@ -1496,7 +1497,8 @@ def do_build(jb, n):
             try: link = (L.ix(link=r['id']) or {}).get('link') or L.SITE + '/_mo/' + r['id']   # link mở thẳng project trên web MICC media
             except Exception: link = L.SITE + '/_mo/' + r['id']
             mm, ss = divmod(int(time.time() - t0), 60)
-            L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], r['dur'], mm, ss, link))
+            L.tsay('✅ AI DỰNG XONG PROJECT – ĐÃ ĐẨY LỐI TẮT\n🎬 %s (%d giây)\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], r['dur'], mm, ss, link),
+                   photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # ảnh thumbnail: khung hình người nói của project
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
     if not jb.get('qa_rej'): stt['tries'] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
