@@ -1185,7 +1185,7 @@ def claude_grades(jb, sc):   # Claude Sonnet NHÌN khung hình từng video dùn
 XM = '❌ '   # project cũ đang được AI dựng lại (sẽ bị thay khi bản mới lên xong)
 def user_edited(c):   # người dùng đã mở CapCut và lưu chỉnh sửa → project là của họ, AI không thay / không xóa
     try:
-        f = sorted(lq("'%s' in parents and (name='draft_content.json' or name='draft_content.json.dang-sua')" % c['id'], 'id,name'), key=lambda x: not x['name'].endswith('.dang-sua'))   # đang khoá ✏️ → xét bản thật đang giấu
+        f = lq("'%s' in parents and name='draft_content.json'" % c['id'], 'id')
         ut = float(json.loads(raw(f[0]['id']).decode('utf-8')).get('update_time') or 0) if f else 0
         ut = ut / 1e6 if ut > 1e11 else ut
         return ut > L.ts(c['createdTime']) + 300
@@ -1200,45 +1200,15 @@ def ren(c, par, new):   # đổi tên thư mục project + đường dẫn bên 
         except Exception as e: log('  đổi tên: không sửa được', f['name'], e)
     L.drive('files/' + c['id'], {'name': new}, method='PATCH')
     list_edit(add=[newrel], remove=[oldrel]); c['name'] = new
-XE = '✏️ '   # chủ dặn 11/11: project đang được AI sửa → hiện trong CapCut nhưng KHÔNG mở được, tên có ✏️ ở đầu; sửa xong gỡ hết
-HID = '.dang-sua'
-DRAFTS = ('draft_content.json', 'draft_info.json')
-def bare_nm(nm):
-    nm = nf(nm)
-    for p_ in (XE, XM):
-        if nm.startswith(p_): nm = nm[len(p_):]
-    return nm
-def hold(c, host):   # khoá: giấu file dựng (CapCut thấy project nhưng không mở được) + thêm ✏️ vào tên
-    for f in lq("'%s' in parents and (name='draft_content.json' or name='draft_info.json')" % c['id'], 'id,name'):
-        L.drive('files/' + f['id'], {'name': f['name'] + HID}, method='PATCH')
-    nm = bare_nm(c['name'])
-    L.drive('files/' + c['id'], {'name': XE + nm, 'appProperties': {'dungEd': '%s:%d' % (WID, time.time())}}, method='PATCH')
-    list_edit(); log('  ✏️ khoá project để sửa:', nm)
-def free(c, host):   # mở khoá khi sửa không xong: trả file dựng cũ + bỏ ✏️
-    kids_ = lq("'%s' in parents" % c['id'], 'id,name')
-    names = {x['name'] for x in kids_}
-    for x in kids_:
-        if x['name'] in DRAFTS and x['name'] + HID in names:   # CapCut tự tạo file trống khi bấm mở → bỏ
-            try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
-            except Exception: pass
-    for x in kids_:
-        if x['name'].endswith(HID): L.drive('files/' + x['id'], {'name': x['name'][:-len(HID)]}, method='PATCH')
-    L.drive('files/' + c['id'], {'name': bare_nm(c['name']), 'appProperties': {'dungEd': None}}, method='PATCH')
-    list_edit(); log('  mở khoá project (chưa sửa xong, giữ bản cũ):', bare_nm(c['name']))
-def mark_old(host, slot, on=True):   # khoá / mở khoá project cũ (chưa bị người dùng sửa) của đúng kịch bản này
+def mark_old(host, slot, on=True):   # gắn / bỏ ❌ ở project cũ (chưa bị người dùng sửa) của đúng kịch bản này
     for c in lq("'%s' in parents and appProperties has { key='dungP' and value='1' } and trashed=false" % host, 'id,name,appProperties,createdTime'):
         ap = c.get('appProperties') or {}
-        if ap.get('dungS') != slot: continue
+        if ap.get('dungS') != slot or ap.get('dungL') == LV: continue
+        nm = nf(c['name'])
         try:
-            if on and not ap.get('dungEd') and not user_edited(c): hold(c, host)
-            elif not on and ap.get('dungEd'): free(c, host)
-        except Exception as e: log('  không khoá/mở khoá được', c['name'], e)
-def free_stale():   # máy dựng chết giữa chừng → sau 3 tiếng tự mở khoá
-    try:
-        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,parents,appProperties'):
-            ed = (c.get('appProperties') or {}).get('dungEd')
-            if ed and time.time() - float(ed.rsplit(':', 1)[1]) > 3 * 3600: free(c, (c.get('parents') or [''])[0])
-    except Exception as e: log('  không mở khoá được project treo:', e)
+            if on and not nm.startswith(XM) and not user_edited(c): ren(c, host, XM + nm); log('  đánh dấu ❌ project cũ đang được dựng lại:', nm)
+            elif not on and nm.startswith(XM): ren(c, host, nm[len(XM):]); log('  bỏ ❌ (dựng lại chưa xong):', nm)
+        except Exception as e: log('  không đổi được dấu ❌', nm, e)
 
 def publish(jb, sc, n):
     a0 = jb['A'][0]; A_ = {a['i']: a for a in jb['A']}; cnt = {}
@@ -1249,7 +1219,7 @@ def publish(jb, sc, n):
     host = max(cnt, key=cnt.get) if cnt else jb['id']
     proj = safe(full_name(path_of(host), safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)), 110)   # 🤖 dự án - nội dung
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + kho()['rel']   # tài nguyên dựng lấy từ kho chung SETUP/Kho AI tải về
-    slot0 = '%s:%d' % (jb['id'], n); mark_old(host, slot0, True)   # khoá ✏️ trong lúc sửa
+    slot0 = '%s:%d' % (jb['id'], n)   # ghi đè thẳng → không cần gắn ❌
     try: r_ = _publish(jb, sc, n, host, proj, rel, adir)
     except Exception: mark_old(host, slot0, False); raise
     if not r_ or r_.get('exists'): mark_old(host, slot0, False)
@@ -1280,7 +1250,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     slot = '%s:%d' % (jb['id'], n)
     if any((c.get('appProperties') or {}).get('dungS') == slot or c['name'] == proj for c in new_):
         log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)
-    bare = bare_nm
+    bare = lambda nm: nf(nm)[len(XM):] if nf(nm).startswith(XM) else nf(nm)
     old_ = [c for c in old_ if (c.get('appProperties') or {}).get('dungS') == slot or bare(c['name']) == proj]   # chỉ bản cũ của ĐÚNG kịch bản này (không đụng project khác cùng thư mục)
     keep_ = [c for c in old_ if user_edited(c)]
     old_ = [c for c in old_ if c not in keep_]
@@ -1292,9 +1262,12 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if tgt:
         try:
             for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # bỏ bản lưu tạm / Timelines CapCut sinh ra để CapCut đọc đúng bản mới
-                if x['name'] not in ('draft_meta_info.json',):   # cả file dựng cũ (đang giấu) → bỏ, ghi bản mới
+                if x['name'] not in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
                     try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
                     except Exception: pass
+            if nf(tgt['name']) != proj:
+                L.drive('files/' + tgt['id'], {'name': proj}, method='PATCH')
+                list_edit()
             L.drive('files/' + tgt['id'], {'appProperties': {'dungS': slot, 'dungL': LV, 'dungVol': '1'}}, method='PATCH')
             for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)
             have = {x['name']: x['id'] for x in lq("'%s' in parents" % tgt['id'], 'id,name')}
@@ -1303,7 +1276,6 @@ def _publish(jb, sc, n, host, proj, rel, adir):
                 if fn in have: update(have[fn], b_, 'application/json')
                 else: put(fn, tgt['id'], b_, 'application/json')
             for p_ in (mu or []): used_music(add=p_['key'])
-            L.drive('files/' + tgt['id'], {'name': proj, 'appProperties': {'dungEd': None}}, method='PATCH')   # ghi xong mới gỡ ✏️ → mở được
             for c in old_:
                 if c['id'] == tgt['id']: continue
                 try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); log('  đã bỏ bản cũ thừa:', c['name'])
@@ -1615,7 +1587,7 @@ def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên
 def rename_old():   # chủ dặn: mọi project AI dựng đổi tên "🤖 Tên dự án - Nội dung" (cả các project đã giao)
     try:
         for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,parents,appProperties'):
-            if c['name'].startswith((AI_ICON, XM, XE)): continue
+            if c['name'].startswith((AI_ICON, XM)): continue
             par = (c.get('parents') or [''])[0]; new = safe(full_name(path_of(par), c['name']), 110)
             if not lock(c['id'], 'dungRN'): continue
             old = nf(c['name']); ren(c, par, new); unlock(c['id'], 'dungRN')
@@ -1706,7 +1678,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    mark_root(); fix_public(); retract_all(); restore_r6(); free_stale(); rename_old(); fix_vol(); heal_list(); setup_bat()
+    mark_root(); fix_public(); retract_all(); restore_r6(); rename_old(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
