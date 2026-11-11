@@ -280,12 +280,14 @@ MUs = []
 for i, mu in enumerate(PL['music']):
     mid = amat(AD + '/' + mu['file'], mu['dur'], mu['file'])
     if mu['src_in'] + mu['t1'] - mu['t0'] > mu['dur'] + 1e-3: E.append('music past end %s' % mu['file'])
-    MUs.append(aseg(mid, mu['src_in'], mu['t0'], mu['t1'] - mu['t0'], 1.0, fades=(mu['fi'], mu['fo'])))   # chủ dặn 11/11: âm lượng 0 dB, không tự giảm
+    under = lin(-17.5); up = lin(-9.0) if i == 0 else lin(-11.5)
+    kf = mus_keys(mu['t0'], mu['t1'], under, up)
+    MUs.append(aseg(mid, mu['src_in'], mu['t0'], mu['t1'] - mu['t0'], kf[0][1], fades=(mu['fi'], mu['fo']), vol_keys=kf))
 SFs = []
 for sx in PL['sfx']:
     mid = amat(AD + '/' + sx['file'], sx['dur'], sx['file'])
     si = sx.get('src_in', 0.0); d = min(sx['dur'] - si, PL['total'] - sx['t'])
-    SFs.append(aseg(mid, si, sx['t'], d, 1.0))   # chủ dặn 11/11: SFX 0 dB
+    SFs.append(aseg(mid, si, sx['t'], d, sx['vol']))
 
 # ------------------------------------------------------------------ effects (team effect ids, global effect track)
 FX_SEG_T = ib.load(V3 + '/presets/effect_kb1_bling_aura.json')['segment']
