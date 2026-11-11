@@ -818,8 +818,8 @@ def edit(jb, key, models):
         scs = plan(jb, key, models, 'LẦN TRƯỚC KẾ HOẠCH HỎNG: tổng A-roll dưới 15 giây. Lần này BẮT BUỘC chọn đủ 45–110 giây câu nói (số # của video CÓ LỜI THOẠI của buổi quay, không phải KHO CẢNH PHỤ; chỉ ghi MÃ CÂU C…).\n\n')
     if scs and not done and jb.get('qa_rej'):   # Claude kiểm tra loại hết → không tính là lỗi máy; tối đa 3 lượt rồi chờ người xem
         nr = (int(jb['ap'].get('dungRej') or 0) if jb['ap'].get('dungFailV') == DV else 0) + 1
-        L.mark(jb['id'], dungRej=nr, dungFailV=DV, dungFail=3 if nr >= 3 else None, dungErr='Claude kiểm tra loại %d lần' % nr)
-        log('  Claude kiểm tra loại hết kịch bản (lần %d/3) – lượt sau lên lại' % nr); return []
+        L.mark(jb['id'], dungRej=nr, dungFailV=DV, dungFail=3 if nr >= 6 else None, dungErr='Claude kiểm tra loại %d lần' % nr)
+        log('  Claude kiểm tra loại hết kịch bản (lần %d/6) – lượt sau lên lại' % nr); return []
     if scs and not done: raise RuntimeError('không dựng được kịch bản nào – thử lại lượt sau')
     L.mark(jb['id'], dungV=DV, dungN=len(done), dungT=int(time.time()), dungFail=None)
     if False and done and len(done) > 1:   # chủ dặn: không gửi tổng kết, chỉ báo từng project kèm tổng số
