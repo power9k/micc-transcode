@@ -1612,8 +1612,7 @@ def heal_list():   # mọi project đã giao (kiểu mới) phải có trong dan
     try:
         fid = list_file(); have = {x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()}
         add = []
-        for c in lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s'" % (LV, L.FOLDER), 'id,name,parents') + \
-                 [x for v in ('2', '3') for x in lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s'" % (v, L.FOLDER), 'id,name,parents')]:
+        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s'" % L.FOLDER, 'id,name,parents'):   # mọi project AI dựng đang còn trên Drive
             rel = path_of((c.get('parents') or [''])[0]) + '/' + c['name']
             if rel not in have: add.append(rel)
         if add: list_edit(add=add); log('  đã bù vào danh sách CapCut:', '; '.join(add))
