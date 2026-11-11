@@ -581,8 +581,7 @@ def ix(files=None, dele=None, link=None):  # báo máy chủ đưa ngay vào kho
     except Exception as e: log('  (chưa báo được kho web: %s)' % str(e)[:80]); return {}
 def zsend(chat, text, photo=None, video=None):
     tk = cfg()['zalo']
-    if video:   # clip motion graphic kèm tin (Zalo không nhận video → gửi ảnh + link clip)
-        text = text + '\n🎞 Motion graphic: ' + video
+    if video:   # clip motion graphic kèm tin (Zalo không nhận video → gửi ảnh như cũ, không chèn link – chủ dặn 12/11)
         try:
             j = http(ZALO + tk + '/sendVideo', {'chat_id': chat, 'video': video, 'caption': text[:1900]}, timeout=120)
             if j.get('ok') is not False: return True
