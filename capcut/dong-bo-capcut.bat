@@ -54,16 +54,25 @@ $ErrorActionPreference = 'SilentlyContinue'
 $log = Join-Path $env:LOCALAPPDATA 'MICC\capcut-sync.log'
 trap { Log ("LOI: " + $_.Exception.Message + " @ dong " + $_.InvocationInfo.ScriptLineNumber); continue }
 function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $m" | Out-File -Append -Encoding utf8 $log }
-# 1) tim o Google Drive (G, I, ... bat ky chu nao)
+# 1) tim o Google Drive CUA TAI KHOAN tailieumkt (G, H, I... bat ky chu nao): o co file danh dau o goc "Drive cua toi" (may chu tao, chi tai khoan nay co)
 $root = $null
+$mark = 'MICC - nhận diện ổ Drive (không xóa).txt'
 foreach ($d in (Get-PSDrive -PSProvider FileSystem)) {
+  foreach ($md in @('Drive của tôi', 'My Drive')) {
+    $p = Join-Path $d.Root (Join-Path $md 'PHÒNG TRUYỀN THÔNG MICC')
+    if ((Test-Path -LiteralPath (Join-Path (Join-Path $d.Root $md) $mark)) -and (Test-Path -LiteralPath $p)) { $root = $p; break }
+  }
+  if ($root) { break }
+}
+if (-not $root) { foreach ($d in (Get-PSDrive -PSProvider FileSystem)) {   # du phong (file danh dau chua dong bo ve may)
   foreach ($md in @('Drive của tôi', 'My Drive')) {
     $p = Join-Path $d.Root (Join-Path $md 'PHÒNG TRUYỀN THÔNG MICC')
     if (Test-Path -LiteralPath (Join-Path $p 'SETUP')) { $root = $p; break }
   }
   if ($root) { break }
-}
-if (-not $root) { Log 'Chua thay Google Drive (PHÒNG TRUYỀN THÔNG MICC)'; exit }
+} }
+if (-not $root) { Log 'Chua thay Google Drive cua tai khoan MICC (PHÒNG TRUYỀN THÔNG MICC)'; exit }
+Log ("o Drive cua tai khoan MICC tren may nay: " + $root)
 # 1b) O M: = thu muc PHÒNG TRUYỀN THÔNG MICC tren MOI may (Drive o chu nao, ten "Drive của tôi" hay "My Drive" cung vay)
 #     Project CapCut luon tro M:/... nen mo o may nao cung thay file. Tao ngay + tu tao lai moi lan dang nhap (HKCU Run).
 function Map-M {
@@ -87,17 +96,12 @@ try {
   if ($cur -and $cur -eq $want) { & subst.exe M: /D | Out-Null; Log 'da go o M cu (khong can nua)' }
   Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'MICC o M' -ErrorAction SilentlyContinue
 } catch {}
-# LOI TAT CHUNG: C:\Users\Public\MICC Drive -> Drive that cua may nay (o G, H, I... tu do theo dung tai khoan). Moi project tro duong dan chung nay
-# -> may nao mo cung dung, cac may KHONG sua de len nhau nua (file project dung chung tren Drive)
-$link = 'C:\Users\Public\MICC Drive'
-try {
-  $real = (Get-Item -LiteralPath $root).FullName.TrimEnd('\')
-  $li = Get-Item -LiteralPath $link -Force -ErrorAction SilentlyContinue
-  if ($li -and $li.Target -and (($li.Target | Select-Object -First 1).TrimEnd('\') -ne $real)) { cmd /c rmdir "$link" | Out-Null; $li = $null; Log 'tao lai loi tat MICC Drive (Drive doi o)' }
-  if (-not $li) { New-Item -ItemType Junction -Path $link -Target $real -ErrorAction Stop | Out-Null; Log "loi tat MICC Drive -> $real" }
-} catch { Log ('khong tao duoc loi tat MICC Drive: ' + $_.Exception.Message) }
-$rootF = 'C:/Users/Public/MICC Drive'
-$rxRoot = '"(?:M:|[A-Za-z]:[/\\]+(?:Drive của tôi|My Drive)[/\\]+PHÒNG TRUYỀN THÔNG MICC)(?=[/\\])'   # duong dan cu (o bat ky / o M) -> duong dan chung
+# moi project tro thang ve o Drive cua tai khoan MICC tren MAY NAY
+$real = (Get-Item -LiteralPath $root).FullName.TrimEnd('\\')
+$li = Get-Item -LiteralPath 'C:\Users\Public\MICC Drive' -Force -ErrorAction SilentlyContinue
+if ($li -and $li.Target) { cmd /c rmdir "C:\Users\Public\MICC Drive" | Out-Null }   # bo loi tat thu nghiem cu (neu co)
+$rootF = $real -replace '\\', '/'
+$rxRoot = '"(?:M:|C:[/\\]+Users[/\\]+Public[/\\]+MICC Drive|[A-Za-z]:[/\\]+(?:Drive của tôi|My Drive)[/\\]+PHÒNG TRUYỀN THÔNG MICC)(?=[/\\])'   # duong dan cu (o bat ky / o M) -> duong dan chung
 # cai font cua team (Nexa Rush, Bebas, Dancing Script...) vao may nay cho rieng nguoi dung -> CapCut luon dung dung font, khong bao gio ra font he thong
 $fontsDone = $false
 function Install-TeamFonts($dir) {

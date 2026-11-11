@@ -24,7 +24,7 @@ def cache_dir():
     return _CD[0]
 LIB = '1ZIROORo_epCYmpf55Q0reoT8gOfCwyEX'  # thư mục nhạc + hiệu ứng âm thanh + font mẫu (AI tải về của Center Avenue KB2)
 LIB_SKIP = ('Phim ', 'Outro ')
-DRV = 'C:/Users/Public/MICC Drive'   # đường dẫn chung cho MỌI máy: công cụ đồng bộ tạo lối tắt thư mục này trỏ vào Drive thật của từng máy (ổ nào cũng được)
+DRV = 'G:/Drive của tôi/PHÒNG TRUYỀN THÔNG MICC'   # đường dẫn lúc dựng; công cụ đồng bộ trên từng máy đổi sang đúng ổ Drive của tài khoản tailieumkt trên máy đó
 MROOT = re.compile(r'[A-Za-z]:(?:/|\\\\)+(?:Drive của tôi|My Drive)(?:/|\\\\)+PHÒNG TRUYỀN THÔNG MICC')
 def to_m(b): return MROOT.sub('M:', unicodedata.normalize('NFC', b.decode('utf-8'))).encode('utf-8')
 def migrate_m():   # project cũ (G:/Drive của tôi/...) → M:/... để máy nào mở cũng thấy file
@@ -1469,6 +1469,12 @@ def do_build(jb, n):
     jput(st_name(jb, n), stt, ad, idx)
     log('  kịch bản %d chưa đạt (lần %d/%d) – sẽ dựng / sửa tiếp' % (n, stt['tries'], MAXT))
 
+MARK = 'MICC - nhận diện ổ Drive (không xóa).txt'
+def mark_root():   # file đánh dấu ở gốc "Drive của tôi" của tài khoản tailieumkt → công cụ đồng bộ nhận ra đúng ổ Drive của tài khoản này trên mỗi máy
+    try:
+        if not lq("'root' in parents and name='%s'" % MARK, 'id'):
+            put(MARK, 'root', 'Ổ Drive có file này = Drive của tài khoản MICC (tailieumkt). Công cụ đồng bộ CapCut dùng nó để nối video vào project. Đừng xóa.'.encode('utf-8'), 'text/plain')
+    except Exception as e: log('  không tạo được file nhận diện ổ Drive:', e)
 def setup_bat():   # đưa bản mới của công cụ đồng bộ CapCut lên SETUP (máy người dùng tự lấy bản mới mỗi 2 phút)
     try:
         import hashlib
@@ -1540,7 +1546,7 @@ def pending():
 def run(key, models, until):
     if PAUSE: log('AI dựng: đang tạm dừng chờ bản nâng cấp'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    rename_old(); fix_vol(); heal_list(); setup_bat()
+    mark_root(); rename_old(); fix_vol(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
