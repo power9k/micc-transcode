@@ -862,7 +862,8 @@ def publish(jb, sc, n):
         if mu: used_music(add=mu[3])
         for c in old_:   # bản mới đã lên xong → mới bỏ bản cũ (vào thùng rác Drive, khôi phục được)
             try:
-                L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); list_edit(remove=[path_of(host) + '/' + c['name']])
+                L.drive('files/' + c['id'], {'trashed': True}, method='PATCH')
+                if c['name'] != proj: list_edit(remove=[path_of(host) + '/' + c['name']])   # cùng tên → dòng danh sách giờ trỏ bản mới, giữ nguyên
                 log('  đã thay bản cũ:', c['name'])
             except Exception as e: log('  không bỏ được bản cũ', c['name'], e)
     except Exception:   # hỏng giữa chừng → bỏ thư mục dở, không để rác
@@ -1069,6 +1070,16 @@ def do_build(jb, n):
     jput(st_name(jb, n), stt, ad, idx)
     log('  kịch bản %d chưa đạt (lần %d/%d) – sẽ dựng / sửa tiếp' % (n, stt['tries'], MAXT))
 
+def heal_list():   # mọi project đã giao (kiểu mới) phải có trong danh sách CapCut – tự bù dòng thiếu
+    try:
+        fid = list_file(); have = {x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()}
+        add = []
+        for c in lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s'" % (LV, L.FOLDER), 'id,name,parents'):
+            rel = path_of((c.get('parents') or [''])[0]) + '/' + c['name']
+            if rel not in have: add.append(rel)
+        if add: list_edit(add=add); log('  đã bù vào danh sách CapCut:', '; '.join(add))
+    except Exception as e: log('  không rà được danh sách CapCut:', e)
+
 def pending():
     if PAUSE: return 0
     for k in range(3):
@@ -1081,6 +1092,7 @@ def run(key, models, until):
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     try: migrate_m()
     except Exception as e: log('AI dựng: đổi ổ M lỗi', e)
+    heal_list()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not T or time.time() - tT > 300:   # quét lại Drive tối đa 5 phút / lần (quét cả kho tốn ~1 phút)
