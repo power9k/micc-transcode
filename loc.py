@@ -63,10 +63,22 @@ def drive(path, data=None, method=None, params='supportsAllDrives=true'):
             time.sleep(2 * (i + 1))
     raise RuntimeError('Drive không phản hồi')
 def durl(fid): return G + '/drive/v3/files/' + fid + '?alt=media&supportsAllDrives=true'
+# TẢI KIỂU KHÁCH (chủ dặn 11/11): thư mục PHÒNG TRUYỀN THÔNG MICC đã công khai → tải không đăng nhập, KHÔNG tính vào hạn mức tải của tài khoản MICC
+# (Drive trên máy người dùng / CapCut không bị chặn lây). File nào không tải khách được thì mới dùng tài khoản.
+_ANON = {}
+def aurl(fid): return 'https://drive.usercontent.google.com/download?id=%s&export=download&confirm=t' % fid
+def anon_ok(fid):
+    if fid not in _ANON:
+        try:
+            req = urllib.request.Request(aurl(fid), headers={'Range': 'bytes=0-1023'})
+            with urllib.request.urlopen(req, timeout=30) as r: _ANON[fid] = r.status in (200, 206) and 'text/html' not in (r.headers.get('Content-Type') or '')
+        except Exception: _ANON[fid] = False
+    return _ANON[fid]
 def fin(fid, ss=None, t=None):
     a = ['-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5']
     if ss is not None: a += ['-ss', '%.3f' % ss]
     if t is not None: a += ['-t', '%.3f' % t]
+    if anon_ok(fid): return a + ['-i', aurl(fid)]
     return a + ['-headers', 'Authorization: Bearer %s\r\n' % tok(), '-i', durl(fid)]
 def run(cmd, timeout=None):
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -78,7 +90,7 @@ def download(fid, size, dst):
     if os.path.exists(dst): os.remove(dst)
     for tries in range(8):
         try:
-            req = urllib.request.Request(durl(fid), headers={'Authorization': 'Bearer ' + tok(), 'Range': 'bytes=%d-' % got})
+            req = urllib.request.Request(aurl(fid), headers={'Range': 'bytes=%d-' % got}) if anon_ok(fid) else urllib.request.Request(durl(fid), headers={'Authorization': 'Bearer ' + tok(), 'Range': 'bytes=%d-' % got})
             with urllib.request.urlopen(req, timeout=120) as r, open(dst, 'ab') as w:
                 if r.status == 200 and got: w.truncate(0); got = 0
                 while True:

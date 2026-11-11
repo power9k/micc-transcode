@@ -59,7 +59,11 @@ def lq(q, f='id,name,mimeType,size,createdTime,parents,appProperties,videoMediaM
             time.sleep(15 * (k + 1))
 def kids(fid): return lq("'%s' in parents" % fid)
 def get(fid, f='id,name,parents,appProperties'): return L.drive('files/' + fid, params={'fields': f})
-def raw(fid):
+def raw(fid):   # tải kiểu khách trước (không tính hạn mức tài khoản), không được mới dùng tài khoản
+    try:
+        with urllib.request.urlopen(urllib.request.Request(L.aurl(fid)), timeout=300) as r:
+            if 'text/html' not in (r.headers.get('Content-Type') or ''): return r.read()
+    except Exception: pass
     req = urllib.request.Request(L.durl(fid), headers={'Authorization': 'Bearer ' + L.tok()})
     with urllib.request.urlopen(req, timeout=300) as r: return r.read()
 def put(name, parent, data, mime):  # tải file nhỏ lên Drive (multipart), thử lại khi Drive báo quá hạn mức
@@ -1350,7 +1354,7 @@ def edit(jb, key, models):
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
 ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
-PAUSE = True   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 # ================================================================ HÀNG VIỆC CHUNG cho mọi máy GitHub (chủ dặn 11/11)
 # mọi máy = 1 cỗ máy: việc chia nhỏ (ĐỌC 1 video · LÊN KỊCH BẢN 1 source · DỰNG 1 kịch bản); máy rảnh nhận việc gần xong nhất trước
 # (dựng → lên kịch bản → đọc) → project ra lần lượt, các máy còn lại vẫn đọc song song các source khác. Khóa từng việc trên Drive.
