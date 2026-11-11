@@ -59,12 +59,11 @@ def lq(q, f='id,name,mimeType,size,createdTime,parents,appProperties,videoMediaM
             time.sleep(15 * (k + 1))
 def kids(fid): return lq("'%s' in parents" % fid)
 def get(fid, f='id,name,parents,appProperties'): return L.drive('files/' + fid, params={'fields': f})
-def raw(fid, anon=False):   # file nhỏ hay đổi (danh sách, trạng thái, kịch bản) → luôn đọc bằng tài khoản (đường khách có thể trả bản cũ đã lưu tạm); anon=True chỉ cho file lớn không đổi (nhạc, video)
-    if anon:
-      try:
+def raw(fid):   # tải kiểu khách trước (không tính hạn mức tài khoản), không được mới dùng tài khoản
+    try:
         with urllib.request.urlopen(urllib.request.Request(L.aurl(fid)), timeout=300) as r:
             if 'text/html' not in (r.headers.get('Content-Type') or ''): return r.read()
-      except Exception: pass
+    except Exception: pass
     req = urllib.request.Request(L.durl(fid), headers={'Authorization': 'Bearer ' + L.tok()})
     with urllib.request.urlopen(req, timeout=300) as r: return r.read()
 def put(name, parent, data, mime):  # tải file nhỏ lên Drive (multipart), thử lại khi Drive báo quá hạn mức
@@ -942,14 +941,14 @@ def kho_music(p_):   # bài nhạc được chọn → có trong Kho/Nhạc nề
     k = kho(); nm = p_['orig']
     if not lq("'%s' in parents and name='%s'" % (k['music'], nm.replace("'", "\\'")), 'id'):
         try: L.drive('files/%s/copy' % p_['id'], {'name': nm, 'parents': [k['music']]}, params={'fields': 'id'})
-        except Exception: put(nm, k['music'], raw(p_['id'], anon=True), 'audio/mpeg')
+        except Exception: put(nm, k['music'], raw(p_['id']), 'audio/mpeg')
 
 def music_info(c):   # phân tích 1 bài nhạc 1 lần (BPM, kick, snare, đoạn lắng / sôi, điểm dồn) – lưu lại cho mọi máy dùng
     ad, _ = ana_dir(); nm = '%s_nhac.json' % c['id']; got = names_in(ad, [nm])
     if nm in got:
         try: return json.loads(raw(got[nm]).decode('utf-8'))
         except Exception: pass
-    fp = os.path.join(L.TMP, 'nhac_' + c['id']); open(fp, 'wb').write(raw(c['id'], anon=True))
+    fp = os.path.join(L.TMP, 'nhac_' + c['id']); open(fp, 'wb').write(raw(c['id']))
     dur = float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', fp], capture_output=True, text=True).stdout.strip() or 0)
     try: mm = X.music_map(fp)
     except Exception: mm = {}
@@ -1023,17 +1022,10 @@ def engine():
 # ---------------------------------------------------------------- 4) đưa project lên Drive + danh sách lối tắt
 def list_file():
     return lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), LIST_NAME))[0]['id']
-def list_edit(add=(), remove=()):   # nhiều máy cùng sửa danh sách → giữ khóa ngắn để không ghi đè mất dòng của nhau
-    fid = list_file(); got = False
-    for _ in range(12):
-        if lock(fid, 'dungLE'): got = True; break
-        time.sleep(5)
-    try:
-        lines = [x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()]
-        lines = [x for x in lines if x not in remove] + [x for x in add if x not in lines]
-        update(fid, ('\r\n'.join(lines) + '\r\n').encode('utf-8'), 'text/plain')
-    finally:
-        if got: unlock(fid, 'dungLE')
+def list_edit(add=(), remove=()):
+    fid = list_file(); lines = [x.strip() for x in raw(fid).decode('utf-8-sig').splitlines() if x.strip()]
+    lines = [x for x in lines if x not in remove] + [x for x in add if x not in lines]
+    update(fid, ('\r\n'.join(lines) + '\r\n').encode('utf-8'), 'text/plain')
 def timeline(jb, sc, pl):   # dòng thời gian bằng chữ cho Claude kiểm duyệt
     A = {a['i']: a for a in jb['A']}; AK = {'V%d' % i: a for i, a in A.items()}; out = []
     for sh in pl['shots']:
