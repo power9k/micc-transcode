@@ -178,7 +178,10 @@ QA_LIST = '''DANH SÁCH KIỂM TRA (chủ đã dặn, lỗi nào cũng phải s�
 4. Cảnh phụ không khớp lời đang nói, cảnh phụ xấu (rung, mờ, lóa), cảnh lặp lại.
 5. Cắt mất chữ / cắt giữa câu, câu nói lặp lại 2 lần, người nói ngập ngừng / nói hỏng / ra hiệu cắt còn sót.
 6. Video đơn điệu: thiếu nhấn (zoom nhấn từ khóa, chuyển cảnh, hiệu ứng) hoặc lạm dụng hiệu ứng. ("giật zoom" ở từ khóa là CHỦ Ý nhấn nhá theo phong cách team – chỉ báo lỗi khi quá dày < 2 s/lần.)
-7. Mở đầu không có câu hút (hook), kết thúc cụt.'''
+7. Mở đầu không có câu hút (hook), kết thúc cụt.
+8. Đè tiếng: 2 giọng nói cùng lúc, tiếng cảnh phụ lẫn vào lời, nhạc / SFX át giọng.
+9. Lỗi font: ký tự hiện thành ô vuông / khối chữ nhỏ lạ, mất dấu tiếng Việt.
+10. Video chán: ít hiệu ứng, cảnh đứng yên lâu, cảnh phụ không đa dạng, nhịp cắt đều đều không theo nhạc.'''
 def qa(pl, timeline, pv_imgs, log=print):
     q = (QA_LIST + '\n\nDÒNG THỜI GIAN BẢN DỰNG (mỗi mục chữ có số [T#], cảnh phụ có số [B#]):\n' + timeline +
          '\n\nẢnh kèm theo = khung xem trước 9:16 của bản dựng tại các mốc (đúng vị trí chữ + khung hình đã zoom). '
