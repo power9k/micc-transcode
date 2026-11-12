@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        w: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]   # chủ dặn 12/11: dùng hết 20 máy GitHub (16 máy AI + 4 máy chuyển đổi video) – lúc dựng không tải video nên Drive nhẹ
+        w: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]   # chủ dặn 12/11: 18 máy AI + ≤ 2 máy chuyển đổi video = 20 (giới hạn GitHub miễn phí); máy chuyển đổi rảnh thì hỗ trợ đọc source
     concurrency:
       group: micc-loc-${{ matrix.w }}
       cancel-in-progress: false
