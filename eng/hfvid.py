@@ -48,7 +48,7 @@ def render(pl, media_files, music, out, tvc=False, fontdir=None, work=None, log=
             m_ = 1.0 + (.05 if tvc else .03); ks = [(t, round(m * (1 + (m_ - 1) * t / max(d, .1)), 4), x, y) for t, m, x, y in ks]
         cid = 'w%03d' % idx
         g = md.get('grade') or {}; gf = lambda k_: float(g.get(k_) or 0)
-        filt = 'brightness(%.3f) contrast(%.3f) saturate(%.3f)%s' % (1 + gf('brightness') * .6 + gf('shadow') * .15, 1 + gf('contrast') * .7, 1 + gf('saturation') * 1.2,
+        filt = 'brightness(%.3f) contrast(%.3f) saturate(%.3f)%s' % (1 + gf('brightness') * .6 + gf('shadow') * .15 + (.05 if tvc else 0), 1 + gf('contrast') * .7, 1 + gf('saturation') * 1.2,
                                                                 (' sepia(%.3f)' % min(.25, gf('temperature') * .8)) if gf('temperature') > 0 else '') if g else 'none'
         body.append('<div id="%s" class="cl" style="z-index:%d"><video id="v%s" src="%s" muted playsinline data-start="%.3f" data-duration="%.3f" '
                     'style="position:absolute;left:0;top:0;width:%dpx;height:%dpx;transform-origin:0 0;filter:%s"></video></div>' % (cid, z, cid, nm, t0, d, round(iw * s0), round(ih * s0), filt))
@@ -99,8 +99,8 @@ def render(pl, media_files, music, out, tvc=False, fontdir=None, work=None, log=
         js.append("tl.fromTo('#flare',{opacity:0,x:-%d},{opacity:.9,x:%d,duration:1.0,ease:'sine.inOut'},%.2f);tl.to('#flare',{opacity:0,duration:.4},%.2f);" % (W, W, max(0, c - .5), c + .5))
     bk = ''
     if tvc:
-        bk = ''.join('<div class="bk" style="left:%dpx;top:%dpx;width:%dpx;height:%dpx;filter:blur(%dpx)"></div>' % (r.randint(0, W), r.randint(0, H), d, d, d // 5) for d in [r.randint(30, 140) for _ in range(18)])
-        js.append("tl.fromTo('.bk',{opacity:0,y:40},{opacity:.55,y:-120,duration:%.2f,stagger:{each:.6,repeat:0},ease:'sine.inOut'},0);" % max(4, D * .6))
+        bk = ''.join('<div class="bk" style="left:%dpx;top:%dpx;width:%dpx;height:%dpx;filter:blur(%dpx)"></div>' % (r.randint(0, W), r.randint(0, H), d, d, d // 3) for d in [r.randint(90, 220) for _ in range(7)])
+        js.append("tl.fromTo('.bk',{opacity:0,y:40},{opacity:.28,y:-80,duration:%.2f,stagger:{each:.6,repeat:0},ease:'sine.inOut'},0);" % max(4, D * .6))
     warm = 'rgba(255,214,170,.7)' if tvc else 'rgba(255,190,120,.6)'
     doc = '''<!doctype html><html><head><meta charset="utf-8"><script src="gsap.min.js"></script><style>%(fonts)s
 html,body{margin:0;background:#000}#root{position:relative;width:%(W)dpx;height:%(H)dpx;overflow:hidden;background:#000}

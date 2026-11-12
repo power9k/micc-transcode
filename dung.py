@@ -1423,7 +1423,7 @@ def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG
     except Exception: mt = 0
     return max(LVT, mt)
 RV = 'rv1'   # chủ dặn 12/11 chiều: rút lại project Vũ Yên (Royal Island) và làm lại theo phong cách mới (lên lại kịch bản đủ video)
-HFV = 'hf3'   # chủ dặn 12/11: THỬ dựng hoàn toàn bằng HyperFrames (không qua CapCut) – 1 video Vũ Yên + 1 video Academy
+HFV = 'hf4'   # chủ dặn 12/11: THỬ dựng hoàn toàn bằng HyperFrames (không qua CapCut) – 1 video Vũ Yên + 1 video Academy
 HF_ONLY = [None]
 HFDIR = '🎬 Bản dựng HyperFrames (thử)'
 def hf_key(jb):
@@ -1464,6 +1464,11 @@ def hf_make(jb, pl, mu, proj, host):
             for ss_ in [sh['src'], max(0.0, dur_ - need - .3) if dur_ else 0.0, 0.0]:   # đoạn lấy lố cuối file → lùi lại cho đủ
                 try: mf[key] = cut(a['vid']['id'], ss_, need, ca_, os.path.join(wd, 's%03d.mp4' % j)); break
                 except Exception as e: mlog('HyperFrames: không cắt được cảnh', sh['media'], '@%.1f' % ss_, str(e)[:120])
+        last_ = None   # cảnh không cắt được → dùng lại cảnh liền trước (không để màn hình đen)
+        for sh in sorted(lay, key=lambda x: x['t0']):
+            k_ = (sh['media'], round(sh['t0'], 3))
+            if mf.get(k_): last_ = mf[k_]
+            elif last_ and sh['media'] not in mgl: mf[k_] = last_; mlog('HyperFrames: thay cảnh hỏng', sh['media'], 'bằng cảnh trước')
         for j, sp in enumerate(pl.get('speech') or []):
             a = A.get(sp['media'])
             if not a: continue
