@@ -170,8 +170,10 @@ def scan():
         if hitx and not kbtop: continue   # source có kịch bản chủ tự làm (Center Avenue KB1/KB2) mà không còn kịch bản nào khác
         if not [v for v in vids if not v['broll']]: continue
         last = max(L.ts(v['createdTime']) for v in vids)
-        if now - last < L.SETTLE: continue   # còn đang tải lên
-        jobs.append(dict(id=s['id'], name=nf(s['name']), src=nf(s['name']), dirs=dirs, ap=ap, pool=[], kbtop=kbtop, dn=dn, vids=vids, docs=docs, last=last))
+        upl = now - last < L.SETTLE   # buổi quay còn đang tải lên: chủ dặn 12/11 – file nào tải xong thì ĐỌC NGAY, kịch bản chờ tải xong cả buổi
+        if upl: vids = [v for v in vids if now - L.ts(v['createdTime']) >= 120 and int(v.get('size') or 0) > 0]   # file đã lên xong ≥ 2 phút
+        if upl and not vids: continue
+        jobs.append(dict(id=s['id'], name=nf(s['name']), src=nf(s['name']), dirs=dirs, ap=ap, pool=[], kbtop=kbtop, dn=dn, vids=vids, docs=docs, last=last, upl=upl))
     jobs.sort(key=lambda j: -j['last'])
     return jobs
 
@@ -1858,7 +1860,7 @@ def tasks(jobs=None):
         unread = [v for v in jb['vids'] if hong_name(v) not in idx and (ana_name(v) not in idx or xem_name(v) not in idx)]
         if unread:
             out += [(2, 'read', jb, v) for v in unread if not _fresh((v.get('appProperties') or {}).get('dungRL'))]
-        elif not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))
+        elif not jb.get('upl') and not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))   # còn đang tải lên → chưa lên kịch bản
     import random
     rd_first = int(os.environ.get('WORKER') or 0) > 6   # chủ dặn 12/11: 8 máy – máy 7–8 ưu tiên đọc source mới + ra kịch bản, máy 1–6 dựng (giãn tải Drive, ≥ 1 project / 15 phút)
     out.sort(key=lambda x: ((0 if x[1] != 'build' else 1) if rd_first else (0 if x[1] == 'build' else 1), -x[2].get('last', 0), x[3] if x[1] == 'build' else 0))   # dựng lần lượt từ source MỚI NHẤT tới cũ   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
