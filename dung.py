@@ -1969,7 +1969,9 @@ def tasks(jobs=None):
     rd_first = int(os.environ.get('WORKER') or 0) > 12   # chủ dặn 12/11: dùng hết 20 máy – 16 máy AI (1–12 dựng, 13–16 đọc source mới + ra kịch bản) + 4 máy chuyển đổi video
     newest = max([x[2].get('last', 0) for x in out] or [0])
     isnew = lambda x: newest - x[2].get('last', 0) < 6 * 3600 and time.time() - x[2].get('last', 0) < 3 * 86400   # chủ dặn 12/11: source MỚI là ưu tiên số 1 (đọc → kịch bản → dựng), project cũ chỉ chạy song song khi máy rảnh
-    out.sort(key=lambda x: (0 if isnew(x) else 1, {'read': 0, 'plan': 1, 'build': 2}.get(x[1], 3) if isnew(x) else ((0 if x[1] != 'build' else 1) if rd_first else (0 if x[1] == 'build' else 1)), -x[2].get('last', 0), x[3] if x[1] == 'build' else 0))   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
+    wk = int(os.environ.get('WORKER') or 0)
+    if 1 <= wk <= 4: out.sort(key=lambda x: (0 if x[1] == 'build' else 1, -x[2].get('last', 0), x[3] if x[1] == 'build' else 0))   # máy 1–4 luôn dựng project (mới trước, cũ sau) → project ra đều, < 30 phút / project
+    else: out.sort(key=lambda x: (0 if isnew(x) else 1, {'read': 0, 'plan': 1, 'build': 2}.get(x[1], 3) if isnew(x) else ((0 if x[1] != 'build' else 1) if rd_first else (0 if x[1] == 'build' else 1)), -x[2].get('last', 0), x[3] if x[1] == 'build' else 0))   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
     return out
 
 _JB = {}
@@ -2225,7 +2227,7 @@ def drive_ok():   # tài khoản MICC còn tải được không (thử 1 file n
     return True
 LISTF = '1wp8d6QDy9vkjrJPols3esmh9ORFMXY97'   # file danh sách CapCut (của tài khoản MICC)
 def run(key, models, until):
-    try: time.sleep(max(0, int(os.environ.get('WORKER') or 1) - 1) * 40)   # chủ dặn 12/11: các máy vào lệch nhau ~1,5 phút → không tải dồn dập lên Drive
+    try: time.sleep(((max(1, int(os.environ.get('WORKER') or 1)) - 1) % 16) * 40)   # chủ dặn 12/11: các máy vào lệch nhau ~1,5 phút → không tải dồn dập lên Drive
     except Exception: pass
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
