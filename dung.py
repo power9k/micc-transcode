@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '23'
-LV = '17'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '24'
+LV = '18'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -709,7 +709,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         kt_ = [t_ for t_ in a_.get('kt') or [] if sh['src'] - .2 <= t_ <= sh['src'] + (sh['t1'] - sh['t0']) + .2]
         if fr_: bad_ = (fr_[1] - .75 * fr_[3]) < .0 or (fr_[1] + .6 * fr_[3]) > 1.02   # mặt có nhưng đầu / cằm bị cắt ở khung gốc
         else: bad_ = len(kt_) >= 2 and not fc_   # chỉ coi là "không thấy mặt" khi có ≥ 2 khung đã soi mà không khung nào có mặt (thiếu dữ liệu ≠ xấu)
-        if not bad_:
+        if not bad_ and fr_:
             m0 = max(k_[1] for k_ in sh['keys']); v0 = min(k_[3] for k_ in sh['keys'])
             if fr_[1] - .75 * fr_[3] < max(0.0, v0 - .5 / (m0 * 1.2)) + .02:   # zoom (kể cả giật zoom từ khóa) làm mất đỉnh đầu → bỏ zoom, giữ khung rộng
                 sh["nz"] = 1
@@ -1124,7 +1124,7 @@ def ai_music(jb, sc, host, proj):   # chủ dặn 12/11: nhạc nền AI (Eleven
             lines.append('%.0fs: %s' % (t, txt[:140])); t += cc[2] - cc[1]
         est = max(30.0, t)
         q = ('Bạn là nhà soạn nhạc nền cho video ngắn bất động sản (TikTok/Reels). Video "%s", dài khoảng %.0f giây. Lời thoại theo giây:\n%s\n\n' % (sc.get('ten', ''), est, '\n'.join(lines)[:6000]) +
-             'Chia video thành 1–4 ĐOẠN NHẠC theo các đổi ý / đổi cảm xúc của kịch bản (mỗi đoạn ≥ 12 giây; các đoạn nối liền phủ 0→100%). Mỗi đoạn là 1 bài nhạc riêng sẽ được ghép lại.\n'
+             'Chia video thành 1–4 ĐOẠN NHẠC theo các đổi ý / đổi cảm xúc của kịch bản (mỗi đoạn ≥ 12 giây; các đoạn nối liền phủ 0→100%). Mỗi đoạn là 1 bài nhạc riêng sẽ được ghép lại.\n' +
              (('PHONG CÁCH NHẠC BẮT BUỘC CỦA KỊCH BẢN NÀY (thay gu mặc định; các đoạn có thể biến tấu nhưng giữ đúng dòng này): ' + PRO['music'][(int(sc.get('_n') or 1) - 1) % len(PRO['music'])] + '\n') if PRO.get('music') else '') +
              'Gu của chủ: nhạc LUÔN ngầu, hiện đại, kịch tính, có gu – trap, drill, bass house, cinematic hybrid, rock / blues nặng cho đoạn quy mô / sức mạnh / con số lớn; '
              'jazz, bossa nova, valse, bedroom pop, dream pop, lo-fi sang cho đoạn nhẹ / phong cách sống. KHÔNG nhạc quảng cáo sến, KHÔNG vui tươi trẻ con, KHÔNG da diết, KHÔNG ambient / thiền.\n'
@@ -1400,7 +1400,7 @@ VRE = re.compile(r'(?: \(AI dựng lại\)| v(\d+))\s*$')   # chủ dặn 11/11:
 def vnum(nm): m = VRE.search(bare_nm(nm)); return (int(m.group(1)) if m.group(1) else 2) if m else 1
 def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
 def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
-LVT = 1794450781   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
+LVT = 1794461334   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
 QAN = [0]   # số vòng Claude kiểm tra của project vừa dựng
 def why_time(jb, t_work, tries=0):   # chủ dặn 12/11: ngắn gọn – chỉ cho biết đã phải ngưng (chờ) bao lâu
     tot = time.time() - kb_start(jb); wait = max(0, tot - t_work); mm, ss = divmod(int(tot), 60)
@@ -1921,7 +1921,7 @@ PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâ
 # ================================================================ HÀNG VIỆC CHUNG cho mọi máy GitHub (chủ dặn 11/11)
 # mọi máy = 1 cỗ máy: việc chia nhỏ (ĐỌC 1 video · LÊN KỊCH BẢN 1 source · DỰNG 1 kịch bản); máy rảnh nhận việc gần xong nhất trước
 # (dựng → lên kịch bản → đọc) → project ra lần lượt, các máy còn lại vẫn đọc song song các source khác. Khóa từng việc trên Drive.
-MAXT = 6
+MAXT = 10
 def _fresh(t):
     try: return t and time.time() - float(str(t).rsplit(':', 1)[1]) < LOCK_TTL
     except Exception: return False
