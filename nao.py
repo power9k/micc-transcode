@@ -89,7 +89,7 @@ def see(videos, log=print):
          '"chat_luong":"tốt / rung / mờ nét / lóa / tối / nhìn lệch máy / ngập ngừng / vướng người qua / chữ-logo lạ …",'
          '"diem":1–10 (độ đẹp, dùng được để dựng)}]}]}\n'
          'Người nói: ghi rõ đoạn nào nhìn thẳng máy, đoạn nào quay đi, cười, ra hiệu cắt. Cảnh phụ: ghi rõ đoạn nào máy chạy mượt, đẹp nhất.')
-    j = ask_json(q, imgs, model='sonnet', key='videos', sys_p=VSYS, log=log)
+    j = ask_json(q, imgs, model='opus', key='videos', sys_p=VSYS, log=log)   # chủ dặn 12/11: Claude (model mạnh nhất) XEM hình ảnh video khi đọc source
     out = {}
     for v in (j or {}).get('videos', []):
         try: out[int(v.get('video'))] = dict(tong=v.get('tong', ''), doan=v.get('doan') or [])
