@@ -1781,7 +1781,7 @@ def edit(jb, key, models):
                 if not r.get('exists'):
                     try: tot = len(lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (LV, L.FOLDER), 'id'))
                     except Exception: tot = 0
-                    mm, ss = divmod(int(time.time() - kb_start(jb)), 60); L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, weblink(r['id'])), video=MGURL % r['mg'][0] if r.get('mg') else None)   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
+                    mm, ss = divmod(int(time.time() - kb_start(jb)), 60); L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, weblink(r['id'])), photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # chủ dặn 12/11: Zalo không gửi được video → gửi thumbnail   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
             else:
                 book['tries'][str(n)] = int(book['tries'].get(str(n), 0)) + 1
                 if not jb.get('qa_rej'): book['tries'][str(n)] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
@@ -1851,7 +1851,7 @@ def tasks(jobs=None):
             out += [(2, 'read', jb, v) for v in unread if not _fresh((v.get('appProperties') or {}).get('dungRL'))]
         elif not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))
     import random
-    rd_first = int(os.environ.get('WORKER') or 0) > 12   # chủ dặn 12/11: 16 máy – máy 13–16 ưu tiên đọc source mới + ra kịch bản, các máy khác dựng
+    rd_first = int(os.environ.get('WORKER') or 0) > 6   # chủ dặn 12/11: 8 máy – máy 7–8 ưu tiên đọc source mới + ra kịch bản, máy 1–6 dựng (giãn tải Drive, ≥ 1 project / 15 phút)
     out.sort(key=lambda x: ((0 if x[1] != 'build' else 1) if rd_first else (0 if x[1] == 'build' else 1), -x[2].get('last', 0), x[3] if x[1] == 'build' else 0))   # dựng lần lượt từ source MỚI NHẤT tới cũ   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
     return out
 
@@ -1948,8 +1948,7 @@ def do_build(jb, n):
             link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
             mm, ss = divmod(int(time.time() - kb_start(jb)), 60)
             L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
-                   photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None,   # ảnh thumbnail: khung hình người nói của project
-                   video=MGURL % r['mg'][0] if r.get('mg') else None)   # chủ dặn 12/11: có motion graphic → gửi clip motion graphic thay ảnh
+                   photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get("thumb") else None)   # chủ dặn 12/11: Zalo không gửi được video → chỉ thumbnail
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
     if not jb.get('qa_rej'): stt['tries'] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
@@ -2108,6 +2107,8 @@ def drive_ok():   # tài khoản MICC còn tải được không (thử 1 file n
     return True
 LISTF = '1wp8d6QDy9vkjrJPols3esmh9ORFMXY97'   # file danh sách CapCut (của tài khoản MICC)
 def run(key, models, until):
+    try: time.sleep(max(0, int(os.environ.get('WORKER') or 1) - 1) * 90)   # chủ dặn 12/11: các máy vào lệch nhau ~1,5 phút → không tải dồn dập lên Drive
+    except Exception: pass
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     mark_root(); fix_public(); retract_all(); share_sys(); free_stale(); purge_old(); dedupe_proj(); heal_list(); setup_bat()

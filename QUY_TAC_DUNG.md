@@ -57,3 +57,5 @@
 - 12/11 sáng: nhạc nền LUÔN -13 dB; nhạc nền mỗi project KHÔNG trùng project nào đang có (dungMu trên thư mục project + giữ chỗ dungRes); kho hết bài → tự tải thêm nhạc Mixkit (miễn phí bản quyền) vào Kho chung / Nhạc nền.
 - Motion graphic phải nằm ở LỚP CẢNH PHỤ (bshots) – bộ dựng chỉ đọc ashots/bshots; video có motion graphic → cover CapCut = khung đẹp của motion graphic.
 - Chỉ phủ cảnh phụ lên đoạn người nói khi CHẮC khung xấu (mặt bị cắt ở khung gốc, hoặc ≥ 2 khung đã soi không thấy mặt) – thiếu dữ liệu không phải là xấu.
+- 12/11 trưa: quy trình chốt – đọc source 1 lần (GitHub + Claude tải về), tự lên kịch bản, phân tích, motion graphic HyperFrames, tự dựng project, XONG mới đưa lên Drive. Dữ liệu làm việc giữ ở bộ nhớ đệm GitHub (tự xóa sau 7 ngày / khi đầy, xóa cũ nhất). Lúc dựng không tải video từ Drive. Tải có đăng nhập tài khoản MICC (không tải kiểu khách).
+- Zalo: gửi thumbnail (Zalo bot không gửi được video). Giãn tải: 8 máy (6 dựng + 2 đọc), các máy vào lệch nhau, vẫn ≥ 1 project / 15 phút.
