@@ -30,8 +30,9 @@ def render(pl, media_files, music, out, tvc=False, fontdir=None, work=None, log=
     for k, fn in FK.items():
         p = os.path.join(fd, fn)
         if os.path.exists(p): shutil.copy(p, os.path.join(work, 'f_%s.ttf' % k)); fonts_css += "@font-face{font-family:'F%s';src:url('f_%s.ttf')}" % (k, k)
-    lay_a = pl.get('ashots') or [s for s in pl['shots'] if s.get('line') == 'A']
-    lay_b = pl.get('bshots') if pl.get('ashots') else [s for s in pl['shots'] if s.get('line') != 'A']
+    lay_a = sorted(pl['shots'], key=lambda s: s['t0'])   # lớp nền = toàn bộ dòng thời gian (cả cảnh phụ ở chỗ lặng / LANG)
+    seen_ = {(s['media'], round(s['t0'], 3)) for s in lay_a}
+    lay_b = [s for s in (pl.get('bshots') or []) if (s['media'], round(s['t0'], 3)) not in seen_]
     body, js = [], []
     def clip_html(sh, z, idx, kind):
         f = media_files.get((sh['media'], round(sh['t0'], 3)))
@@ -46,8 +47,11 @@ def render(pl, media_files, music, out, tvc=False, fontdir=None, work=None, log=
         if tvc or kind == 'B':   # chuyển động trôi chậm, bay bổng (thêm 3–5 % zoom nhẹ suốt cảnh)
             m_ = 1.0 + (.05 if tvc else .03); ks = [(t, round(m * (1 + (m_ - 1) * t / max(d, .1)), 4), x, y) for t, m, x, y in ks]
         cid = 'w%03d' % idx
+        g = md.get('grade') or {}; gf = lambda k_: float(g.get(k_) or 0)
+        filt = 'brightness(%.3f) contrast(%.3f) saturate(%.3f)%s' % (1 + gf('brightness') * .6 + gf('shadow') * .15, 1 + gf('contrast') * .7, 1 + gf('saturation') * 1.2,
+                                                                (' sepia(%.3f)' % min(.25, gf('temperature') * .8)) if gf('temperature') > 0 else '') if g else 'none'
         body.append('<div id="%s" class="cl" style="z-index:%d"><video id="v%s" src="%s" muted playsinline data-start="%.3f" data-duration="%.3f" '
-                    'style="position:absolute;left:0;top:0;width:%dpx;height:%dpx;transform-origin:0 0"></video></div>' % (cid, z, cid, nm, t0, d, round(iw * s0), round(ih * s0)))
+                    'style="position:absolute;left:0;top:0;width:%dpx;height:%dpx;transform-origin:0 0;filter:%s"></video></div>' % (cid, z, cid, nm, t0, d, round(iw * s0), round(ih * s0), filt))
         js.append("tl.set('#%s',{autoAlpha:0},0);" % cid)
         fin = .9 if tvc else (.35 if kind == 'B' else 0)
         if fin and t0 > .05: js.append("tl.fromTo('#%s',{autoAlpha:0,scale:1.04},{autoAlpha:1,scale:1,duration:%.2f,ease:'sine.out'},%.3f);" % (cid, min(fin, d / 3), t0))
@@ -79,7 +83,9 @@ def render(pl, media_files, music, out, tvc=False, fontdir=None, work=None, log=
                 style = re.sub(r'text-shadow:[^;]*;', '', style) + ";background:linear-gradient(100deg,%s 0%%,%s 42%%,#FFFFFF 50%%,%s 58%%,%s 100%%);background-size:250%% 100%%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 4px 10px rgba(0,0,0,.45))" % (col, col, col, col)
             rows.append('<div class="lw"><span class="ln" style="%s">%s</span></div>' % (style, html.escape(tx)))
         tid = 't%03d' % j; t0, t1 = float(ti['t0']), float(ti['t1'])
-        body.append('<div id="%s" class="tt" style="top:%dpx">%s</div>' % (tid, y, ''.join(rows)))
+        c0 = (ti['lines'][-1][3] or '#FFFFFF').lstrip('#'); lum = sum(int(c0[i_:i_ + 2], 16) * w_ for i_, w_ in ((0, .299), (2, .587), (4, .114))) if len(c0) == 6 else 255
+        bdc = 'rgba(255,250,245,.55)' if lum < 110 else 'rgba(0,0,0,%s)' % ('.22' if tvc else '.3')   # chữ tối → nền sáng mềm phía sau; chữ sáng → nền tối mềm
+        body.append('<div id="%s" class="tt" style="top:%dpx;--bd:%s">%s</div>' % (tid, y, bdc, ''.join(rows)))
         dur_in = .9 if tvc else .45; slide = 22 if tvc else 14
         js.append("tl.set('#%s',{autoAlpha:0},0);tl.set('#%s',{autoAlpha:1},%.3f);" % (tid, tid, t0))
         js.append("tl.fromTo('#%s .lw',{opacity:0,y:%d,filter:'blur(10px)'},{opacity:1,y:0,filter:'blur(0px)',duration:%.2f,stagger:%.2f,ease:'power2.out'},%.3f);" % (tid, slide, dur_in, .18 if tvc else .1, t0))
@@ -100,7 +106,7 @@ def render(pl, media_files, music, out, tvc=False, fontdir=None, work=None, log=
 html,body{margin:0;background:#000}#root{position:relative;width:%(W)dpx;height:%(H)dpx;overflow:hidden;background:#000}
 .cl{position:absolute;inset:0;overflow:hidden}.tt{position:absolute;left:%(gut)dpx;right:%(gut)dpx;z-index:20;text-align:center;transform:translateY(-50%%);line-height:1.12}
 .ln{display:inline-block;white-space:pre-wrap;padding:0 .1em}
-.tt::before{content:'';position:absolute;left:10%%;right:10%%;top:-30%%;bottom:-30%%;z-index:-1;background:radial-gradient(ellipse at center,rgba(0,0,0,%(bd)s),transparent 70%%)}
+.tt::before{content:'';position:absolute;left:10%%;right:10%%;top:-30%%;bottom:-30%%;z-index:-1;background:radial-gradient(ellipse at center,var(--bd),transparent 70%%)}
 #leak{position:absolute;inset:-25%%;z-index:15;pointer-events:none;mix-blend-mode:screen;opacity:0;background:radial-gradient(ellipse at 25%% 35%%,%(warm)s,transparent 45%%),radial-gradient(ellipse at 80%% 70%%,rgba(255,170,200,.45),transparent 50%%)}
 #flare{position:absolute;left:-10%%;top:%(fy)dpx;width:120%%;height:%(fh)dpx;z-index:16;pointer-events:none;mix-blend-mode:screen;opacity:0;filter:blur(8px);background:linear-gradient(90deg,transparent,rgba(255,255,255,.85),rgba(255,226,190,.6),transparent)}
 #flash{position:absolute;inset:0;z-index:17;background:#fff;opacity:0;pointer-events:none;mix-blend-mode:screen}

@@ -132,7 +132,7 @@ def path_of(fid):   # đường dẫn tương đối từ PHÒNG TRUYỀN THÔNG
         if cur == L.ROOT: break
         f = get(cur, 'id,name,parents'); parts.append(nf(f['name'])); cur = (f.get('parents') or [L.ROOT])[0]
     PATHS[fid] = '/'.join(reversed(parts)); return PATHS[fid]
-def scan():
+def scan(all_=False):
     fol = lq("mimeType='%s'" % L.FOLDER, 'id,name,parents,appProperties,createdTime')
     by = {f['id']: f for f in fol}; ch = {}
     for f in fol:
@@ -154,7 +154,7 @@ def scan():
     for s in srcs:   # 1 thư mục SOURCE = 1 lượt: đọc HẾT mọi thư mục con, Claude nhìn tổng thể rồi chia các kịch bản (mỗi cái < 2 phút)
         ap = s.get('appProperties') or {}
         if ONLY and ONLY not in L.norm1(path_of(s['id'])): continue   # chạy thử bản nâng cấp trên 1 dự án trước
-        if ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3): continue
+        if not all_ and (ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3)): continue
         dirs, kbtop, dn, st, hitx = [], {}, {}, [(s, None)], False
         while st:
             d, top = st.pop(); dirs.append(d['id']); dn[d['id']] = nf(d['name'])
@@ -1422,7 +1422,7 @@ def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG
     except Exception: mt = 0
     return max(LVT, mt)
 RV = 'rv1'   # chủ dặn 12/11 chiều: rút lại project Vũ Yên (Royal Island) và làm lại theo phong cách mới (lên lại kịch bản đủ video)
-HFV = 'hf1'   # chủ dặn 12/11: THỬ dựng hoàn toàn bằng HyperFrames (không qua CapCut) – 1 video Vũ Yên + 1 video Academy
+HFV = 'hf2'   # chủ dặn 12/11: THỬ dựng hoàn toàn bằng HyperFrames (không qua CapCut) – 1 video Vũ Yên + 1 video Academy
 HF_ONLY = [None]
 HFDIR = '🎬 Bản dựng HyperFrames (thử)'
 def hf_key(jb):
@@ -1441,7 +1441,7 @@ def hf_make(jb, pl, mu, proj, host):
         wd = os.path.join(L.TMP, 'hf'); shutil.rmtree(wd, ignore_errors=True); os.makedirs(wd)
         A = {'V%d' % a['i']: a for a in jb['A']}; mf = {}; W_, H_ = pl.get('canvas') or (1080, 1920)
         mgl = {'M%d' % (i + 1): o for i, (o, nm) in enumerate(pl.get('mg') or [])}
-        lay = ((pl.get('ashots') or []) + (pl.get('bshots') or [])) if pl.get('ashots') else pl['shots']
+        lay = list(pl['shots']) + list(pl.get('bshots') or []); seen_ = set()
         def cut(fid, ss, t, args, out):
             err = None
             for f in [fid, lite(fid)]:
@@ -1451,6 +1451,8 @@ def hf_make(jb, pl, mu, proj, host):
             raise err or RuntimeError('không đọc được video')
         for j, sh in enumerate(lay):
             key = (sh['media'], round(sh['t0'], 3))
+            if key in seen_: continue
+            seen_.add(key)
             if sh['media'] in mgl: mf[key] = mgl[sh['media']]; continue
             a = A.get(sh['media'])
             if not a: continue
@@ -1487,7 +1489,7 @@ def hf_make(jb, pl, mu, proj, host):
 def hf_academy():   # bản thử Academy: dựng lại kịch bản đầu của source Academy mới nhất, CHỈ xuất bản HyperFrames (không đụng project CapCut)
     if not hf_todo('academy'): return
     try:
-        js = sorted([jb for jb in scan() if hf_key(jb) == 'academy'], key=lambda jb: max([v.get('createdTime') or '' for v in jb.get('vids') or []] or ['']), reverse=True)
+        js = sorted([jb for jb in scan(True) if hf_key(jb) == 'academy'], key=lambda jb: max([v.get('createdTime') or '' for v in jb.get('vids') or []] or ['']), reverse=True)
         ad, idx = idx_now()
         for jb in js:
             book = jget('%s_kichban.json' % jb['id'], idx) or {}
