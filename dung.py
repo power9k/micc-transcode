@@ -1327,13 +1327,9 @@ def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
 def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
 LVT = 1794450781   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
 QAN = [0]   # số vòng Claude kiểm tra của project vừa dựng
-def why_time(jb, t_work, tries=0):   # chủ dặn 12/11: ghi rõ trong ngoặc thời gian đi đâu (dựng thật / chờ / lỗi dựng lại)
-    tot = time.time() - kb_start(jb); wait = max(0, tot - t_work); bits = ['dựng %d phút' % round(t_work / 60)]
-    if QAN[0]: bits.append('Claude kiểm tra %d vòng' % QAN[0])
-    if wait > 90: bits.append('chờ %d phút (đến lượt máy rảnh / Google chặn tải / hết lượt Claude)' % round(wait / 60))
-    if tries: bits.append('dựng lại %d lần vì lần trước chưa đạt kiểm tra hoặc lỗi' % tries)
-    mm, ss = divmod(int(tot), 60)
-    return 'Dựng mất %d phút %02d giây (%s)' % (mm, ss, ' · '.join(bits))
+def why_time(jb, t_work, tries=0):   # chủ dặn 12/11: ngắn gọn – chỉ cho biết đã phải ngưng (chờ) bao lâu
+    tot = time.time() - kb_start(jb); wait = max(0, tot - t_work); mm, ss = divmod(int(tot), 60)
+    return 'Dựng mất %d phút %02d giây%s' % (mm, ss, ' (ngưng %d phút)' % round(wait / 60) if wait > 90 else '')
 def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG KỊCH BẢN (gồm cả chờ máy, tải cảnh phụ / nhạc, dựng motion graphic…)
     try:
         f = idx_now()[1].get('%s_kichban.json' % jb['id'])
