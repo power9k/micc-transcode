@@ -63,3 +63,4 @@
 - 12/11 chiều: chữ + motion graphic PHỐI HỢP – đoạn có chữ thì motion graphic thu gọn xuống dưới, chừa vùng chữ phía trên (dải nền tối), chữ CapCut đặt đúng vùng đó (y ≈ 11,5 %), màu vàng / trắng hợp nền xanh than.
 - Cảnh phụ chỉ khi cần: tối đa ~35 % thời lượng, mỗi cảnh ≤ 3–4 s (trừ cảnh phủ bắt buộc và motion graphic).
 - SỬA TRỰC TIẾP project: khoá ✏️ trước (đổi tên), chỉ thay đúng file cần sửa (draft_content/info, Motion graphic, cover, Word, Timelines), không xóa project.
+- 12/11 chiều: nhạc nền AI ElevenLabs Music (khoá ELEVENLABS_API_KEY trong GitHub Secrets): Claude chia 1–4 đoạn theo cảm xúc kịch bản, mỗi đoạn prompt tiếng Anh 3200–4000 ký tự, force_instrumental (không lời), ghép lại; lưu trong thư mục project 'Nhạc nền AI'. Lỗi / hết credit → dùng kho Mixkit miễn phí.

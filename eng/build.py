@@ -6,7 +6,7 @@ camera keys per clip (scale / position / ROTATION -> dolly push/pull, orbit, lat
 team transitions on V1 cuts, team video effects on an effect track, title-behind-presenter sandwich (matting),
 keyword titles with same-colour glow, speech track (presenter takes + approved VO), music with volume keys, SFX.
 usage: kb3_build.py plan_kb3.json"""
-import json, copy, uuid, time, os, sys, math, unicodedata
+import json, copy, uuid, time, os, sys, math, unicodedata, re
 ENG = os.path.dirname(os.path.abspath(__file__))
 V3 = ENG
 sys.path.insert(0, ENG)
@@ -292,7 +292,7 @@ def mus_keys(t0, t1, under, up):
     return [p for p in ded if t0 <= p[0] <= t1]
 MUs = []
 for i, mu in enumerate(PL['music']):
-    mid = amat(AD + '/' + mu['file'], mu['dur'], mu['file'])
+    mid = amat(mu['file'] if re.match(r'^[A-Za-z]:/', mu['file']) else AD + '/' + mu['file'], mu['dur'], os.path.basename(mu['file']))   # nhạc AI nằm trong thư mục project (đường dẫn đầy đủ)
     if mu['src_in'] + mu['t1'] - mu['t0'] > mu['dur'] + 1e-3: E.append('music past end %s' % mu['file'])
     MUs.append(aseg(mid, mu['src_in'], mu['t0'], mu['t1'] - mu['t0'], lin(-13), fades=(mu['fi'], mu['fo'])))   # chủ dặn 12/11: nhạc nền LUÔN -13 dB
 SFs = []

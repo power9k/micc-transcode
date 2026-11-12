@@ -1081,6 +1081,50 @@ def fetch_music(n=8):   # kho hết bài chưa dùng → tải thêm nhạc mi�
                 put(fn, kd, b, 'audio/mpeg'); have.add(fn.lower()); got += 1; log('  tải thêm nhạc nền:', fn)
             except Exception as e: log('  không tải được nhạc', nm, e)
     return got
+AIMDIR = 'Nhạc nền AI'
+def ai_music(jb, sc, host, proj):   # chủ dặn 12/11: nhạc nền AI (ElevenLabs Music, gói trả phí của tổ chức) – KHÔNG LỜI, đúng cảm xúc từng đoạn, mỗi project bài riêng, lưu trong project
+    key = os.environ.get('ELEVENLABS_API_KEY')
+    if not key: return None
+    try:
+        C = jb.get('C') or codes(jb); A = {a['i']: a for a in jb['A']}; t, lines = 0.0, []
+        for x in sc.get('aroll') or []:
+            cc = C.get(str(x).strip().upper()) if isinstance(x, str) else None
+            if not cc: continue
+            a = A.get(cc[0]); txt = ' '.join(w[2] for w in words(a, cc[1], cc[2])) if a else ''
+            lines.append('%.0fs: %s' % (t, txt[:140])); t += cc[2] - cc[1]
+        est = max(30.0, t)
+        q = ('Bạn là nhà soạn nhạc nền cho video ngắn bất động sản (TikTok/Reels). Video "%s", dài khoảng %.0f giây. Lời thoại theo giây:\n%s\n\n' % (sc.get('ten', ''), est, '\n'.join(lines)[:6000]) +
+             'Chia video thành 1–4 ĐOẠN NHẠC theo các đổi ý / đổi cảm xúc của kịch bản (mỗi đoạn ≥ 12 giây; các đoạn nối liền phủ 0→100%). Mỗi đoạn là 1 bài nhạc riêng sẽ được ghép lại.\n'
+             'Gu của chủ: nhạc LUÔN ngầu, hiện đại, kịch tính, có gu – trap, drill, bass house, cinematic hybrid, rock / blues nặng cho đoạn quy mô / sức mạnh / con số lớn; '
+             'jazz, bossa nova, valse, bedroom pop, dream pop, lo-fi sang cho đoạn nhẹ / phong cách sống. KHÔNG nhạc quảng cáo sến, KHÔNG vui tươi trẻ con, KHÔNG da diết, KHÔNG ambient / thiền.\n'
+             'Với MỖI đoạn viết "prompt" TIẾNG ANH CỰC KỲ CHI TIẾT, DÀI 3200–4000 KÝ TỰ (gần tối đa 4100) cho ElevenLabs Music, gồm: thể loại & tiểu thể loại, cảm xúc & năng lượng theo từng giây của đoạn, BPM chính xác, giọng điệu (key/scale), '
+             'nhạc cụ cụ thể (drum kit, 808, hi-hat rolls, synth bass, strings, brass, piano, guitar… và cách chơi), cấu trúc theo thời gian (intro / build / drop / break / outro với mốc giây), '
+             'chỗ dồn / điểm nhấn trùng các câu quan trọng, chuyển đoạn mượt sang đoạn sau, kỹ thuật mix (để trống dải tần giọng nói 1–4 kHz, nhạc làm NỀN dưới lời thoại, không lấn giọng), '
+             'và nhấn mạnh: "instrumental only, no vocals, no singing, no humming, no spoken words, no choir". Không nhắc tên nghệ sĩ / bài hát có bản quyền.\n'
+             'Trả JSON {"doan":[{"tu": % bắt đầu, "den": % kết thúc, "cam_xuc":"ngắn", "prompt":"..."}]}')
+        j = N.ask_json(q, model='opus', key='doan', log=log) or {}
+        parts = []; os.makedirs(MGW, exist_ok=True)
+        for k, d in enumerate(j.get('doan') or []):
+            f0, f1 = max(0, min(1, float(d['tu']) / 100)), max(0, min(1, float(d['den']) / 100))
+            if f1 - f0 < .05: continue
+            ln = max(10.0, (f1 - f0) * est + 4)   # dư 4 s để ghép mượt
+            body = json.dumps({'prompt': str(d['prompt'])[:4100], 'music_length_ms': int(ln * 1000), 'force_instrumental': True}).encode()
+            req = urllib.request.Request('https://api.elevenlabs.io/v1/music?output_format=mp3_44100_192', data=body, method='POST',
+                                         headers={'xi-api-key': key, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg'})
+            b = urllib.request.urlopen(req, timeout=600).read()
+            if len(b) < 50000: raise RuntimeError('ElevenLabs trả file quá nhỏ')
+            fn = safe('%02d - %s.mp3' % (k + 1, d.get('cam_xuc') or 'nhac nen'), 80); lp = os.path.join(MGW, 'ai_' + fn); open(lp, 'wb').write(b)
+            dur = float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', lp], capture_output=True, text=True).stdout.strip() or ln)
+            try: mm = X.music_map(lp) or {}
+            except Exception: mm = {}
+            parts.append(dict(id=None, ai=lp, nm=DRV + '/' + path_of(host) + '/' + proj + '/' + AIMDIR + '/' + fn, orig=fn, dur=dur, key='ai:' + proj.lower() + ':' + fn.lower(), mm=mm, f0=f0, f1=f1, src=0.0))
+            log('  nhạc AI (ElevenLabs) đoạn %d: %s – %.0fs' % (k + 1, d.get('cam_xuc'), dur))
+        if not parts: return None
+        parts.sort(key=lambda p_: p_['f0']); parts[0]['f0'] = 0.0; parts[-1]['f1'] = 1.0
+        for a_, b_ in zip(parts, parts[1:]): b_['f0'] = a_['f1']
+        return parts
+    except ClaudeWait: raise
+    except Exception as e: log('  nhạc AI chưa tạo được (dùng kho nhạc miễn phí):', str(e)[:200]); return None
 def pick_mix(jb, sc, _again=False):   # Claude MIX nhạc theo từng đoạn kịch bản (1–3 bài, chuyển mượt) – ngầu, hiện đại, kịch tính; vui thì bẻ sang dòng nhạc có gu
     try:
         AU = lambda d: [c for c in lq("'%s' in parents and mimeType contains 'audio/'" % d, 'id,name,size,mimeType,appProperties') if int(c.get('size') or 0) > 800000
@@ -1626,6 +1670,12 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
     return (best[1], '%016x' % best[2]) if best else (None, None)
 
 def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
+    try:
+        ai_ = [m for m in pl.get('ai_music') or [] if os.path.exists(m)]
+        if ai_:
+            ad_ = mkdir(AIMDIR, pf)
+            for m in ai_: put(os.path.basename(m)[3:], ad_, open(m, 'rb').read(), 'audio/mpeg')
+    except Exception as e: mlog('không lưu được nhạc AI:', repr(e))
     ids = []
     try:
         if pl.get('mg'):
@@ -1642,12 +1692,13 @@ def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover 
     return ids
 def _publish(jb, sc, n, host, proj, rel, adir):
     a0 = jb['A'][0]
-    mu = pick_mix(jb, sc); claude_grades(jb, sc)
+    mu = ai_music(jb, sc, host, proj) or pick_mix(jb, sc); claude_grades(jb, sc)
     pl = build_plan(jb, sc, proj, adir, mu, None)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     pl = review(jb, sc, pl, proj, adir, mu)   # Claude Opus tự kiểm tra (xem ảnh xem trước + dòng thời gian), sửa tối đa 2 vòng
     if not pl: return None
     pl = thin_broll(pl)
+    pl['ai_music'] = [p_['ai'] for p_ in (mu or []) if p_.get('ai')]
     del MGLOG[:]
     try: pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
     except Exception as e: mlog('add_mg hỏng:', repr(e)[:400])
@@ -1694,11 +1745,11 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if tgt:
         try:
             for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # chỉ bỏ đúng các file sẽ thay (+ bản lưu tạm Timelines của CapCut để CapCut đọc bản mới)
-                if x['name'] in ('draft_content.json', 'draft_info.json', 'draft_content.json' + HID, 'draft_info.json' + HID, MGDIR, 'draft_cover.jpg', 'Timelines') or x['name'].startswith('Kịch bản - '):
+                if x['name'] in ('draft_content.json', 'draft_info.json', 'draft_content.json' + HID, 'draft_info.json' + HID, MGDIR, AIMDIR, 'draft_cover.jpg', 'Timelines') or x['name'].startswith('Kịch bản - '):
                     try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
                     except Exception: pass
             L.drive('files/' + tgt['id'], {'appProperties': {'dungS': slot, 'dungL': LV, 'dungVol': '1'}}, method='PATCH')
-            for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)
+            for p_ in {p_['id']: p_ for p_ in (mu or []) if p_.get('id')}.values(): kho_music(p_)
             have = {x['name']: x['id'] for x in lq("'%s' in parents" % tgt['id'], 'id,name')}
             for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
                 b_ = rd(fn)
@@ -1718,7 +1769,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         except Exception as e: log('  không ghi đè được, tạo project mới:', e)
     pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV, 'dungVol': '1'})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
-        for p_ in {p_['id']: p_ for p_ in (mu or [])}.values(): kho_music(p_)   # nhạc dùng → vào Kho/Nhạc nền
+        for p_ in {p_['id']: p_ for p_ in (mu or []) if p_.get('id')}.values(): kho_music(p_)   # nhạc dùng → vào Kho/Nhạc nền
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
             put(fn, pf, rd(fn), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
         mgi = put_extra(pf, jb, pl, proj)
