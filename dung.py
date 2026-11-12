@@ -9,8 +9,8 @@ import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, sub
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '22'
-LV = '16'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '23'
+LV = '17'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -1459,6 +1459,22 @@ def lite(fid):   # bản nhẹ 480p/720p của video (máy chuyển đổi tạo
             xs.sort(key=lambda x: -int((x.get('videoMediaMetadata') or {}).get('height') or 0)); _LITE[fid] = xs[0]['id'] if xs else None
         except Exception: _LITE[fid] = None
     return _LITE[fid]
+def thin_broll(pl, cap=.35):   # chủ dặn 12/11: cảnh phụ CHỈ khi cần – không che hết người nói (tối đa ~35 % thời lượng, không phủ liền > 4 s trừ khi bắt buộc)
+    bs = list(pl.get('bshots') or [])
+    if not bs: return pl
+    keep = lambda b: b.get('mg') or b.get('phu') or (b.get('bi') == -1 and not b.get('mg'))   # motion graphic + cảnh phủ bắt buộc (khung xấu / không thấy người) → giữ
+    tot = pl['total']; cov = sum(b['t1'] - b['t0'] for b in bs)
+    opt = sorted([b for b in bs if not keep(b)], key=lambda b: -(b['t1'] - b['t0']))
+    drop = set()
+    for b in opt:   # cảnh phụ thường dài > 4 s → cắt còn 3 s (phần đầu)
+        if b['t1'] - b['t0'] > 4.0: cov -= (b['t1'] - b['t0']) - 3.0; b['t1'] = round(b['t0'] + 3.0, 3); b['keys'] = [b['keys'][0], [b['t1']] + b['keys'][-1][1:]]
+    for b in opt:
+        if cov <= cap * tot: break
+        drop.add(id(b)); cov -= b['t1'] - b['t0']
+    pl['bshots'] = [b for b in bs if id(b) not in drop]
+    pl['pips'] = [p_ for p_ in pl.get('pips') or [] if any(min(p_['t1'], b['t1']) - max(p_['t0'], b['t0']) > .3 for b in pl['bshots'])]
+    if drop: log('  bớt %d cảnh phụ (chỉ dùng khi cần, không che người nói)' % len(drop))
+    return pl
 def thumb(fid, out):   # ảnh đại diện Drive của video (không tính hạn mức tải) – dùng khi video bị Google chặn tải
     req = urllib.request.Request('https://drive.google.com/thumbnail?id=%s&sz=w1920' % fid, headers={'User-Agent': 'Mozilla/5.0'})
     b = urllib.request.urlopen(req, timeout=60).read()
@@ -1509,7 +1525,8 @@ def add_mg(jb, sc, pl, proj, host, adir):
                     clip = thumb(a['vid']['id'], clip[:-4] + '.jpg'); mlog('motion: dùng ảnh đại diện thay video (%s)' % str(e0)[:80])
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
             os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
-            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_))
+            tz_ = any(min(e_, z['t1']) - max(s_, z['t0']) > .15 for z in pl.get('titles') or [])   # có chữ CapCut trong đoạn này → motion graphic chừa vùng chữ phía trên
+            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_)
             out.append((s_, e_, o, nm)); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
         except Exception as e: mlog('bỏ 1 motion graphic:', repr(e)[:500])
@@ -1530,6 +1547,11 @@ def add_mg(jb, sc, pl, proj, host, adir):
         bsh = sorted(cut_(bsh, s_, e_) + [dict(mg_sh)], key=lambda x: x['t0'])   # bộ dựng CapCut đọc lớp cảnh phụ (bshots) – motion graphic nằm lớp trên người nói
         pl['pips'] = [p_ for p_ in pl.get('pips') or [] if p_['t1'] <= s_ or p_['t0'] >= e_]   # không đặt khung người nói nhỏ đè lên motion graphic
     if out and 'bshots' in pl: pl['bshots'] = bsh
+    for s_, e_, o_, nm_ in out:   # chủ dặn 12/11: chữ và motion graphic PHỐI HỢP – chữ nằm đúng vùng trống motion graphic chừa sẵn (trên cùng), màu hợp nền xanh than
+        for z in pl.get('titles') or []:
+            if min(e_, z['t1']) - max(s_, z['t0']) > .15:
+                z['y_pct'] = 11.5; z['bright'] = False; z['mg'] = 1
+                for k_, l_ in enumerate(z['lines']): l_[3] = '#F0D08A' if k_ == len(z['lines']) - 1 else '#FFFFFF'
     pl['shots'] = shots; pl['mg'] = [(o, nm) for _, _, o, nm in out]
     if len(out) > 1:   # chủ dặn 12/11: bản gửi kèm tin Zalo = GỘP các motion graphic lại thành 1 clip
         try:
@@ -1625,6 +1647,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     pl = review(jb, sc, pl, proj, adir, mu)   # Claude Opus tự kiểm tra (xem ảnh xem trước + dòng thời gian), sửa tối đa 2 vòng
     if not pl: return None
+    pl = thin_broll(pl)
     del MGLOG[:]
     try: pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
     except Exception as e: mlog('add_mg hỏng:', repr(e)[:400])
@@ -1667,11 +1690,11 @@ def _publish(jb, sc, n, host, proj, rel, adir):
             b_ = b_.replace(j_('/' + proj0), j_('/' + proj)).replace(j_(proj0), j_(proj))
         return b_
     # chủ dặn 11/11: project cũ CHƯA ai sửa → GHI ĐÈ thẳng vào thư mục đó (giữ nguyên lối tắt CapCut, không xoá rồi tạo lại)
-    tgt = None   # chủ dặn 12/11: dựng mới hoàn toàn (không ghi đè bản cũ để khỏi lẫn)   # ghi đè vào bản chưa ai sửa; bản người dùng đã sửa → vào thùng rác khi bản mới lên
+    tgt = (sorted([c for c in old_ if c['id'] not in ued], key=lambda c: c['createdTime']) or [None])[0]   # chủ dặn 12/11 trưa: SỬA TRỰC TIẾP vào project (đã khoá ✏️), chỉ thay đúng file cần sửa
     if tgt:
         try:
-            for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # bỏ bản lưu tạm / Timelines CapCut sinh ra để CapCut đọc đúng bản mới
-                if x['name'] not in ('draft_meta_info.json',):   # cả file dựng cũ (đang giấu) → bỏ, ghi bản mới
+            for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # chỉ bỏ đúng các file sẽ thay (+ bản lưu tạm Timelines của CapCut để CapCut đọc bản mới)
+                if x['name'] in ('draft_content.json', 'draft_info.json', 'draft_content.json' + HID, 'draft_info.json' + HID, MGDIR, 'draft_cover.jpg', 'Timelines') or x['name'].startswith('Kịch bản - '):
                     try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
                     except Exception: pass
             L.drive('files/' + tgt['id'], {'appProperties': {'dungS': slot, 'dungL': LV, 'dungVol': '1'}}, method='PATCH')
@@ -2092,7 +2115,7 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
 def pending():
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     if not drive_ok(): return 0   # Google đang chặn tải → không khởi động máy dựng
-    share_sys(); purge_old(); dedupe_proj()   # dọn trùng ngay cả khi không có việc dựng
+    share_sys(); dedupe_proj()   # dọn trùng ngay cả khi không có việc dựng (12/11 trưa: sửa trực tiếp, không xóa project cũ)
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
@@ -2118,7 +2141,7 @@ def run(key, models, until):
     except Exception: pass
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
-    mark_root(); fix_public(); retract_all(); share_sys(); free_stale(); purge_old(); dedupe_proj(); heal_list(); setup_bat()
+    mark_root(); fix_public(); retract_all(); share_sys(); free_stale(); dedupe_proj(); heal_list(); setup_bat()
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not drive_ok(): break   # chủ dặn 12/11: Google chặn hạn mức tải → ngưng, lượt sau (10 phút) tự thử lại

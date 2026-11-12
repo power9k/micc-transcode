@@ -297,7 +297,7 @@ def scene(loai, dur, clip, n, r):
         js = _enter(r, '#m1') + spin + drift + "sparks(22,1450,300);"
     return body, js
 
-def render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None):
+def render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None, tz=False):
     loai = loai if loai in LOAI else 'the_anh'
     if not clip and loai in ('dien_thoai', 'phieu_loc', 'the_anh', 'ban_do', 'so_sanh', 'khung_hinh'): loai = 'khu_3d' if loai in ('the_anh', 'ban_do', 'khung_hinh') else 'tang_truong'
     r = random.Random(int(hashlib.md5(('%s|%s|%s' % (seed or out, loai, dur)).encode()).hexdigest()[:8], 16))
@@ -306,6 +306,11 @@ def render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None):
     if clip: shutil.copy(clip, os.path.join(work, 'clip.jpg' if clip.lower().endswith('.jpg') else 'clip.mp4'))
     bgfill, pat, patop, patmove = _bg(r)
     body, js = scene(loai, round(dur, 2), clip, n, r)
+    if tz:   # có chữ CapCut → khối chính thu gọn xuống dưới, chừa vùng chữ phía trên (y 0–30 %) + dải nền tối mềm cho chữ nổi
+        body = ('<div class="frame" style="left:0;top:0;width:1080px;height:640px;background:linear-gradient(rgba(5,9,20,.85),rgba(5,9,20,.55) 70%,transparent)"></div>'
+                '<div style="position:absolute;left:0;top:0;width:1080px;height:1920px;transform:translateY(420px) scale(.78);transform-origin:50% 0">' + body + '</div>'
+                '<div class="frame" id="tzl" style="left:140px;top:430px;width:800px;height:4px;background:linear-gradient(90deg,transparent,%s,transparent)"></div>' % G['g1'])
+        js += "tl.fromTo('#tzl',{scaleX:0},{scaleX:1,duration:.7,ease:'power2.out'},.2);"
     dbody, djs = _decor(r); body = dbody + body; js = djs + js   # chi tiết trang trí nằm dưới khối chính
     d = dict(dur=round(dur, 2), body=body, js=js, enter='', bgfill=bgfill, pat=pat, patop=patop, patmove=patmove,
              k0=K[0], k1=K[1], k2=K[2], k3=K[3], k4=K[4], **G)
