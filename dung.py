@@ -1486,10 +1486,10 @@ def hf_make(jb, pl, mu, proj, host):
         import traceback as _tb; log('  ✗ HyperFrames lỗi:', e, _tb.format_exc().replace('\n', ' ¶ ')[-600:])
         try: L.mark(LISTF, **{'dungHFL_' + k: None})
         except Exception: pass
-def hf_academy():   # bản thử Academy: dựng lại kịch bản đầu của source Academy mới nhất, CHỈ xuất bản HyperFrames (không đụng project CapCut)
-    if not hf_todo('academy'): return
+def hf_academy(k_='academy'):   # bản thử Academy / Vũ Yên: dựng lại kịch bản đầu của source Academy mới nhất, CHỈ xuất bản HyperFrames (không đụng project CapCut)
+    if not hf_todo(k_): return
     try:
-        js = sorted([jb for jb in scan(True) if hf_key(jb) == 'academy'], key=lambda jb: max([v.get('createdTime') or '' for v in jb.get('vids') or []] or ['']), reverse=True)
+        js = sorted([jb for jb in scan(True) if hf_key(jb) == k_], key=lambda jb: max([v.get('createdTime') or '' for v in jb.get('vids') or []] or ['']), reverse=True)
         ad, idx = idx_now()
         for jb in js:
             book = jget('%s_kichban.json' % jb['id'], idx) or {}
@@ -2358,7 +2358,7 @@ def pending():
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     if not drive_ok(): return 0   # Google đang chặn tải → không khởi động máy dựng
     share_sys(); retract_vuyen(); dedupe_proj()
-    if hf_todo('academy'): return 1   # còn bản thử HyperFrames chưa dựng → bật máy
+    if hf_todo('academy') or hf_todo('vuyen'): return 1   # còn bản thử HyperFrames chưa dựng → bật máy
     pass   # dọn trùng ngay cả khi không có việc dựng (12/11 trưa: sửa trực tiếp, không xóa project cũ)
     for k in range(3):
         try: return len(tasks())
@@ -2386,7 +2386,8 @@ def run(key, models, until):
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     mark_root(); fix_public(); retract_all(); share_sys(); free_stale(); dedupe_proj(); heal_list(); setup_bat()
-    if WID.endswith('18') or os.environ.get('WORKER') == '18': hf_academy()   # chủ dặn 12/11: thử 1 video Academy dựng hoàn toàn bằng HyperFrames
+    if os.environ.get('WORKER') == '18': hf_academy('academy')
+    if os.environ.get('WORKER') == '17': hf_academy('vuyen')   # chủ dặn 12/11: thử 1 video Academy dựng hoàn toàn bằng HyperFrames
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not drive_ok(): break   # chủ dặn 12/11: Google chặn hạn mức tải → ngưng, lượt sau (10 phút) tự thử lại
