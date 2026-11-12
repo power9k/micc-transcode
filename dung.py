@@ -1423,7 +1423,7 @@ def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG
     except Exception: mt = 0
     return max(LVT, mt)
 RV = 'rv1'   # chủ dặn 12/11 chiều: rút lại project Vũ Yên (Royal Island) và làm lại theo phong cách mới (lên lại kịch bản đủ video)
-HFV = 'hf2'   # chủ dặn 12/11: THỬ dựng hoàn toàn bằng HyperFrames (không qua CapCut) – 1 video Vũ Yên + 1 video Academy
+HFV = 'hf3'   # chủ dặn 12/11: THỬ dựng hoàn toàn bằng HyperFrames (không qua CapCut) – 1 video Vũ Yên + 1 video Academy
 HF_ONLY = [None]
 HFDIR = '🎬 Bản dựng HyperFrames (thử)'
 def hf_key(jb):
@@ -1459,8 +1459,11 @@ def hf_make(jb, pl, mu, proj, host):
             if not a: continue
             spd = float(sh.get('spd') or 1.0); d = sh['t1'] - sh['t0']
             vf = 'scale=%d:%d:force_original_aspect_ratio=increase%s,fps=30' % (W_, H_, (',setpts=PTS/%.4f' % spd) if abs(spd - 1) > .01 else '')
-            try: mf[key] = cut(a['vid']['id'], sh['src'], d * spd + .15, ['-an', '-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '17', '-pix_fmt', 'yuv420p'], os.path.join(wd, 's%03d.mp4' % j))
-            except Exception as e: mlog('HyperFrames: không cắt được cảnh', sh['media'], str(e)[:120])
+            ca_ = ['-an', '-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '17', '-pix_fmt', 'yuv420p']; need = d * spd + .15
+            dur_ = float((pl['media'].get(sh['media']) or {}).get('dur') or 0)
+            for ss_ in [sh['src'], max(0.0, dur_ - need - .3) if dur_ else 0.0, 0.0]:   # đoạn lấy lố cuối file → lùi lại cho đủ
+                try: mf[key] = cut(a['vid']['id'], ss_, need, ca_, os.path.join(wd, 's%03d.mp4' % j)); break
+                except Exception as e: mlog('HyperFrames: không cắt được cảnh', sh['media'], '@%.1f' % ss_, str(e)[:120])
         for j, sp in enumerate(pl.get('speech') or []):
             a = A.get(sp['media'])
             if not a: continue
