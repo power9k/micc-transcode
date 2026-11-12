@@ -170,8 +170,10 @@ def scan():
         if hitx and not kbtop: continue   # source có kịch bản chủ tự làm (Center Avenue KB1/KB2) mà không còn kịch bản nào khác
         if not [v for v in vids if not v['broll']]: continue
         last = max(L.ts(v['createdTime']) for v in vids)
-        if now - last < L.SETTLE: continue   # còn đang tải lên
-        jobs.append(dict(id=s['id'], name=nf(s['name']), src=nf(s['name']), dirs=dirs, ap=ap, pool=[], kbtop=kbtop, dn=dn, vids=vids, docs=docs, last=last))
+        upl = now - last < L.SETTLE   # buổi quay còn đang tải lên: chủ dặn 12/11 – file nào tải xong thì ĐỌC NGAY, kịch bản chờ tải xong cả buổi
+        if upl: vids = [v for v in vids if now - L.ts(v['createdTime']) >= 120 and int(v.get('size') or 0) > 0]   # file đã lên xong ≥ 2 phút
+        if upl and not vids: continue
+        jobs.append(dict(id=s['id'], name=nf(s['name']), src=nf(s['name']), dirs=dirs, ap=ap, pool=[], kbtop=kbtop, dn=dn, vids=vids, docs=docs, last=last, upl=upl))
     jobs.sort(key=lambda j: -j['last'])
     return jobs
 
@@ -262,7 +264,7 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 - MỖI VIDEO PHẢI CÓ ĐẦU CÓ ĐUÔI: câu mở hút (hook) + thân + câu KẾT rõ ràng (chốt ý / kêu gọi bình luận, liên hệ, theo dõi). Không có câu kết hợp ở đoạn đó thì lấy câu kết phù hợp ở chỗ khác trong source – ĐƯỢC PHÉP dùng lại câu đã dùng ở kịch bản khác.
 - MỖI VIDEO 1 NHÂN VẬT CHÍNH: A-roll chỉ lấy lời của đúng người dẫn chính của video đó, không chen người khác (trừ khi kịch bản là hỏi – đáp).
 - LỖI HAY BỊ KIỂM DUYỆT LOẠI – tránh ngay từ đầu: chữ nhấn cụt nghĩa ("SẮP CÓ", "VỪA Ở", "CÓ MUỐN", "RẤT ĐÁNG" → phải là "SẮP CÓ DỰ ÁN LỚN", "VỪA Ở VỪA KINH DOANH"); chữ đọc như khẳng định sai ý người nói; câu A-roll bị cụt / thiếu con số (chọn trọn câu, kể cả số liệu); cảnh phụ mờ, rung, trắng xóa, logo, chữ in sẵn; mở đầu người nói nhìn lệch máy / ngập ngừng (chọn câu hút nhất làm câu đầu); kết cụt (phải có câu chốt / kêu gọi).
-- Mỗi kịch bản = 1 video TRÊN 1 PHÚT, DƯỚI 2 PHÚT (tổng A-roll 65–115 giây). Buổi quay dài (đào tạo, hội thảo) → tách thành nhiều tập, mỗi tập 1 ý trọn vẹn, có câu mở hút (hook) và kết.
+- Mỗi kịch bản = 1 video ĐẦY ĐỦ Ý (thường trên 1 phút, khoảng 1–2 phút; ý cần thì dài hơn 2 phút vẫn được). Chỉ bỏ câu vô nghĩa, ầm ừ, lặp, nói hỏng – KHÔNG bỏ kiến thức / câu bổ trợ cho ý chính dù nằm giữa. Buổi quay dài (đào tạo, hội thảo) → tách thành nhiều tập, mỗi tập 1 ý trọn vẹn, có câu mở hút (hook) và kết.
 - Nếu có file kịch bản: theo đúng kịch bản. Nếu thư mục con đặt tên "Kịch bản 1/2" thì mỗi thư mục con là 1 kịch bản.
 - A-roll: chỉ lấy câu người nói ĐÚNG lời thoại, nói trôi chảy, diễn xuất tốt (không đứng nhẩm, không nói lại, không nhăn mặt). Mỗi câu nói lại nhiều lần → chọn 1 bản hay nhất. Giữ TRỌN câu, không cắt giữa câu.
 - Cảnh phụ (B-roll) phải KHỚP lời đang nói. Không dùng cảnh có người đang nói câu khác. Mỗi cảnh dùng 1 lần, không lặp cảnh giống nhau.
@@ -1200,16 +1202,17 @@ def review(jb, sc, pl, proj, adir, mu):
         try: pv = N.preview(pl, A, ts, os.path.join(ENG, 'fonts'))
         except Exception as e: pv = []; log('  không dựng được ảnh xem trước:', e)
         ln_ = ''
-        if not 60 <= pl['total'] <= 120:   # chủ dặn 12/11: MỌI video trên 1 phút, dưới 2 phút
+        if pl['total'] < 60:   # chủ dặn 12/11: nên trên 1 phút; KHÔNG cứng nhắc – nội dung đầy đủ quan trọng hơn (vượt 2 phút vẫn được nếu ý cần)
             used_ = {str(x).strip().upper() for x in sc.get('aroll') or [] if isinstance(x, str)}
             more_ = ['%s (%.1fs): %s' % (k_, e_ - s_, ' '.join(w[2] for w in words(A_[vi_], s_, e_))[:110]) for k_, (vi_, s_, e_) in C_.items()
                      if vi_ in used_v and A_.get(vi_) and k_ not in used_ and 2 < e_ - s_ < 20][:60] if pl['total'] < 60 else []
-            ln_ = ('\n\n⚠ ĐỘ DÀI [NẶNG]: video đang %.0f giây – BẮT BUỘC 60–120 giây (trên 1 phút, dưới 2 phút). ' % pl['total'] +
-                   ('THIẾU → them_cau thêm câu cùng nhân vật, đúng mạch ý (vi_tri "cuoi" hoặc "dau"), đủ ≥ 60 s. Câu có thể thêm:\n' + '\n'.join(more_) if pl['total'] < 60 else 'THỪA → cat_doan bớt câu phụ cho ≤ 120 s.'))
+            ln_ = ('\n\n⚠ ĐỘ DÀI: video đang %.0f giây – nên trên 1 phút (nội dung đầy đủ là trên hết). ' % pl['total'] +
+                   ('THIẾU → them_cau thêm câu cùng nhân vật, đúng mạch ý (vi_tri "cuoi" hoặc "dau"), đủ ≥ 60 s. Câu có thể thêm:\n' + '\n'.join(more_)))
         r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat + ln_)
-        if r is not None and not 60 <= pl['total'] <= 120: r['dat'] = False; r.setdefault('loi', []).append('[NẶNG] dài %.0fs (cần 60–120s)' % pl['total'])
+        if r is not None and pl['total'] < 45: r['dat'] = False; r.setdefault('loi', []).append('[NẶNG] quá ngắn %.0fs – thêm câu cho đủ ý (nên ≥ 60 s)' % pl['total'])
         if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
         log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
+        QAN[0] = rnd + 1
         if r.get('dat') and (rnd >= 1 or not (r.get('sua') and any((r.get('sua') or {}).values()))): return pl   # mọi project ít nhất 2 lượt Claude xem nếu còn chỗ sửa (chất lượng đồng đều)
         fx = r.get('sua') or {}; sc = json.loads(json.dumps(sc)); T = sc.get('titles') or []
         for d in fx.get('doi_chu') or []:
@@ -1323,6 +1326,10 @@ def vnum(nm): m = VRE.search(bare_nm(nm)); return (int(m.group(1)) if m.group(1)
 def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
 def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
 LVT = 1794450781   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
+QAN = [0]   # số vòng Claude kiểm tra của project vừa dựng
+def why_time(jb, t_work, tries=0):   # chủ dặn 12/11: ngắn gọn – chỉ cho biết đã phải ngưng (chờ) bao lâu
+    tot = time.time() - kb_start(jb); wait = max(0, tot - t_work); mm, ss = divmod(int(tot), 60)
+    return 'Dựng mất %d phút %02d giây%s' % (mm, ss, ' (ngưng %d phút)' % round(wait / 60) if wait > 90 else '')
 def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG KỊCH BẢN (gồm cả chờ máy, tải cảnh phụ / nhạc, dựng motion graphic…)
     try:
         f = idx_now()[1].get('%s_kichban.json' % jb['id'])
@@ -1628,7 +1635,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     try: ad_, ix_ = idx_now(); jput('mglog_%s.json' % re.sub(r'[^A-Za-z0-9]+', '_', L.norm1(proj))[:80], dict(t=time.time(), proj=proj, log=MGLOG), ad_, ix_)
     except Exception: pass
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
-    if not 60 <= pl['total'] <= 120: bad.append('dài %.0fs (cần 60–120s – chủ dặn trên 1 phút, dưới 2 phút)' % pl['total'])
+    if pl['total'] < 40: bad.append('quá ngắn %.0fs' % pl['total'])   # chủ dặn 12/11: thời lượng không cứng nhắc – đủ nội dung là chính (dài hơn 2 phút vẫn được)
     if len(pl.get('titles') or []) < pl['total'] / 8.0: bad.append('chỉ %d chữ nhấn / %.0fs (cần ~1 cụm mỗi 1–3 s)' % (len(pl.get('titles') or []), pl['total']))
     if any(m.get('kind') == 'video' and not m.get('path') for m in pl['media'].values()): bad.append('thiếu file')
     if not [x for x in pl['shots'] if x.get('line') != 'A']: bad.append('không có cảnh phụ nào')   # kênh nói chuyện (Academy) ít cảnh phụ vẫn đạt
@@ -1775,13 +1782,13 @@ def edit(jb, key, models):
         keep(jb)
         n = sc['_n']; jb['fixed'] = None; jb['qa_rej'] = 0
         try:
-            tp_ = time.time(); r = publish(jb, sc, n)
+            tp_ = time.time(); QAN[0] = 0; r = publish(jb, sc, n)
             if r:
                 book['done'].append(n); done.append(r); log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
                 if not r.get('exists'):
                     try: tot = len(lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (LV, L.FOLDER), 'id'))
                     except Exception: tot = 0
-                    mm, ss = divmod(int(time.time() - kb_start(jb)), 60); L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, weblink(r['id'])), photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # chủ dặn 12/11: Zalo không gửi được video → gửi thumbnail   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
+                    L.tsay('%s\n⏱ %s\n🔗 %s' % (r['proj'], why_time(jb, time.time() - tp_, int(book['tries'].get(str(n), 0))), weblink(r['id'])), photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # chủ dặn 12/11: Zalo không gửi được video → gửi thumbnail   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
             else:
                 book['tries'][str(n)] = int(book['tries'].get(str(n), 0)) + 1
                 if not jb.get('qa_rej'): book['tries'][str(n)] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
@@ -1849,9 +1856,9 @@ def tasks(jobs=None):
         unread = [v for v in jb['vids'] if hong_name(v) not in idx and (ana_name(v) not in idx or xem_name(v) not in idx)]
         if unread:
             out += [(2, 'read', jb, v) for v in unread if not _fresh((v.get('appProperties') or {}).get('dungRL'))]
-        elif not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))
+        elif not jb.get('upl') and not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))   # còn đang tải lên → chưa lên kịch bản
     import random
-    rd_first = int(os.environ.get('WORKER') or 0) > 6   # chủ dặn 12/11: 8 máy – máy 7–8 ưu tiên đọc source mới + ra kịch bản, máy 1–6 dựng (giãn tải Drive, ≥ 1 project / 15 phút)
+    rd_first = int(os.environ.get('WORKER') or 0) > 12   # chủ dặn 12/11: dùng hết 20 máy – 16 máy AI (1–12 dựng, 13–16 đọc source mới + ra kịch bản) + 4 máy chuyển đổi video
     out.sort(key=lambda x: ((0 if x[1] != 'build' else 1) if rd_first else (0 if x[1] == 'build' else 1), -x[2].get('last', 0), x[3] if x[1] == 'build' else 0))   # dựng lần lượt từ source MỚI NHẤT tới cũ   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
     return out
 
@@ -1936,6 +1943,7 @@ def do_build(jb, n):
             if old.get('sc'): break
     sc = stt.get('sc') or old.get('sc') or next(x for x in book['scripts'] if x['_n'] == n)
     jb['fixed'] = None; jb['qa_rej'] = 0
+    tp2_ = time.time(); QAN[0] = 0
     try: r = publish(jb, sc, n)
     except ClaudeWait: raise
     except Exception as e: r = None; log('  ✗ kịch bản', n, e)
@@ -1946,8 +1954,7 @@ def do_build(jb, n):
             try: L.ix(link=r['id'])   # báo kho web có thư mục mới
             except Exception: pass
             link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
-            mm, ss = divmod(int(time.time() - kb_start(jb)), 60)
-            L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
+            L.tsay('%s\n⏱ %s\n🔗 %s' % (r['proj'], why_time(jb, time.time() - tp2_, int(stt.get('tries') or 0)), link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
                    photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get("thumb") else None)   # chủ dặn 12/11: Zalo không gửi được video → chỉ thumbnail
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
@@ -2107,7 +2114,7 @@ def drive_ok():   # tài khoản MICC còn tải được không (thử 1 file n
     return True
 LISTF = '1wp8d6QDy9vkjrJPols3esmh9ORFMXY97'   # file danh sách CapCut (của tài khoản MICC)
 def run(key, models, until):
-    try: time.sleep(max(0, int(os.environ.get('WORKER') or 1) - 1) * 90)   # chủ dặn 12/11: các máy vào lệch nhau ~1,5 phút → không tải dồn dập lên Drive
+    try: time.sleep(max(0, int(os.environ.get('WORKER') or 1) - 1) * 40)   # chủ dặn 12/11: các máy vào lệch nhau ~1,5 phút → không tải dồn dập lên Drive
     except Exception: pass
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
