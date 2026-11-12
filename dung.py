@@ -1465,7 +1465,9 @@ def ffgrab(fid, ss, t, outargs, timeout=400):   # đọc 1 đoạn / 1 khung t�
         try:
             if os.path.exists(out_) and os.path.getsize(out_) > 1000: os.makedirs(CDIR, exist_ok=True); shutil.copy(out_, ck)
         except Exception: pass
+NOVID = True   # chủ dặn 12/11: lúc dựng KHÔNG tải video từ Drive (Drive chỉ để giữ video gốc + nhận sản phẩm cho CapCut) → cảnh / cover lấy ảnh đại diện hoặc motion graphic
 def _ffgrab(fid, ss, t, outargs, timeout=400):
+    if NOVID: raise RuntimeError('lúc dựng không tải video từ Drive')
     err = None
     for f in [fid, lite(fid)]:
         if not f: continue
