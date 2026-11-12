@@ -1489,6 +1489,18 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
         others = [int((c.get('appProperties') or {}).get('dungCH'), 16) for c in lq("appProperties has { key='dungP' and value='1' } and trashed=false", 'id,appProperties')
                   if (c.get('appProperties') or {}).get('dungCH') and c['id'] != me]
     except Exception: others = []
+    best = None
+    for k, (o_, nm_) in enumerate(pl.get('mg') or []):   # chủ dặn 12/11: video có motion graphic → cover CapCut = khung đẹp của motion graphic (file trên máy, không tốn hạn mức tải)
+        for fr_ in (.75, .55, .9):
+            try:
+                os.makedirs(MGW, exist_ok=True); f = os.path.join(MGW, 'covm%d_%d.jpg' % (k, int(fr_ * 100)))
+                d_ = float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', o_], capture_output=True, text=True).stdout.strip() or 3)
+                L.run(['ffmpeg', '-y', '-v', 'error', '-ss', '%.2f' % (d_ * fr_), '-i', o_, '-frames:v', '1', '-q:v', '2', f], timeout=60)
+                h = int(_dh(f), 16); dmin = min([bin(h ^ o) .count('1') for o in others] or [64])
+                if not best or dmin > best[0]: best = (dmin, f, h)
+            except Exception as e: mlog('cover từ motion lỗi:', repr(e)[:200])
+    if best and best[0] >= 10:
+        mlog('cover: lấy từ motion graphic', best[0]); return best[1], '%016x' % best[2]
     AK = {'V%d' % a['i']: a for a in jb['A']}; cand = []
     for sh in pl['shots']:
         a = AK.get(sh['media'])
