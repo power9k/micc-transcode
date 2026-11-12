@@ -212,7 +212,7 @@ def qa(pl, timeline, pv_imgs, log=print, extra=''):
          'Còn lại (hook có thể mạnh hơn, trống chữ 3–6 s, cảnh phụ chưa thật đẹp, chưa đa dạng…) là NHẸ. '
          'Ảnh xem trước nhỏ nên dấu tiếng Việt có thể nhòe: KHÔNG báo lỗi dấu trừ khi chắc chắn sai chữ.\n'
          'phu_canh_phu = PHỦ cảnh phụ lên đoạn đang có lời mà hình không có người / người chưa vào khung / khung xấu (giữ nguyên lời) – dùng cách này thay vì cat_doan khi lời vẫn cần; '
-         'cat_doan = bỏ hẳn câu nói bị cắt hỏng / nói hỏng / lặp ở khoảng giây đó; doi_canh_tu_phu = đổi cảnh phụ tự phủ xấu (ghi số video # và giây gốc như trong dòng thời gian).\n'
+         'cat_doan = CHỈ bỏ câu nói hỏng / lặp / vô nghĩa / ầm ừ ở khoảng giây đó – TUYỆT ĐỐI không bỏ câu có kiến thức hoặc bổ trợ cho ý chính (dù video vượt 2 phút); doi_canh_tu_phu = đổi cảnh phụ tự phủ xấu (ghi số video # và giây gốc như trong dòng thời gian).\n'
          '"dat" = true khi KHÔNG còn lỗi NẶNG (lỗi NHẸ vẫn ghi vào "loi" và "sua" để sửa nếu được).')
     return ask_json(q, [('Xem trước %d:' % (k + 1), b) for k, b in enumerate(pv_imgs)], model='opus', key='dat',
                     sys_p='Bạn là trưởng nhóm kiểm duyệt video ngắn (TikTok/Reels) cực kỳ khó tính. Chỉ trả JSON.', log=log)
