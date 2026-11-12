@@ -427,6 +427,7 @@ def plan(jb, key, models, extra=''):
         parts.append({'text': head + '\nCÁC CÂU NÓI:\n' + ('\n'.join(ln)[:9000] or '(không có lời)')})
     body = {'systemInstruction': {'parts': [{'text': SYS}]}, 'contents': [{'role': 'user', 'parts': parts}],
             'generationConfig': {'temperature': .3, 'maxOutputTokens': 30000, 'responseMimeType': 'application/json'}}
+    if profile(jb).get('plan'): parts.append({'text': profile(jb)['plan']})
     j = N.ask_json('\n\n'.join(p['text'] for p in parts if 'text' in p) + '\n\nTrả đúng 1 khối JSON {"scripts":[...]} theo khung đã nêu.', model='opus', key='scripts', sys_p=SYS + rules_extra(), log=log)
     if j is not None: log('  Claude Opus lên kế hoạch: %d kịch bản' % len(j['scripts'])); return j['scripts']
     r = None   # (cách gọi cũ claude_plan bỏ: tốn token khung Claude Code + đọc ảnh từng lượt)
@@ -478,6 +479,21 @@ def rule_plan(jb):   # lớp dự phòng không cần AI: lấy câu theo thứ 
 
 # ---------------------------------------------------------------- 3) dựng → plan cho engine
 CW, CH = 1080, 1920
+# ---- PHONG CÁCH RIÊNG theo bộ source (chủ dặn 12/11): Royal Island Vũ Yên = TVC điện ảnh 16:9, sang trọng, tối giản, beauty
+PROFILES = [('royal island', dict(
+    ten='TVC điện ảnh sang trọng',
+    canvas=(1920, 1080),
+    plan=('PHONG CÁCH RIÊNG BỘ NÀY (bắt buộc): video 16:9 kiểu TVC điện ảnh – sang trọng, tối giản, beauty, nhẹ nhàng, nữ tính. KHÔNG cần nói liên tục: '
+          'chèn 1–3 KHOẢNG LẶNG (2–4 giây, không lời, chỉ cảnh đẹp + nhạc) ở chỗ chuyển ý bằng cách thêm mục "LANG 3" (số giây) vào danh sách aroll đúng chỗ đó. '
+          'Ưu tiên cảnh phụ NGHỆ THUẬT: toàn cảnh, flycam, ánh sáng đẹp, mặt nước, kiến trúc, chi tiết sang trọng; chuyển động chậm. Chữ trên hình ÍT và ngắn, câu chữ tinh tế, giàu cảm xúc (không hô hào bán hàng).'),
+    music=('ELEGANT CINEMATIC TVC: waltz (3/4), symphonic orchestra, solo cello, strings, harp, soft piano, film-score, solemn and majestic, graceful, luxurious, slow tempo 60–90 BPM, '
+           'gentle swells, no trap, no EDM, no hard drums.'),
+    font=('SCR', 'ITA'), colors=('#FFFFFF', '#F4E2B4'), title_gap=5.0, title_y=80.0, punch=False, mg=False, sfx=False, broll_cap=.6,
+    notrans=True))]
+PRO = {}
+def profile(jb):
+    p_ = L.norm1(path_of(jb['id']))
+    return next((v for k, v in PROFILES if k in p_), {})
 def s0(a): w, h = a.get('w') or 1080, a.get('h') or 1920; return (w / h) / (CW / CH) if w / h > CW / CH + .01 else 1.0
 def words(a, s, e): return [w for sg in a['segs'] for w in sg['w'] if w[0] >= s - .05 and w[1] <= e + .05]
 BADW = re.compile(r'(?i)trắng|đen kịt|mờ|nhòe|rung|lóa|logo|chữ in|text|tiêu đề|fade|chuyển cảnh|màn hình trống|trống trơn|tay che|lỗi|hỏng|bị cắt|cận (tay|áo|ngực|cằm|cổ|vai|bụng|chân)|ngực|cằm|cổ áo|vạt áo|không thấy mặt|che mặt|nửa mặt|mất đầu|cây che|lá che|khuất')
@@ -580,12 +596,15 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     def conv(x): return C.get(str(x).strip().upper()) if isinstance(x, str) else None
     def vid(x): m = re.search(r'\d+', str(x)); return int(m.group()) if m else 0
     if any(isinstance(x, str) for x in sc.get('aroll', [])):
-        sc = dict(sc); sc['aroll'] = [{'video': c[0], 's': c[1], 'e': c[2]} if c else {'video': 0, 's': 0, 'e': 0} for c in map(conv, sc.get('aroll', []))]   # giữ số thứ tự để Claude kiểm duyệt bỏ đúng câu
+        LG = lambda x: re.match(r'(?i)^\s*LANG\s*([\d.]+)', str(x)) if isinstance(x, str) else None
+        sc = dict(sc); sc['aroll'] = [({'lang': min(5.0, max(1.5, float(LG(x).group(1))))} if LG(x) else ({'video': conv(x)[0], 's': conv(x)[1], 'e': conv(x)[2]} if conv(x) else {'video': 0, 's': 0, 'e': 0})) for x in sc.get('aroll', [])]   # LANG n = khoảng lặng n giây (chỉ cảnh đẹp + nhạc)   # giữ số thứ tự để Claude kiểm duyệt bỏ đúng câu
         sc['broll'] = [dict(b, luc=[conv(b.get('cau'))[0], conv(b.get('cau'))[1]]) if conv(b.get('cau')) else dict(b, video=0) for b in sc.get('broll', [])]   # giữ đúng số thứ tự (Claude kiểm duyệt gọi theo số)
         sc['titles'] = [dict(t, video=conv(t.get('cau'))[0], s=conv(t.get('cau'))[1], e=conv(t.get('cau'))[2]) if conv(t.get('cau')) else dict(t, video=0) for t in sc.get('titles', [])]
     # ---- A-roll: câu nói nối liền, cắt ở khoảng lặng; mỗi CÂU 1 cỡ khung (rộng / cận) để nhảy cỡ che vết cắt
     t, pieces, why, n_sent, lastw = 0.0, [], {}, 0, []
+    langs = []
     for ai, it in enumerate(sc.get('aroll', [])):
+        if it.get('lang'): langs.append((round(t, 3), round(t + it['lang'], 3))); t += it['lang']; continue   # khoảng lặng: dời thời gian, phủ cảnh đẹp sau
         a = A.get(vid(it.get('video', 0))); s, e = float(it.get('s', 0)), float(it.get('e', 0))
         if not a: why['sai số video'] = why.get('sai số video', 0) + 1; continue
         if a['vid'].get('broll'): why['chọn nhầm cảnh phụ'] = why.get('chọn nhầm cảnh phụ', 0) + 1; continue
@@ -667,9 +686,10 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         new.append(dict(media=k, src=round(s, 3), t0=round(T, 3), t1=round(T + d, 3), line='B', bi=bi, keys=[[round(T, 3)] + list(k0), [round(T + d, 3)] + list(k1)], punch_abs=[]))
         shots = sorted(new, key=lambda x: x['t0'])
         if len(trans) < 4 and (not trans or T - trans[-1]['at'] > 10):
+            if PRO.get('notrans'): continue   # TVC sang trọng: cắt mềm, không hiệu ứng chuyển cảnh giật
             nm, eid = FX_TR[len(trans) % len(FX_TR)]
             trans.append(dict(name=nm, effect_id=eid, at=round(T, 3), dur_s=.4))
-            sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(T - .25, 3)), vol=.3, dur=0.58))
+            if PRO.get('sfx', True): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(T - .25, 3)), vol=.3, dur=0.58))
             if nm == 'Glare II' and not fx: fx.append(dict(preset='effect_lens_flare.json', t0=round(T, 3), dur_s=.6))
     # ---- Claude kiểm duyệt yêu cầu PHỦ cảnh phụ lên đoạn đang có lời mà hình không có người / khung xấu (phu_canh_phu)
     poolC = [a for a in A.values() if a['vid'].get('broll') or not a.get('segs')]
@@ -692,6 +712,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         if bad_: sh['keys'] = [[k_[0], 1.0, k_[2], .42, 0.0] for k_ in sh['keys']]; sh['nz'] = 1; sh['zc'] = 1.0   # không phủ được thì ít nhất KHÔNG zoom
         if bad_ and sh['t1'] - sh['t0'] > .4: auto_cov.append({'s': sh['t0'], 'e': sh['t1'], 'video': 0, 'giay': None})
     if auto_cov: log('  khung người nói xấu (mất đầu / không thấy mặt): phủ cảnh phụ %d đoạn' % len(auto_cov))
+    auto_cov += [{'s': a_, 'e': b_, 'video': 0, 'giay': None} for a_, b_ in langs]   # khoảng lặng → cảnh phụ nghệ thuật
     for c in (sc.get('_cover') or []) + auto_cov:
         try:
             S0, E0 = max(0.0, float(c['s'])), min(total - .1, float(c['e']))
@@ -794,7 +815,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     lastp = -9.0
     for T, si, ti in cand:   # xếp theo GIÂY TRÊN TIMELINE (không theo giây gốc của từng video)
         if T is None: continue
-        if titles and T < titles[-1]['t0'] + 1.2: continue   # chữ dày: 1 cụm mỗi 1–3 s
+        if titles and T < titles[-1]['t0'] + PRO.get('title_gap', 1.2): continue   # chữ dày: 1 cụm mỗi 1–3 s (TVC: thưa hơn)
         big = tsafe(ti.get('big', ''), 32).upper(); small = tsafe(ti.get('small', ''), 48)
         if not big: continue
         bw = [L.norm(w) for w in big.split()]
@@ -811,15 +832,19 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         if lead and n % 2 == 0: lines = [[lead[:1].upper() + lead[1:], 'SCR', 3.6, '#FFFFFF'], [big, main, 7.6 if main == 'BEB' else 6.2, c1]]
         else: lines = [[big, main, 8.2 if main == 'BEB' else 6.6, c1]]
         y = (19.0 + (n % 3) * 4) if on_b else (68.0 + (n % 2) * 3)   # cảnh người nói: chữ dưới ngực, không đè mặt; vùng an toàn TikTok ≤75 %
+        if PRO.get('font'):   # TVC sang trọng: chữ mềm mại, uyển chuyển (viết tay + nghiêng có chân), màu trắng / champagne, nhỏ gọn phía dưới
+            f1_, f2_ = PRO['font']; c1_, c2_ = PRO['colors']
+            big_ = tsafe(ti.get('big', ''), 40); lines = ([[lead[:1].upper() + lead[1:], f1_, 4.2, c2_]] if lead else []) + [[big_, f2_ if not lead else f1_, 5.6, c1_]]
+            y = PRO.get('title_y', y)
         if ti.get('y'): y = max(12.0, min(80.0, float(ti['y'])))   # vị trí Claude kiểm duyệt yêu cầu
         titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=False, anim=n, si=si, yfix=bool(ti.get('y')), onb=on_b))
-        if num: sfx.append(dict(file='SFX tit thong tin.wav', t=round(max(0, T - .02), 3), vol=.2, dur=0.34))   # tiếng "tít" khi thông tin / số liệu hiện
-        elif n % 3 == 0: sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
+        if num and PRO.get('sfx', True): sfx.append(dict(file='SFX tit thong tin.wav', t=round(max(0, T - .02), 3), vol=.2, dur=0.34))   # tiếng "tít" khi thông tin / số liệu hiện
+        elif n % 3 == 0 and PRO.get('sfx', True): sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
         if (num or n % 3 == 0) and T - lastp >= 4.0:   # giật zoom có chủ đích: số liệu / từ khóa mạnh, cách nhau ≥ 4 s
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh.get('face') and sh['t0'] + .2 < T < sh['t1'] - .35:
                     T = N.snap(T, beats, .12) if beats else T   # giật zoom trùng phách nếu phách ở rất gần từ khóa
-                    if not sh.get('nz'): sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
+                    if not sh.get('nz') and PRO.get('punch', True): sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
                     lastp = T; break
     # (bỏ phần tự thêm chữ từ lời nói: chủ phản ánh ra cụm vô nghĩa như "NINH VÀ", "TRƯỜNG SỐNG" – chữ chỉ lấy từ AI, có kiểm tra trọn nghĩa)
     titles.sort(key=lambda z: z['t0'])
@@ -884,7 +909,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for dp in (mmap.get('drops') or [])[:2]:
         if 2 < dp < total - 2:
             sh = next((x for x in shots if x['t0'] + .2 < dp < x['t1'] - .3 and x['line'] == 'A'), None)
-            if sh and sh.get('face') and not sh.get('nz'): sh['keys'] = punch(sh['keys'], dp, 1.15, 1.16, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
+            if sh and sh.get('face') and not sh.get('nz') and PRO.get('punch', True): sh['keys'] = punch(sh['keys'], dp, 1.15, 1.16, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
     for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
     sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
@@ -946,12 +971,12 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for k_, b in enumerate(bshots):
         prev = bshots[k_ - 1] if k_ else None
         if prev is not None and abs(prev['t1'] - b['t0']) < .01: continue
-        if all(abs(b['t0'] - w) >= 2.0 for w in wt): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(b['t0'] - .22, 3)), vol=.22, dur=0.58)); wt.append(b['t0'])
+        if PRO.get('sfx', True) and all(abs(b['t0'] - w) >= 2.0 for w in wt): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(b['t0'] - .22, 3)), vol=.22, dur=0.58)); wt.append(b['t0'])
     for x in sfx:
         if '/' not in x['file']: x['file'] = KSUB['sfx'] + '/' + x['file']
     for x in mus:
         if '/' not in x['file']: x['file'] = KSUB['music'] + '/' + x['file']
-    return dict(project=proj, font_dir=adir + '/' + KSUB['font'], out_dir=os.path.join(L.TMP, 'out'), asset_dir=adir, media=media, total=total, lines=[dict(id='A', t0=0.0, t1=total)],
+    return dict(canvas=PRO.get('canvas'), project=proj, font_dir=adir + '/' + KSUB['font'], out_dir=os.path.join(L.TMP, 'out'), asset_dir=adir, media=media, total=total, lines=[dict(id='A', t0=0.0, t1=total)],
                 apieces=[[p[4], round(p[3], 3), round(p[3] + p[2] - p[1], 3)] for p in pieces], ashots=ashots, bshots=bshots, pips=pips, speech=speech, shots=shots, titles=titles, transitions=trans, effects=fx, music=mus, sfx=sorted(sfx, key=lambda x: x['t']), matte=[])
 
 
@@ -1095,6 +1120,7 @@ def ai_music(jb, sc, host, proj):   # chủ dặn 12/11: nhạc nền AI (Eleven
         est = max(30.0, t)
         q = ('Bạn là nhà soạn nhạc nền cho video ngắn bất động sản (TikTok/Reels). Video "%s", dài khoảng %.0f giây. Lời thoại theo giây:\n%s\n\n' % (sc.get('ten', ''), est, '\n'.join(lines)[:6000]) +
              'Chia video thành 1–4 ĐOẠN NHẠC theo các đổi ý / đổi cảm xúc của kịch bản (mỗi đoạn ≥ 12 giây; các đoạn nối liền phủ 0→100%). Mỗi đoạn là 1 bài nhạc riêng sẽ được ghép lại.\n'
+             (('PHONG CÁCH BẮT BUỘC CỦA BỘ NÀY (thay gu mặc định): ' + PRO['music'] + '\n') if PRO.get('music') else '') +
              'Gu của chủ: nhạc LUÔN ngầu, hiện đại, kịch tính, có gu – trap, drill, bass house, cinematic hybrid, rock / blues nặng cho đoạn quy mô / sức mạnh / con số lớn; '
              'jazz, bossa nova, valse, bedroom pop, dream pop, lo-fi sang cho đoạn nhẹ / phong cách sống. KHÔNG nhạc quảng cáo sến, KHÔNG vui tươi trẻ con, KHÔNG da diết, KHÔNG ambient / thiền.\n'
              'Với MỖI đoạn viết "prompt" TIẾNG ANH CỰC KỲ CHI TIẾT, DÀI 3200–4000 KÝ TỰ (gần tối đa 4100) cho ElevenLabs Music, gồm: thể loại & tiểu thể loại, cảm xúc & năng lượng theo từng giây của đoạn, BPM chính xác, giọng điệu (key/scale), '
@@ -1542,6 +1568,7 @@ def _ffgrab(fid, ss, t, outargs, timeout=400):
         except Exception as e: err = e
     raise err or RuntimeError('không có bản đọc được')
 def add_mg(jb, sc, pl, proj, host, adir):
+    if not PRO.get('mg', True): return pl   # phong cách tối giản (TVC) → không chèn motion graphic
     try:
         if ENG not in sys.path: sys.path.insert(0, ENG)
         import mg as MG
@@ -1691,13 +1718,15 @@ def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover 
     except Exception as e: log('  không lưu được ảnh cover:', e)
     return ids
 def _publish(jb, sc, n, host, proj, rel, adir):
+    global CW, CH
+    PRO.clear(); PRO.update(profile(jb)); CW, CH = PRO.get('canvas') or (1080, 1920)   # phong cách riêng của bộ source (vd Royal Island: TVC 16:9)
     a0 = jb['A'][0]
     mu = ai_music(jb, sc, host, proj) or pick_mix(jb, sc); claude_grades(jb, sc)
     pl = build_plan(jb, sc, proj, adir, mu, None)
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     pl = review(jb, sc, pl, proj, adir, mu)   # Claude Opus tự kiểm tra (xem ảnh xem trước + dòng thời gian), sửa tối đa 2 vòng
     if not pl: return None
-    pl = thin_broll(pl)
+    pl = thin_broll(pl, PRO.get('broll_cap', .35))
     pl['ai_music'] = [p_['ai'] for p_ in (mu or []) if p_.get('ai')]
     del MGLOG[:]
     try: pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)

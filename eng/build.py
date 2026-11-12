@@ -17,6 +17,7 @@ PL = json.load(open(sys.argv[1]))
 TPL = json.load(open(ENG + '/kb1_draft_info.json'))
 MEDIA = {k: dict(v) for k, v in PL['media'].items()}
 exec(open(ENG + '/acad_lib.py', encoding='utf-8').read())
+if PL.get('canvas'): W, H = PL['canvas']   # khung riêng của bộ source (vd 16:9 TVC)
 PROJECT = PL['project']; OD = PL['out_dir'] + '/' + PROJECT; os.makedirs(OD, exist_ok=True)
 AD = PL['asset_dir']
 FD = ENG + '/fonts/'
@@ -347,7 +348,7 @@ for i, t in enumerate(OUT['tracks']):
         s['track_render_index'] = i; s['render_index'] = 11000 + i if t['type'] == 'effect' else (14000 + i if t['type'] == 'text' else i)
 DRAFT_ID = U(); now = int(time.time())
 OUT.update({'id': DRAFT_ID, 'name': PROJECT, 'duration': us(TOTAL), 'create_time': now, 'update_time': now, 'fps': 30.0})
-OUT['canvas_config'] = {'ratio': '9:16', 'width': 1080, 'height': 1920, 'background': None}
+OUT['canvas_config'] = {'ratio': '16:9' if W > H else '9:16', 'width': W, 'height': H, 'background': None}
 OUT['platform'] = dict(TPL['platform'], os='windows', os_version='10.0.22631'); OUT['last_modified_platform'] = dict(OUT['platform'])
 
 # ------------------------------------------------------------------ validation
