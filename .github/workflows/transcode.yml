@@ -38,8 +38,23 @@ jobs:
         env:
           MICC_API: ${{ secrets.MICC_API }}
           MICC_SECRET: ${{ secrets.MICC_SECRET }}
-          MAX_MIN: '90'
+          MAX_MIN: '60'
         run: node worker.mjs
+      - name: Máy rảnh → hỗ trợ đọc source mới (ưu tiên dựng project source mới)
+        if: always()
+        timeout-minutes: 40
+        continue-on-error: true
+        env:
+          MICC_API: ${{ secrets.MICC_API }}
+          MICC_SECRET: ${{ secrets.MICC_SECRET }}
+          GEMINI_CLI_CREDS: ${{ secrets.GEMINI_CLI_CREDS }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          MAX_MIN: '38'
+          WORKER: '17'
+        run: |
+          pip install -q faster-whisper 'av<14' numpy pillow fonttools
+          python loc.py || true
   transcribe:
     if: github.event_name != 'repository_dispatch' || github.event.action == 'transcribe'
     runs-on: ubuntu-latest
