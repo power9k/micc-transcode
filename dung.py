@@ -1967,7 +1967,9 @@ def tasks(jobs=None):
         elif not jb.get('upl') and not _fresh(jb['ap'].get('dungLock')): out.append((1, 'plan', jb, None))   # còn đang tải lên → chưa lên kịch bản
     import random
     rd_first = int(os.environ.get('WORKER') or 0) > 12   # chủ dặn 12/11: dùng hết 20 máy – 16 máy AI (1–12 dựng, 13–16 đọc source mới + ra kịch bản) + 4 máy chuyển đổi video
-    out.sort(key=lambda x: ((0 if x[1] != 'build' else 1) if rd_first else (0 if x[1] == 'build' else 1), -x[2].get('last', 0), x[3] if x[1] == 'build' else 0))   # dựng lần lượt từ source MỚI NHẤT tới cũ   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
+    newest = max([x[2].get('last', 0) for x in out] or [0])
+    isnew = lambda x: newest - x[2].get('last', 0) < 6 * 3600 and time.time() - x[2].get('last', 0) < 3 * 86400   # chủ dặn 12/11: source MỚI là ưu tiên số 1 (đọc → kịch bản → dựng), project cũ chỉ chạy song song khi máy rảnh
+    out.sort(key=lambda x: (0 if isnew(x) else 1, {'read': 0, 'plan': 1, 'build': 2}.get(x[1], 3) if isnew(x) else ((0 if x[1] != 'build' else 1) if rd_first else (0 if x[1] == 'build' else 1)), -x[2].get('last', 0), x[3] if x[1] == 'build' else 0))   # dựng (kịch bản có sẵn, gồm dựng lại project cũ) trước; cùng loại việc thì MICC Academy trước   # gần xong làm trước; cùng mức thì xáo để các máy không giành nhau
     return out
 
 _JB = {}
