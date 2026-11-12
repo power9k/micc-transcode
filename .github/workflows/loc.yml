@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        w: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]   # chủ dặn 12/11: dùng hết máy cho nhanh (chừa 4 cho chuyển đổi video / phụ đề); bị chặn hạn mức thì tự ngưng chờ
+        w: [1, 2, 3, 4, 5, 6, 7, 8]   # chủ dặn 12/11: giãn tải Drive – 6 máy dựng + 2 máy đọc source, vẫn ≥ 1 project / 15 phút
     concurrency:
       group: micc-loc-${{ matrix.w }}
       cancel-in-progress: false
