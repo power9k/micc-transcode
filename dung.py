@@ -262,7 +262,7 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 - MỖI VIDEO PHẢI CÓ ĐẦU CÓ ĐUÔI: câu mở hút (hook) + thân + câu KẾT rõ ràng (chốt ý / kêu gọi bình luận, liên hệ, theo dõi). Không có câu kết hợp ở đoạn đó thì lấy câu kết phù hợp ở chỗ khác trong source – ĐƯỢC PHÉP dùng lại câu đã dùng ở kịch bản khác.
 - MỖI VIDEO 1 NHÂN VẬT CHÍNH: A-roll chỉ lấy lời của đúng người dẫn chính của video đó, không chen người khác (trừ khi kịch bản là hỏi – đáp).
 - LỖI HAY BỊ KIỂM DUYỆT LOẠI – tránh ngay từ đầu: chữ nhấn cụt nghĩa ("SẮP CÓ", "VỪA Ở", "CÓ MUỐN", "RẤT ĐÁNG" → phải là "SẮP CÓ DỰ ÁN LỚN", "VỪA Ở VỪA KINH DOANH"); chữ đọc như khẳng định sai ý người nói; câu A-roll bị cụt / thiếu con số (chọn trọn câu, kể cả số liệu); cảnh phụ mờ, rung, trắng xóa, logo, chữ in sẵn; mở đầu người nói nhìn lệch máy / ngập ngừng (chọn câu hút nhất làm câu đầu); kết cụt (phải có câu chốt / kêu gọi).
-- Mỗi kịch bản = 1 video TRÊN 1 PHÚT, DƯỚI 2 PHÚT (tổng A-roll 65–115 giây). Buổi quay dài (đào tạo, hội thảo) → tách thành nhiều tập, mỗi tập 1 ý trọn vẹn, có câu mở hút (hook) và kết.
+- Mỗi kịch bản = 1 video ĐẦY ĐỦ Ý (thường trên 1 phút, khoảng 1–2 phút; ý cần thì dài hơn 2 phút vẫn được). Chỉ bỏ câu vô nghĩa, ầm ừ, lặp, nói hỏng – KHÔNG bỏ kiến thức / câu bổ trợ cho ý chính dù nằm giữa. Buổi quay dài (đào tạo, hội thảo) → tách thành nhiều tập, mỗi tập 1 ý trọn vẹn, có câu mở hút (hook) và kết.
 - Nếu có file kịch bản: theo đúng kịch bản. Nếu thư mục con đặt tên "Kịch bản 1/2" thì mỗi thư mục con là 1 kịch bản.
 - A-roll: chỉ lấy câu người nói ĐÚNG lời thoại, nói trôi chảy, diễn xuất tốt (không đứng nhẩm, không nói lại, không nhăn mặt). Mỗi câu nói lại nhiều lần → chọn 1 bản hay nhất. Giữ TRỌN câu, không cắt giữa câu.
 - Cảnh phụ (B-roll) phải KHỚP lời đang nói. Không dùng cảnh có người đang nói câu khác. Mỗi cảnh dùng 1 lần, không lặp cảnh giống nhau.
@@ -1200,14 +1200,14 @@ def review(jb, sc, pl, proj, adir, mu):
         try: pv = N.preview(pl, A, ts, os.path.join(ENG, 'fonts'))
         except Exception as e: pv = []; log('  không dựng được ảnh xem trước:', e)
         ln_ = ''
-        if not 60 <= pl['total'] <= 120:   # chủ dặn 12/11: MỌI video trên 1 phút, dưới 2 phút
+        if pl['total'] < 60:   # chủ dặn 12/11: nên trên 1 phút; KHÔNG cứng nhắc – nội dung đầy đủ quan trọng hơn (vượt 2 phút vẫn được nếu ý cần)
             used_ = {str(x).strip().upper() for x in sc.get('aroll') or [] if isinstance(x, str)}
             more_ = ['%s (%.1fs): %s' % (k_, e_ - s_, ' '.join(w[2] for w in words(A_[vi_], s_, e_))[:110]) for k_, (vi_, s_, e_) in C_.items()
                      if vi_ in used_v and A_.get(vi_) and k_ not in used_ and 2 < e_ - s_ < 20][:60] if pl['total'] < 60 else []
-            ln_ = ('\n\n⚠ ĐỘ DÀI [NẶNG]: video đang %.0f giây – BẮT BUỘC 60–120 giây (trên 1 phút, dưới 2 phút). ' % pl['total'] +
-                   ('THIẾU → them_cau thêm câu cùng nhân vật, đúng mạch ý (vi_tri "cuoi" hoặc "dau"), đủ ≥ 60 s. Câu có thể thêm:\n' + '\n'.join(more_) if pl['total'] < 60 else 'THỪA → cat_doan bớt câu phụ cho ≤ 120 s.'))
+            ln_ = ('\n\n⚠ ĐỘ DÀI: video đang %.0f giây – nên trên 1 phút (nội dung đầy đủ là trên hết). ' % pl['total'] +
+                   ('THIẾU → them_cau thêm câu cùng nhân vật, đúng mạch ý (vi_tri "cuoi" hoặc "dau"), đủ ≥ 60 s. Câu có thể thêm:\n' + '\n'.join(more_)))
         r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat + ln_)
-        if r is not None and not 60 <= pl['total'] <= 120: r['dat'] = False; r.setdefault('loi', []).append('[NẶNG] dài %.0fs (cần 60–120s)' % pl['total'])
+        if r is not None and pl['total'] < 45: r['dat'] = False; r.setdefault('loi', []).append('[NẶNG] quá ngắn %.0fs – thêm câu cho đủ ý (nên ≥ 60 s)' % pl['total'])
         if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
         log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
         if r.get('dat') and (rnd >= 1 or not (r.get('sua') and any((r.get('sua') or {}).values()))): return pl   # mọi project ít nhất 2 lượt Claude xem nếu còn chỗ sửa (chất lượng đồng đều)
@@ -1628,7 +1628,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     try: ad_, ix_ = idx_now(); jput('mglog_%s.json' % re.sub(r'[^A-Za-z0-9]+', '_', L.norm1(proj))[:80], dict(t=time.time(), proj=proj, log=MGLOG), ad_, ix_)
     except Exception: pass
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
-    if not 60 <= pl['total'] <= 120: bad.append('dài %.0fs (cần 60–120s – chủ dặn trên 1 phút, dưới 2 phút)' % pl['total'])
+    if pl['total'] < 40: bad.append('quá ngắn %.0fs' % pl['total'])   # chủ dặn 12/11: thời lượng không cứng nhắc – đủ nội dung là chính (dài hơn 2 phút vẫn được)
     if len(pl.get('titles') or []) < pl['total'] / 8.0: bad.append('chỉ %d chữ nhấn / %.0fs (cần ~1 cụm mỗi 1–3 s)' % (len(pl.get('titles') or []), pl['total']))
     if any(m.get('kind') == 'video' and not m.get('path') for m in pl['media'].values()): bad.append('thiếu file')
     if not [x for x in pl['shots'] if x.get('line') != 'A']: bad.append('không có cảnh phụ nào')   # kênh nói chuyện (Academy) ít cảnh phụ vẫn đạt

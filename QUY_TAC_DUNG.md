@@ -59,3 +59,4 @@
 - Chỉ phủ cảnh phụ lên đoạn người nói khi CHẮC khung xấu (mặt bị cắt ở khung gốc, hoặc ≥ 2 khung đã soi không thấy mặt) – thiếu dữ liệu không phải là xấu.
 - 12/11 trưa: quy trình chốt – đọc source 1 lần (GitHub + Claude tải về), tự lên kịch bản, phân tích, motion graphic HyperFrames, tự dựng project, XONG mới đưa lên Drive. Dữ liệu làm việc giữ ở bộ nhớ đệm GitHub (tự xóa sau 7 ngày / khi đầy, xóa cũ nhất). Lúc dựng không tải video từ Drive. Tải có đăng nhập tài khoản MICC (không tải kiểu khách).
 - Zalo: gửi thumbnail (Zalo bot không gửi được video). Giãn tải: 8 máy (6 dựng + 2 đọc), các máy vào lệch nhau, vẫn ≥ 1 project / 15 phút.
+- 12/11 trưa: thời lượng KHÔNG cứng nhắc – nội dung đầy đủ là chính (thường > 1 phút, vượt 2 phút vẫn được nếu ý cần). Chỉ cắt câu vô nghĩa / ầm ừ / lặp / nói hỏng, không cắt kiến thức bổ trợ ở giữa.
