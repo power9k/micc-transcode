@@ -148,7 +148,7 @@ def _tile(a, t):
 def preview(pl, A_by_key, times, fontdir=None):
     """dựng khung xem trước 9:16 tại các mốc: hình (đã zoom theo keyframe) + chữ đúng vị trí → tờ ảnh 4 cột"""
     from PIL import Image, ImageDraw, ImageFont
-    W, H = 288, 512; tiles = []
+    W, H = (512, 288) if (pl.get('canvas') or [0, 1])[0] > (pl.get('canvas') or [0, 1])[1] else (288, 512); tiles = []   # khung 16:9 (TVC) hoặc 9:16
     FK = {'BIG': 'SVN-Nexa Rush Sans Black.ttf', 'BEB': 'UTM Bebas.ttf', 'SCR': 'SVN-Dancing script.ttf', 'ITA': 'SVN-Georgia Italic.ttf'}
     def font(sz, fk='BIG'):
         p = os.path.join(fontdir or '', FK.get(fk, FK['BIG']))

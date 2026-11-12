@@ -1283,7 +1283,8 @@ def review(jb, sc, pl, proj, adir, mu):
                      if vi_ in used_v and A_.get(vi_) and k_ not in used_ and 2 < e_ - s_ < 20][:60] if pl['total'] < 60 else []
             ln_ = ('\n\n⚠ ĐỘ DÀI: video đang %.0f giây – nên trên 1 phút (nội dung đầy đủ là trên hết). ' % pl['total'] +
                    ('THIẾU → them_cau thêm câu cùng nhân vật, đúng mạch ý (vi_tri "cuoi" hoặc "dau"), đủ ≥ 60 s. Câu có thể thêm:\n' + '\n'.join(more_)))
-        r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat + ln_)
+        tvc_ = ('\n\nPHONG CÁCH RIÊNG CỦA BỘ NÀY (đúng chủ ý, KHÔNG báo lỗi): ' + PRO['plan'] + ' Khung 16:9; khoảng lặng không lời (chỉ cảnh đẹp + nhạc), chữ thưa (> 6 s không chữ), không giật zoom, không hiệu ứng chuyển cảnh là ĐÚNG phong cách.') if PRO.get('plan') else ''
+        r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat + ln_ + tvc_)
         if r is not None and pl['total'] < 45: r['dat'] = False; r.setdefault('loi', []).append('[NẶNG] quá ngắn %.0fs – thêm câu cho đủ ý (nên ≥ 60 s)' % pl['total'])
         if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
         log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
@@ -1953,6 +1954,15 @@ def tasks(jobs=None):
         kb = '%s_kichban.json' % jb['id']
         if kb in idx:
             book = jget(kb, idx) or {}; locks = get(idx[kb], 'appProperties').get('appProperties') or {}
+            unread_ = [v for v in jb['vids'] if hong_name(v) not in idx and (ana_name(v) not in idx or xem_name(v) not in idx)]
+            if unread_:   # chủ dặn 12/11: video tải lên SAU khi đã lên kịch bản → vẫn đọc ngay
+                out += [(2, 'read', jb, v) for v in unread_ if not _fresh((v.get('appProperties') or {}).get('dungRL'))]
+            nv_ = book.get('nvid')
+            if nv_ is None:
+                try: nv_ = len([v for v in jb['vids'] if L.ts(v['createdTime']) <= L.ts(get(idx[kb], 'createdTime').get('createdTime'))])
+                except Exception: nv_ = len(jb['vids'])
+            if not unread_ and not jb.get('upl') and len(jb['vids']) > nv_ + 2 and not _fresh(jb['ap'].get('dungLock')):
+                out.append((1, 'plan', jb, None)); log('  %s: có %d video mới sau khi lên kịch bản → lên lại kịch bản cho đủ' % (jb['name'], len(jb['vids']) - nv_)); continue
             left = 0
             for sc in book.get('scripts') or []:
                 n = sc['_n']; stt = jget(st_name(jb, n), idx) or {}
@@ -2038,7 +2048,7 @@ def do_plan(jb, key, models):
     if sty: hint = 'PHONG CÁCH KÊNH (học từ các video đã hậu kỳ trước đó – dựng THEO phong cách này):\n' + sty + '\n\n' + hint
     scs = plan(jb, key, models, hint)
     for n, sc in enumerate(scs, 1): sc['_n'] = n
-    jput('%s_kichban.json' % jb['id'], {'scripts': scs, 'phong_cach': sty}, ad, idx)
+    jput('%s_kichban.json' % jb['id'], {'scripts': scs, 'phong_cach': sty, 'nvid': len(jb['vids'])}, ad, idx)   # nvid: số video lúc lên kịch bản (thêm video mới → lên lại)
     log('  ✓ lên kịch bản: %s – %d kịch bản (lưu lại, không lên lại)' % (jb['name'], len(scs)))
     try: L.tsay('📖 AI ĐÃ ĐỌC XONG & PHÂN TÍCH SOURCE\n📁 %s\n🎬 %d video · ra %d kịch bản:\n%s\n➡️ Bắt đầu tự dựng các project\n🔗 %s' % (
         path_of(jb['id']), len(jb['A']), len(scs), '\n'.join('• %s' % (sc.get('ten') or '') for sc in scs), weblink(jb['id'])))
