@@ -381,11 +381,21 @@ for r in TREC:
 js = json.dumps(OUT, ensure_ascii=False); json.loads(js)
 open(OD + '/draft_content.json', 'w', encoding='utf-8').write(js); open(OD + '/draft_info.json', 'w', encoding='utf-8').write(js)
 nowus = int(time.time() * S)
+REG, _seen = [], set()   # học từ capcut-cli: CapCut bản mới chỉ coi là "đã nhập" các media liệt kê ở draft_meta_info (nhóm 0) – để trống thì báo thiếu media / bắt liên kết lại
+for _k, _mt in (('videos', None), ('audios', 'music')):
+    for _m in OM.get(_k) or []:
+        _p = _m.get('path') or ''
+        if not _p or _p in _seen: continue
+        _seen.add(_p); _ty = _mt or ('photo' if _m.get('type') == 'photo' else 'video')
+        REG.append({'ai_group_type': '', 'create_time': -1, 'duration': int(_m.get('duration') or (5000000 if _ty == 'photo' else 0)), 'enter_from': 0,
+                    'extra_info': os.path.basename(_p), 'file_Path': _p, 'height': int(_m.get('height') or 0), 'id': U(), 'import_time': -1, 'import_time_ms': -1,
+                    'item_source': 1, 'material_color_tag': '', 'md5': '', 'metetype': _ty, 'roughcut_time_range': {'duration': -1, 'start': -1},
+                    'sub_time_range': {'duration': -1, 'start': -1}, 'type': 0, 'width': int(_m.get('width') or 0)})
 meta = {'draft_cover': 'draft_cover.jpg' if PL.get('cover') else '', 'draft_fold_path': '', 'draft_id': DRAFT_ID, 'draft_name': PROJECT, 'draft_root_path': '',
         'draft_removable_storage_device': '', 'draft_new_version': '', 'draft_is_invisible': False, 'draft_timeline_materials_size_': 0,
-        'draft_materials': [{'type': i, 'value': []} for i in (0, 1, 2, 3, 6, 7, 8)], 'tm_draft_create': nowus, 'tm_draft_modified': nowus,
+        'draft_materials': [{'type': i, 'value': (REG if i == 0 else [])} for i in (0, 1, 2, 3, 6, 7, 8)], 'tm_draft_create': nowus, 'tm_draft_modified': nowus,
         'tm_draft_removed': 0, 'tm_duration': us(TOTAL)}
-open(OD + '/draft_meta_info.json', 'w', encoding='utf-8').write(json.dumps(meta, ensure_ascii=False))
+open(OD + '/draft_meta_info.json', 'w', encoding='utf-8').write(json.dumps(meta, ensure_ascii=False, separators=(',', ':')))
 json.dump(dict(shots=SHOTREC, texts=TREC, transitions=TR_DONE, effects=PL['effects'], paths=PATHS, errors=E, notes=REP),
           open(PL['out_dir'] + '/build_report.json', 'w'), ensure_ascii=False, indent=1)
 print('built', PROJECT, 'dur %.2f' % TOTAL, 'V1', len(V1), 'B', len(BSEGS), 'adjust', len(ADJ), 'matte', len(MATTE_SEGS), 'texts', len(TXs) + len(BEH_SEGS), 'fx', len(FXs), 'trans', len(TR_DONE),

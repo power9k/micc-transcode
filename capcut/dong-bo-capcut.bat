@@ -150,7 +150,7 @@ function Seen($f) {
 }
 function Mark($f) { $St[$f] = Sig $f }
 function Fix-Paths($dir) {
-  foreach ($fn in @('draft_content.json', 'draft_info.json')) {
+  foreach ($fn in @('draft_content.json', 'draft_info.json', 'draft_meta_info.json')) {
     $f = Join-Path $dir $fn
     if (-not (Test-Path -LiteralPath $f) -or (Seen $f)) { continue }
     try {
@@ -202,12 +202,12 @@ function Resolve-LooseFile($base, $rel) {
 }
 # sua tung duong dan video / nhac / font trong project cho trung TEN THAT tren may nay (Drive o nao, dau kieu nao cung tim ra)
 function Fix-Media($dir) {
-  foreach ($fn in @('draft_content.json', 'draft_info.json')) {
+  foreach ($fn in @('draft_content.json', 'draft_info.json', 'draft_meta_info.json')) {
     $f = Join-Path $dir $fn
     if (-not (Test-Path -LiteralPath $f) -or (Seen $f)) { continue }
     try {
       $t = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8); $n = $t; $fix = 0; $miss = 0
-      $ps = [regex]::Matches($t, '"(?:path|font_path)":"([A-Za-z]:/[^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
+      $ps = [regex]::Matches($t, '"(?:path|font_path|file_Path)":\s*"([A-Za-z]:/[^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
       foreach ($p in $ps) {
         if (Test-Path -LiteralPath ($p -replace '/', '\')) { continue }
         if (-not $LooseCache.ContainsKey($p)) {
