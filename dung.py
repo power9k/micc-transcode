@@ -5,12 +5,12 @@
 #     chọn câu nói hay nhất (đủ ý, đúng diễn xuất), cảnh phụ khớp lời, chữ nhấn ý chính
 #  3) DỰNG: bỏ ngập ngừng / ầm à, che vết cắt bằng giật zoom, cảnh phụ, chữ, nhạc, hiệu ứng âm thanh → draft CapCut
 #  4) Đưa project vào thư mục buổi quay (1 phiên bản duy nhất) + thêm vào MICC media · Hệ thống (không xóa)/AI dựng CapCut/Danh sách project CapCut.txt (máy nhân viên tự có lối tắt)
-import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse, urllib.error
+import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse, urllib.error, random
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
-DV = '21'
-LV = '15'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
+DV = '22'
+LV = '16'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
 EXCL = set()   # 11/11 chiều: chủ cho thu hồi cả Center Avenue KB1/KB2 và để AI dựng lại (làm sau cùng)
 SYS_NAME, CACHE_NAME, LIST_NAME, ENG_NAME, PROG_NAME = 'MICC media · Hệ thống (không xóa)', 'AI dựng CapCut', 'Danh sách project CapCut.txt', 'Bộ dựng AI.zip', 'Tiến độ AI dựng.txt'   # mọi thứ AI tự tạo: MICC media · Hệ thống (không xóa)/AI dựng CapCut – SETUP chỉ cho người dùng
 _CD = []
@@ -666,7 +666,9 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         if not a_: continue
         fc_ = [f_ for f_ in (a_.get('see') or {}).get('faces') or [] if sh['src'] - .3 <= f_[0] <= sh['src'] + (sh['t1'] - sh['t0']) + .3]
         fr_ = sh.get('face')
-        bad_ = not fr_ or not fc_ or (fr_[1] - .75 * fr_[3]) < .03 or (fr_[1] + .6 * fr_[3]) > .97   # không thấy mặt / đầu hoặc cằm sát mép khung gốc
+        kt_ = [t_ for t_ in a_.get('kt') or [] if sh['src'] - .2 <= t_ <= sh['src'] + (sh['t1'] - sh['t0']) + .2]
+        if fr_: bad_ = (fr_[1] - .75 * fr_[3]) < .0 or (fr_[1] + .6 * fr_[3]) > 1.02   # mặt có nhưng đầu / cằm bị cắt ở khung gốc
+        else: bad_ = len(kt_) >= 2 and not fc_   # chỉ coi là "không thấy mặt" khi có ≥ 2 khung đã soi mà không khung nào có mặt (thiếu dữ liệu ≠ xấu)
         if not bad_:
             m0 = max(k_[1] for k_ in sh['keys']); v0 = min(k_[3] for k_ in sh['keys'])
             if fr_[1] - .75 * fr_[3] < max(0.0, v0 - .5 / (m0 * 1.2)) + .02:   # zoom (kể cả giật zoom từ khóa) làm mất đỉnh đầu → bỏ zoom, giữ khung rộng
@@ -949,7 +951,7 @@ def used_music(add=None):
     return ids
 def pick_music(jb, sc=None):
     try:
-        AU = lambda d: [c for c in lq("'%s' in parents and mimeType contains 'audio/'" % d, 'id,name,size,mimeType') if int(c.get('size') or 0) > 800000
+        AU = lambda d: [c for c in lq("'%s' in parents and mimeType contains 'audio/'" % d, 'id,name,size,mimeType,appProperties') if int(c.get('size') or 0) > 800000
                         and not re.search(r'(?i)voice|vocal|giọng|giong|sfx|whoosh|lồng tiếng', c['name'])]
         local = [c for d in list(jb['dirs']) + [p[0] for p in jb.get('pool', [])] for c in AU(d)]
         kho = lq("'%s' in parents and name='Kho nhạc nền' and mimeType='%s'" % (cache_dir(), L.FOLDER), 'id')
@@ -1037,15 +1039,48 @@ def music_info(c):   # phân tích 1 bài nhạc 1 lần (BPM, kick, snare, đo�
 
 def mnm(c): return KSUB['music'] + '/' + nf(c['name']).replace('/', ' ')   # đường dẫn trong kho: Nhạc nền/<tên gốc>
 
-def pick_mix(jb, sc):   # Claude MIX nhạc theo từng đoạn kịch bản (1–3 bài, chuyển mượt) – ngầu, hiện đại, kịch tính; vui thì bẻ sang dòng nhạc có gu
+import hashlib as _hl
+def mhash(nm): return _hl.md5(nf(nm).lower().encode('utf-8')).hexdigest()[:8]
+def live_music(me=None):   # chủ dặn 12/11: nhạc nền của mỗi project KHÔNG trùng project nào đang có → bài đang dùng ở các project hiện có
+    try: return {h for c in lq("appProperties has { key='dungP' and value='1' } and trashed=false", 'id,appProperties') if c['id'] != me
+                 for h in ((c.get('appProperties') or {}).get('dungMu') or '').split(',') if h}
+    except Exception: return set()
+MIXKIT_TAGS = ['cinematic', 'hip-hop', 'trap', 'electronic', 'dramatic', 'house', 'rock', 'jazz', 'lofi', 'chill', 'funk', 'epic', 'drum-and-bass', 'dubstep', 'ambient']
+def fetch_music(n=8):   # kho hết bài chưa dùng → tải thêm nhạc miễn phí bản quyền (Mixkit Stock Music Free License) vào Kho chung / Nhạc nền
+    kd = globals()['kho']()['music']; have = {nf(c['name']).lower() for c in lq("'%s' in parents" % kd, 'id,name')}; got = 0
+    tags = MIXKIT_TAGS[:]; random.shuffle(tags)
+    for tg in tags:
+        if got >= n: break
+        try:
+            h_ = urllib.request.urlopen(urllib.request.Request('https://mixkit.co/free-stock-music/tag/%s/' % tg, headers={'User-Agent': 'Mozilla/5.0'}), timeout=60).read().decode('utf-8', 'ignore')
+        except Exception as e: log('  không đọc được Mixkit', tg, e); continue
+        its = re.findall(r'"name":"([^"]+)","genre":"([^"]*)","byArtist":"[^"]*","duration":"PT(\d+)M(\d+)S","url":"(https://assets\.mixkit\.co/music/\d+/\d+\.mp3)"', h_)
+        random.shuffle(its)
+        for nm, gn, mi, se, url in its:
+            if got >= n: break
+            fn = safe('Mixkit - %s (%s).mp3' % (nm, gn or tg), 90)
+            if fn.lower() in have or int(mi) * 60 + int(se) < 45: continue
+            try:
+                b = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=120).read()
+                if len(b) < 500000: continue
+                put(fn, kd, b, 'audio/mpeg'); have.add(fn.lower()); got += 1; log('  tải thêm nhạc nền:', fn)
+            except Exception as e: log('  không tải được nhạc', nm, e)
+    return got
+def pick_mix(jb, sc, _again=False):   # Claude MIX nhạc theo từng đoạn kịch bản (1–3 bài, chuyển mượt) – ngầu, hiện đại, kịch tính; vui thì bẻ sang dòng nhạc có gu
     try:
-        AU = lambda d: [c for c in lq("'%s' in parents and mimeType contains 'audio/'" % d, 'id,name,size,mimeType') if int(c.get('size') or 0) > 800000
+        AU = lambda d: [c for c in lq("'%s' in parents and mimeType contains 'audio/'" % d, 'id,name,size,mimeType,appProperties') if int(c.get('size') or 0) > 800000
                         and not re.search(r'(?i)voice|vocal|giọng|giong|sfx|whoosh|lồng tiếng', c['name'])]
         local = [c for d in list(jb['dirs']) + [p[0] for p in jb.get('pool', [])] for c in AU(d)]
         kho = lq("'%s' in parents and name='Kho nhạc nền' and mimeType='%s'" % (cache_dir(), L.FOLDER), 'id')
         cands = (local + AU(globals()['kho']()['music']) + (AU(kho[0]['id']) if kho else []))   # nhạc trong source + Kho chung (SETUP/Kho AI tải về/Nhạc nền) + kho nhạc cũ
-        seen_ = set(); cands = [c for c in cands if not (nf(c['name']).lower() in seen_ or seen_.add(nf(c['name']).lower()))][:40]
+        seen_ = set(); cands = [c for c in cands if not (nf(c['name']).lower() in seen_ or seen_.add(nf(c['name']).lower()))]
         if not cands: return None
+        taken = live_music()   # bài đang có trong project khác → loại hẳn (mỗi project nhạc riêng)
+        res_ = lambda c: (c.get('appProperties') or {}).get('dungRes') or ''
+        cands = [c for c in cands if mhash(c['name']) not in taken and not (res_(c) and not res_(c).startswith(WID + ':') and time.time() - float(res_(c).split(':')[-1] or 0) < 3600)]
+        if len(cands) < 4 and not _again:
+            fetch_music(10); return pick_mix(jb, sc, True)
+        if not cands: log('  hết nhạc nền chưa dùng'); return None
         used = set(used_music()); INF = {}
         for c in cands:
             try: INF[c['id']] = music_info(c)
@@ -1067,7 +1102,7 @@ def pick_mix(jb, sc):   # Claude MIX nhạc theo từng đoạn kịch bản (1�
              'MIX NHẠC NỀN cho video này (chủ dặn): nhạc LUÔN ngầu, hiện đại, kịch tính, có gu – KHÔNG nhạc quảng cáo thông thường, KHÔNG vui tươi kiểu trẻ con, KHÔNG da diết.\n'
              '- Đoạn thể hiện quy mô / sức mạnh / con số lớn → trap, drill, bass house, rock, blues nặng, cinematic hybrid.\n'
              '- Đoạn nhẹ / vui / phong cách sống → bẻ lái mượt sang dòng nhạc có gu: jazz, valse, bossa nova, bedroom pop, dream pop, lo-fi sang.\n'
-             '- Dùng 1–3 bài, mỗi bài phủ 1 đoạn liền (đổi bài ở chỗ đổi ý của kịch bản); ưu tiên bài chưa dùng; vào bài ở đoạn "sôi" / điểm dồn khi cần ngầu.\n'
+             '- Dùng 1–3 bài, mỗi bài phủ 1 đoạn liền (đổi bài ở chỗ đổi ý của kịch bản); vào bài ở đoạn "sôi" / điểm dồn khi cần ngầu.\n'
              'Danh sách bài (tên | độ dài | BPM | đoạn lắng/vừa/sôi | điểm dồn):\n' + opts +
              '\n\nTrả JSON {"mix":[{"bai": số thứ tự, "tu": % thời lượng video bắt đầu (0–100), "den": % kết thúc, "vao": giây bắt đầu trong bài}], "ly_do": "ngắn"} – các đoạn nối liền, phủ 0→100.')
         j = N.ask_json(q, model='opus', key='mix', log=log)
@@ -1083,6 +1118,9 @@ def pick_mix(jb, sc):   # Claude MIX nhạc theo từng đoạn kịch bản (1�
             parts = [dict(id=c['id'], nm=mnm(c), orig=nf(c['name']).replace('/', ' '), dur=i['dur'], key=nf(c['name']).lower(), mm=i.get('mm') or {}, f0=0.0, f1=1.0, src=0.0)]
         parts[0]['f0'] = 0.0; parts[-1]['f1'] = 1.0
         for a_, b_ in zip(parts, parts[1:]): b_['f0'] = a_['f1']
+        for p_ in parts:   # giữ chỗ bài vừa chọn (máy khác không chọn trùng trong lúc dựng)
+            try: L.mark(p_['id'], dungRes='%s:%d' % (WID, time.time()))
+            except Exception: pass
         log('  Claude mix nhạc:', ' → '.join('%s (%d–%d%%)' % (p_['nm'], p_['f0'] * 100, p_['f1'] * 100) for p_ in parts), '–', str((j or {}).get('ly_do', ''))[:100])
         return parts
     except ClaudeWait: raise
@@ -1263,7 +1301,7 @@ VRE = re.compile(r'(?: \(AI dựng lại\)| v(\d+))\s*$')   # chủ dặn 11/11:
 def vnum(nm): m = VRE.search(bare_nm(nm)); return (int(m.group(1)) if m.group(1) else 2) if m else 1
 def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
 def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
-LVT = 1794438178   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
+LVT = 1794450781   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
 def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG KỊCH BẢN (gồm cả chờ máy, tải cảnh phụ / nhạc, dựng motion graphic…)
     try:
         f = idx_now()[1].get('%s_kichban.json' % jb['id'])
@@ -1437,18 +1475,23 @@ def add_mg(jb, sc, pl, proj, host, adir):
             out.append((s_, e_, o, nm)); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
         except Exception as e: mlog('bỏ 1 motion graphic:', repr(e)[:500])
-    shots = pl['shots']
+    def cut_(lst, s_, e_):   # cắt bỏ phần chồng [s_, e_] khỏi danh sách cảnh (giữ phần trước / sau)
+        res = []
+        for sh in lst:
+            if sh['t1'] <= s_ or sh['t0'] >= e_: res.append(sh); continue
+            if sh['t0'] < s_ - .05: res.append(dict(sh, t1=round(s_, 3), keys=[[sh['t0']] + sh['keys'][0][1:], [round(s_, 3)] + sh['keys'][-1][1:]]))
+            if sh['t1'] > e_ + .05: res.append(dict(sh, src=round(sh['src'] + (e_ - sh['t0']) * sh.get('spd', 1.0), 3), t0=round(e_, 3), keys=[[round(e_, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]]))
+        return sorted(res, key=lambda x: x['t0'])
+    shots = pl['shots']; bsh = list(pl.get('bshots') or [])
     for i, (s_, e_, o, nm) in enumerate(out):
         k = 'M%d' % (i + 1)
         pl['media'][k] = dict(path=DRV + '/' + path_of(host) + '/' + proj + '/' + MGDIR + '/' + nm, dur=round(e_ - s_ + .05, 3), w=1080, h=1920,
                               kind='video', has_audio=False, name=nm, S0=1.0, grade=None)
-        new = []
-        for sh in shots:
-            if sh['t1'] <= s_ or sh['t0'] >= e_: new.append(sh); continue
-            if sh['t0'] < s_ - .05: new.append(dict(sh, t1=round(s_, 3), keys=[[sh['t0']] + sh['keys'][0][1:], [round(s_, 3)] + sh['keys'][-1][1:]]))
-            if sh['t1'] > e_ + .05: new.append(dict(sh, src=round(sh['src'] + (e_ - sh['t0']) * sh.get('spd', 1.0), 3), t0=round(e_, 3), keys=[[round(e_, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]]))
-        new.append(dict(media=k, src=0.0, t0=round(s_, 3), t1=round(e_, 3), line='B', bi=-1, keys=[[round(s_, 3), 1.0, .5, .5, 0.0], [round(e_, 3), 1.0, .5, .5, 0.0]], punch_abs=[]))
-        shots = sorted(new, key=lambda x: x['t0'])
+        mg_sh = dict(media=k, src=0.0, t0=round(s_, 3), t1=round(e_, 3), line='B', bi=-1, mg=1, keys=[[round(s_, 3), 1.0, .5, .5, 0.0], [round(e_, 3), 1.0, .5, .5, 0.0]], punch_abs=[])
+        shots = sorted(cut_(shots, s_, e_) + [mg_sh], key=lambda x: x['t0'])
+        bsh = sorted(cut_(bsh, s_, e_) + [dict(mg_sh)], key=lambda x: x['t0'])   # bộ dựng CapCut đọc lớp cảnh phụ (bshots) – motion graphic nằm lớp trên người nói
+        pl['pips'] = [p_ for p_ in pl.get('pips') or [] if p_['t1'] <= s_ or p_['t0'] >= e_]   # không đặt khung người nói nhỏ đè lên motion graphic
+    if out and 'bshots' in pl: pl['bshots'] = bsh
     pl['shots'] = shots; pl['mg'] = [(o, nm) for _, _, o, nm in out]
     if len(out) > 1:   # chủ dặn 12/11: bản gửi kèm tin Zalo = GỘP các motion graphic lại thành 1 clip
         try:
@@ -1618,6 +1661,8 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         for fn in ('draft_content.json', 'draft_info.json', 'draft_meta_info.json'):
             put(fn, pf, rd(fn), 'application/json')   # giữ G:/Drive của tôi/…; công cụ đồng bộ trên từng máy tự sửa theo ổ Drive thật của máy đó (không bắt buộc ổ M)
         mgi = put_extra(pf, jb, pl, proj)
+        try: L.mark(pf, dungMu=','.join(sorted({mhash(p_['key']) for p_ in (mu or [])}))[:120])   # ghi bài nhạc của project (để project khác không trùng)
+        except Exception: pass
         list_edit(add=[rel])
         for p_ in (mu or []): used_music(add=p_['key'])
         for c in old_:   # bản mới đã lên xong → mới bỏ bản cũ (vào thùng rác Drive, khôi phục được)

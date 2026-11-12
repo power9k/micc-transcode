@@ -294,7 +294,7 @@ MUs = []
 for i, mu in enumerate(PL['music']):
     mid = amat(AD + '/' + mu['file'], mu['dur'], mu['file'])
     if mu['src_in'] + mu['t1'] - mu['t0'] > mu['dur'] + 1e-3: E.append('music past end %s' % mu['file'])
-    MUs.append(aseg(mid, mu['src_in'], mu['t0'], mu['t1'] - mu['t0'], 1.0, fades=(mu['fi'], mu['fo'])))   # chủ dặn 11/11: âm lượng 0 dB, không tự giảm
+    MUs.append(aseg(mid, mu['src_in'], mu['t0'], mu['t1'] - mu['t0'], lin(-13), fades=(mu['fi'], mu['fo'])))   # chủ dặn 12/11: nhạc nền LUÔN -13 dB
 SFs = []
 for sx in PL['sfx']:
     mid = amat(AD + '/' + sx['file'], sx['dur'], sx['file'])

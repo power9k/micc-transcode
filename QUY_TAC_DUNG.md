@@ -54,3 +54,6 @@
 - Motion graphic: nhiều đoạn nếu kịch bản cần (~1 đoạn / 8 s), mỗi đoạn một loại khác nhau; mỗi clip phối ngẫu nhiên nền × mặt nạ cắt cảnh quay (tròn, lục giác, vòm, chéo, khối, dải phim…) × bố cục × kiểu xuất hiện × chi tiết trang trí; giữ tông màu web.
 - Zalo: gửi clip GỘP các motion graphic của project (mg - tổng hợp.mp4), không chèn link.
 - Claude kiểm tra tối đa 6 vòng; các bước chọn nhạc / màu / phong cách dùng model mạnh nhất (opus).
+- 12/11 sáng: nhạc nền LUÔN -13 dB; nhạc nền mỗi project KHÔNG trùng project nào đang có (dungMu trên thư mục project + giữ chỗ dungRes); kho hết bài → tự tải thêm nhạc Mixkit (miễn phí bản quyền) vào Kho chung / Nhạc nền.
+- Motion graphic phải nằm ở LỚP CẢNH PHỤ (bshots) – bộ dựng chỉ đọc ashots/bshots; video có motion graphic → cover CapCut = khung đẹp của motion graphic.
+- Chỉ phủ cảnh phụ lên đoạn người nói khi CHẮC khung xấu (mặt bị cắt ở khung gốc, hoặc ≥ 2 khung đã soi không thấy mặt) – thiếu dữ liệu không phải là xấu.
