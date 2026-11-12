@@ -1210,6 +1210,7 @@ def review(jb, sc, pl, proj, adir, mu):
         if r is not None and pl['total'] < 45: r['dat'] = False; r.setdefault('loi', []).append('[NẶNG] quá ngắn %.0fs – thêm câu cho đủ ý (nên ≥ 60 s)' % pl['total'])
         if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
         log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
+        QAN[0] = rnd + 1
         if r.get('dat') and (rnd >= 1 or not (r.get('sua') and any((r.get('sua') or {}).values()))): return pl   # mọi project ít nhất 2 lượt Claude xem nếu còn chỗ sửa (chất lượng đồng đều)
         fx = r.get('sua') or {}; sc = json.loads(json.dumps(sc)); T = sc.get('titles') or []
         for d in fx.get('doi_chu') or []:
@@ -1323,6 +1324,14 @@ def vnum(nm): m = VRE.search(bare_nm(nm)); return (int(m.group(1)) if m.group(1)
 def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
 def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
 LVT = 1794450781   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
+QAN = [0]   # số vòng Claude kiểm tra của project vừa dựng
+def why_time(jb, t_work, tries=0):   # chủ dặn 12/11: ghi rõ trong ngoặc thời gian đi đâu (dựng thật / chờ / lỗi dựng lại)
+    tot = time.time() - kb_start(jb); wait = max(0, tot - t_work); bits = ['dựng %d phút' % round(t_work / 60)]
+    if QAN[0]: bits.append('Claude kiểm tra %d vòng' % QAN[0])
+    if wait > 90: bits.append('chờ %d phút (đến lượt máy rảnh / Google chặn tải / hết lượt Claude)' % round(wait / 60))
+    if tries: bits.append('dựng lại %d lần vì lần trước chưa đạt kiểm tra hoặc lỗi' % tries)
+    mm, ss = divmod(int(tot), 60)
+    return 'Dựng mất %d phút %02d giây (%s)' % (mm, ss, ' · '.join(bits))
 def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG KỊCH BẢN (gồm cả chờ máy, tải cảnh phụ / nhạc, dựng motion graphic…)
     try:
         f = idx_now()[1].get('%s_kichban.json' % jb['id'])
@@ -1775,13 +1784,13 @@ def edit(jb, key, models):
         keep(jb)
         n = sc['_n']; jb['fixed'] = None; jb['qa_rej'] = 0
         try:
-            tp_ = time.time(); r = publish(jb, sc, n)
+            tp_ = time.time(); QAN[0] = 0; r = publish(jb, sc, n)
             if r:
                 book['done'].append(n); done.append(r); log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
                 if not r.get('exists'):
                     try: tot = len(lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (LV, L.FOLDER), 'id'))
                     except Exception: tot = 0
-                    mm, ss = divmod(int(time.time() - kb_start(jb)), 60); L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, weblink(r['id'])), photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # chủ dặn 12/11: Zalo không gửi được video → gửi thumbnail   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
+                    L.tsay('%s\n⏱ %s\n🔗 %s' % (r['proj'], why_time(jb, time.time() - tp_, int(book['tries'].get(str(n), 0))), weblink(r['id'])), photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # chủ dặn 12/11: Zalo không gửi được video → gửi thumbnail   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
             else:
                 book['tries'][str(n)] = int(book['tries'].get(str(n), 0)) + 1
                 if not jb.get('qa_rej'): book['tries'][str(n)] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
@@ -1936,6 +1945,7 @@ def do_build(jb, n):
             if old.get('sc'): break
     sc = stt.get('sc') or old.get('sc') or next(x for x in book['scripts'] if x['_n'] == n)
     jb['fixed'] = None; jb['qa_rej'] = 0
+    tp2_ = time.time(); QAN[0] = 0
     try: r = publish(jb, sc, n)
     except ClaudeWait: raise
     except Exception as e: r = None; log('  ✗ kịch bản', n, e)
@@ -1946,8 +1956,7 @@ def do_build(jb, n):
             try: L.ix(link=r['id'])   # báo kho web có thư mục mới
             except Exception: pass
             link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
-            mm, ss = divmod(int(time.time() - kb_start(jb)), 60)
-            L.tsay('%s\n⏱ Dựng mất %d phút %02d giây\n🔗 %s' % (r['proj'], mm, ss, link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
+            L.tsay('%s\n⏱ %s\n🔗 %s' % (r['proj'], why_time(jb, time.time() - tp2_, int(stt.get('tries') or 0)), link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
                    photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get("thumb") else None)   # chủ dặn 12/11: Zalo không gửi được video → chỉ thumbnail
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
