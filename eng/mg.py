@@ -143,8 +143,8 @@ def _enter(r, sel):   # kiểu xuất hiện của khối chính (mặt nạ / t
     return r.choice([
         "tl.fromTo('%s',{rotationY:-70,rotationX:12,scale:.6,opacity:0,y:200},{rotationY:0,rotationX:0,scale:1,opacity:1,y:0,duration:1,ease:'power3.out'},0);" % sel,
         "tl.fromTo('%s',{clipPath:'inset(50%% 50%% 50%% 50%% round 40px)'},{clipPath:'inset(0%% 0%% 0%% 0%% round 40px)',duration:.9,ease:'power3.inOut'},0);" % sel,
-        "tl.fromTo('%s',{x:-1200,rotation:-6},{x:0,rotation:0,duration:.9,ease:'expo.out'},0);" % sel,
-        "tl.fromTo('%s',{x:1200,rotation:6},{x:0,rotation:0,duration:.9,ease:'expo.out'},0);" % sel,
+        "tl.fromTo('%s',{x:-1200,rotation:-6},{x:0,rotation:0,duration:.9,ease:'power3.out'},0);" % sel,
+        "tl.fromTo('%s',{x:1200,rotation:6},{x:0,rotation:0,duration:.9,ease:'power3.out'},0);" % sel,
         "tl.fromTo('%s',{scale:0,opacity:0},{scale:1,opacity:1,duration:.8,ease:'back.out(1.7)'},0);" % sel,
         "tl.fromTo('%s',{y:1500},{y:0,duration:1,ease:'power4.out'},0);" % sel,
     ])
@@ -173,7 +173,7 @@ def scene(loai, dur, clip, n, r):
                 + ''.join('<g id="p%d"><circle cx="%d" cy="%d" r="26" fill="%s"/><circle cx="%d" cy="%d" r="11" fill="%s"/></g><circle id="w%d" cx="%d" cy="%d" r="30" fill="none" stroke="%s" stroke-width="5"/>' % (i, px, py, G['g1'], px, py, K[1], i, px, py, G['g2']) for i, (px, py) in enumerate(pins)) + '</svg>')
         js = (_enter(r, '#m1') + "tl.fromTo('#m1f',{opacity:0},{opacity:1,duration:.5},.5);" + spin + drift +
               "const rt=document.getElementById('route'),L=rt.getTotalLength();tl.fromTo('#route',{strokeDashoffset:L},{strokeDashoffset:0,duration:Math.max(1,D-1.6),ease:'power1.inOut'},.9);" +
-              ''.join("tl.fromTo('#p%d',{scale:0,transformOrigin:'50%% 50%%'},{scale:1,duration:.35,ease:'back.out(2.5)'},%s);tl.fromTo('#w%d',{scale:.3,opacity:1,transformOrigin:'50%% 50%%'},{scale:3,opacity:0,duration:1},%s);" % (i, '%.2f' % (1.0 + i * (dur - 1.8) / 3), i, '%.2f' % (1.1 + i * (dur - 1.8) / 3)) for i in range(3)))
+              ''.join("tl.fromTo('#p%d',{scale:0,transformOrigin:'50%% 50%%'},{scale:1,duration:.35,ease:'back.out(1.4)'},%s);tl.fromTo('#w%d',{scale:.3,opacity:1,transformOrigin:'50%% 50%%'},{scale:3,opacity:0,duration:1},%s);" % (i, '%.2f' % (1.0 + i * (dur - 1.8) / 3), i, '%.2f' % (1.1 + i * (dur - 1.8) / 3)) for i in range(3)))
     elif loai == 'khu_3d':
         body = '<div class="stage"><div class="floor" id="floor"></div></div>'
         if clip: x, y, w, h = box(560, 420 if shape not in ('circle', 'hex') else 520, 140); body += _mask(shape, x, y, w, h, v)
@@ -199,7 +199,7 @@ def scene(loai, dur, clip, n, r):
         js = ((_enter(r, '#m1') + drift) if clip else '') + (
             "for(let k=0;k<%d;k++)tl.fromTo('#b'+k,{scaleY:0},{scaleY:1,duration:.55,ease:'back.out(1.4)'},.4+k*.12);" % nb if style in ('bars', 'both') else '') + (
             "const ar=document.getElementById('arrow'),L=ar.getTotalLength();ar.style.strokeDasharray=L;tl.fromTo('#arrow',{strokeDashoffset:L},{strokeDashoffset:0,duration:1.2,ease:'power2.inOut'},.9);"
-            "for(let k=0;k<%d;k++)tl.fromTo('#d'+k,{scale:0,transformOrigin:'50%% 50%%'},{scale:1,duration:.3,ease:'back.out(3)'},.9+k*1.2/%d);" % (nb, nb) +
+            "for(let k=0;k<%d;k++)tl.fromTo('#d'+k,{scale:0,transformOrigin:'50%% 50%%'},{scale:1,duration:.3,ease:'back.out(1.5)'},.9+k*1.2/%d);" % (nb, nb) +
             "tl.fromTo('.coin',{y:400,opacity:0},{y:0,opacity:1,duration:.5,stagger:.08,ease:'back.out(1.6)'},1.2);")
     elif loai == 'luoi_can':
         cols = r.choice([5, 6, 7]); rows = r.choice([6, 7, 8]); cw = (960 - (cols - 1) * 18) // cols; ch = int(cw * r.choice([.7, .9, 1.0]))
@@ -210,7 +210,7 @@ def scene(loai, dur, clip, n, r):
         js = ((_enter(r, '#m1') + drift) if clip else '') + (
             "const q=[...document.querySelectorAll('.cell')];let ord=q.map((e,i)=>[e,%s]).sort((a,b)=>a[1]-b[1]).map(x=>x[0]);"
             % {'rand': '(i*37)%q.length', 'wave': '(i%%%d)+Math.floor(i/%d)' % (cols, cols), 'spiral': 'Math.abs((i%%%d)-%d)+Math.abs(Math.floor(i/%d)-%d)' % (cols, cols // 2, cols, rows // 2)}[order] +
-            "tl.fromTo('.cell',{scale:0,opacity:0},{scale:1,opacity:1,duration:.35,stagger:.01,ease:'back.out(2)'},.2);" +
+            "tl.fromTo('.cell',{scale:0,opacity:0},{scale:1,opacity:1,duration:.35,stagger:.01,ease:'back.out(1.3)'},.2);" +
             ("ord.forEach((e,i)=>tl.to(e.firstChild,{opacity:1,duration:.15},1.0+i*(D-1.6)/ord.length));" if not down else
              "tl.set('.cell i',{opacity:1},0);ord.forEach((e,i)=>tl.to(e.firstChild,{opacity:0,duration:.15},1.0+i*(D-1.6)/ord.length*.9));"))
     elif loai == 'dien_thoai':
@@ -248,11 +248,11 @@ def scene(loai, dur, clip, n, r):
         if vert:
             body = _mask('diag', 0, 0, 1080, 980, v, 'm1') + _mask('diag', 0, 940, 1080, 980, v.replace('id="v1"', 'id="v2"'), 'm2')
             body += '<div class="frame" id="sep" style="left:-40px;top:930px;width:1160px;height:16px;background:%s;box-shadow:0 0 40px %s;transform:rotate(-4deg)"></div>' % (G['g1'], G['g2'])
-            js = "tl.fromTo('#m1',{x:-1100},{x:0,duration:.8,ease:'expo.out'},0);tl.fromTo('#m2',{x:1100},{x:0,duration:.8,ease:'expo.out'},.15);tl.fromTo('#sep',{scaleX:0},{scaleX:1,duration:.6,ease:'power2.out'},.6);"
+            js = "tl.fromTo('#m1',{x:-1100},{x:0,duration:.8,ease:'power3.out'},0);tl.fromTo('#m2',{x:1100},{x:0,duration:.8,ease:'power3.out'},.15);tl.fromTo('#sep',{scaleX:0},{scaleX:1,duration:.6,ease:'power2.out'},.6);"
         else:
             body = _mask('round', 30, 260, 500, 1400, v, 'm1') + _mask('round', 550, 260, 500, 1400, v.replace('id="v1"', 'id="v2"'), 'm2')
             body += '<div class="frame" id="sep" style="left:532px;top:200px;width:16px;height:1520px;background:%s;box-shadow:0 0 40px %s"></div>' % (G['g1'], G['g2'])
-            js = "tl.fromTo('#m1',{y:-1700},{y:0,duration:.8,ease:'expo.out'},0);tl.fromTo('#m2',{y:1700},{y:0,duration:.8,ease:'expo.out'},.15);tl.fromTo('#sep',{scaleY:0},{scaleY:1,duration:.6,ease:'power2.out'},.6);"
+            js = "tl.fromTo('#m1',{y:-1700},{y:0,duration:.8,ease:'power3.out'},0);tl.fromTo('#m2',{y:1700},{y:0,duration:.8,ease:'power3.out'},.15);tl.fromTo('#sep',{scaleY:0},{scaleY:1,duration:.6,ease:'power2.out'},.6);"
         js += "tl.to('#v1',{scale:1.15,duration:D,ease:'none'},0);tl.fromTo('#v2',{scale:1.25,x:-80},{scale:1.25,x:80,duration:D,ease:'none'},0);" + "sparks(10,880,120);"
     elif loai == 'mat_bang':
         lines = []; x0, y0 = 150, 520
@@ -275,7 +275,7 @@ def scene(loai, dur, clip, n, r):
                 body += '<div class="coin cs%d" style="left:%dpx;top:%dpx"></div>' % (s_, 120 + s_ * (840 // nst), 1760 - c_ * 34)
         body += '<div class="frame" id="glow" style="left:240px;top:1100px;width:600px;height:600px;border-radius:50%%;background:radial-gradient(rgba(240,208,138,.5),transparent 65%%)"></div>'
         js = ((_enter(r, '#m1') + drift) if clip else '') + "tl.fromTo('#glow',{scale:.3,opacity:0},{scale:1.4,opacity:1,duration:D,ease:'power1.out'},0);" + ''.join(
-            "tl.fromTo('.cs%d',{y:-900,opacity:0},{y:0,opacity:1,duration:.45,stagger:{each:.06,from:'end'},ease:'bounce.out'},%.2f);" % (s_, .4 + s_ * .25) for s_ in range(nst)) + "sparks(16,1400,300);"
+            "tl.fromTo('.cs%d',{y:-900,opacity:0},{y:0,opacity:1,duration:.45,stagger:{each:.06,from:'end'},ease:'power3.out'},%.2f);" % (s_, .4 + s_ * .25) for s_ in range(nst)) + "sparks(16,1400,300);"
     elif loai == 'khung_hinh':
         body = '<div class="mask" id="m1" style="left:0;top:0;width:1080px;height:1920px">%s</div>' % v
         body += '<div class="frame" style="left:0;top:0;width:1080px;height:1920px;background:linear-gradient(transparent 55%%,rgba(5,9,20,.75))"></div>'
@@ -297,7 +297,39 @@ def scene(loai, dur, clip, n, r):
         js = _enter(r, '#m1') + spin + drift + "sparks(22,1450,300);"
     return body, js
 
-def render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None, tz=False):
+PALS = [   # chủ dặn 12/11: không bó theo tông web nữa – mỗi clip một bảng màu tự do, sang, hợp khung hình
+    (['#050914', '#090e1c', '#0d1426', '#131c32', '#1a2744'], ['#d6b262', '#f0d08a', '#f4e2b4', '#967632', '#b08c3e', '#f7e8c4']),   # xanh than – vàng kim
+    (['#1a1012', '#24161a', '#2e1c22', '#3a242b', '#4a2f37'], ['#e8b4a0', '#f6cdbd', '#fbe4da', '#a8705f', '#c98d79', '#fff1ea']),   # rượu vang – vàng hồng
+    (['#04161a', '#072227', '#0a2e34', '#0f3b43', '#164c55'], ['#6fd6d0', '#9be8e2', '#cff6f2', '#3a8f8a', '#52b3ad', '#e8fffc']),   # xanh ngọc – cyan
+    (['#0c0a1a', '#141028', '#1c1636', '#251d46', '#2f2659'], ['#c9a7f0', '#ddc4fa', '#efe2ff', '#7d5fb0', '#a283d6', '#f8f2ff']),   # tím đêm – oải hương
+    (['#140d06', '#1e140a', '#281b0e', '#342313', '#432e19'], ['#e3a35a', '#f2c17f', '#f9dcb0', '#9a6328', '#c0803c', '#fff0d9']),   # nâu cà phê – cam đồng
+    (['#06101f', '#0a182e', '#0e203d', '#132a4f', '#1a3866'], ['#7fb2ff', '#a9cbff', '#d6e6ff', '#3f6fc0', '#5b8ee0', '#f0f6ff']),   # xanh navy – xanh trời
+]
+PAL_TVC = [   # TVC nữ tính, sáng trong: nền ngà / hồng phấn, nhấn champagne – rose gold
+    (['#f6efe8', '#efe4da', '#e8d9cc', '#dccab9', '#cdb7a2'], ['#b98a5e', '#d4a978', '#8a6142', '#a0744f', '#c39466', '#fff8f0']),
+    (['#f7eef0', '#f0e2e6', '#e8d4da', '#dcc3cb', '#cdb0ba'], ['#c48b8f', '#dba7aa', '#8e5a5f', '#a96f74', '#c7878c', '#fff5f6']),
+]
+def render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None, tz=False, pal=None):
+    global K, G
+    r0 = random.Random(str(seed or out) + '|pal')
+    k_, g_ = r0.choice(PAL_TVC if pal == 'tvc' else PALS)
+    K = list(k_); G = dict(zip(['g1', 'g2', 'g3', 'g4', 'g5', 'g6'], g_))
+    return _render(loai, out, dur, clip, n, work, log, seed, tz)
+def _fx(r):   # lóe sáng, vệt sáng phim, bụi bokeh, rung nhẹ – chuyển động chậm, mượt (chủ dặn 12/11)
+    body = ('<div id="fx_leak" style="position:absolute;inset:-300px;pointer-events:none;mix-blend-mode:screen;opacity:0;'
+            'background:radial-gradient(ellipse at 20%% 30%%,rgba(255,200,150,.55),transparent 45%%),radial-gradient(ellipse at 85%% 70%%,%s88,transparent 50%%)"></div>' % G['g2'] +
+            '<div id="fx_flare" style="position:absolute;left:-400px;top:%dpx;width:1900px;height:14px;pointer-events:none;mix-blend-mode:screen;opacity:0;filter:blur(6px);'
+            'background:linear-gradient(90deg,transparent,rgba(255,255,255,.9),%s,transparent)"></div>' % (r.randint(300, 1500), G['g6']) +
+            ''.join('<div class="fx_bk" style="position:absolute;left:%dpx;top:%dpx;width:%dpx;height:%dpx;border-radius:50%%;pointer-events:none;mix-blend-mode:screen;filter:blur(%dpx);'
+                    'background:radial-gradient(circle,%s,transparent 70%%);opacity:0"></div>' % (r.randint(0, 1000), r.randint(0, 1850), d, d, d // 6, G['g6'])
+                    for d in [r.randint(40, 160) for _ in range(14)]))
+    t1 = r.uniform(.4, 1.2)
+    js = ("tl.fromTo('#fx_leak',{opacity:0,x:-120},{opacity:.9,x:60,duration:1.6,ease:'sine.inOut'},%.2f);tl.to('#fx_leak',{opacity:0,duration:1.4,ease:'sine.inOut'},%.2f);" % (t1, t1 + 1.6) +
+          "tl.fromTo('#fx_flare',{opacity:0,x:-600,scaleY:.4},{opacity:1,x:600,scaleY:1.4,duration:1.1,ease:'sine.inOut'},%.2f);tl.to('#fx_flare',{opacity:0,duration:.5},%.2f);" % (t1 + .5, t1 + 1.4) +
+          "tl.fromTo('.fx_bk',{opacity:0,y:60,scale:.6},{opacity:.7,y:-160,scale:1,duration:D,stagger:.15,ease:'sine.out'},0);" +
+          "for(let k=0;k<4;k++)tl.to('#main',{x:(k%%2?4:-4),y:(k%%2?-3:3),duration:.06,yoyo:true,repeat:1,ease:'none'},%.2f+k*.13);" % (t1 + .55))
+    return body, js
+def _render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None, tz=False):
     loai = loai if loai in LOAI else 'the_anh'
     if not clip and loai in ('dien_thoai', 'phieu_loc', 'the_anh', 'ban_do', 'so_sanh', 'khung_hinh'): loai = 'khu_3d' if loai in ('the_anh', 'ban_do', 'khung_hinh') else 'tang_truong'
     r = random.Random(int(hashlib.md5(('%s|%s|%s' % (seed or out, loai, dur)).encode()).hexdigest()[:8], 16))
@@ -311,7 +343,8 @@ def render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None, tz=F
                 '<div style="position:absolute;left:0;top:0;width:1080px;height:1920px;transform:translateY(420px) scale(.78);transform-origin:50% 0">' + body + '</div>'
                 '<div class="frame" id="tzl" style="left:140px;top:430px;width:800px;height:4px;background:linear-gradient(90deg,transparent,%s,transparent)"></div>' % G['g1'])
         js += "tl.fromTo('#tzl',{scaleX:0},{scaleX:1,duration:.7,ease:'power2.out'},.2);"
-    dbody, djs = _decor(r); body = dbody + body; js = djs + js   # chi tiết trang trí nằm dưới khối chính
+    dbody, djs = _decor(r); body = dbody + '<div id="main" style="position:absolute;inset:0">' + body + '</div>'; js = djs + js   # chi tiết trang trí nằm dưới khối chính
+    fb, fj = _fx(r); body += fb; js += fj
     d = dict(dur=round(dur, 2), body=body, js=js, enter='', bgfill=bgfill, pat=pat, patop=patop, patmove=patmove,
              k0=K[0], k1=K[1], k2=K[2], k3=K[3], k4=K[4], **G)
     open(os.path.join(work, 'index.html'), 'w').write(HTML % d)

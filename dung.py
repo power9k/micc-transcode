@@ -493,7 +493,11 @@ PROFILES = [('royal island', dict(
         'LUXURY CINEMATIC TRAP: slow modern trap groove (70 BPM half-time) under a cinematic string ensemble and solo cello, deep but soft 808, crisp sparse hi-hats, piano motif, dark-gold opulent mood, modern yet refined, never aggressive.',
         'NEO-CLASSICAL PIANO & STRINGS: solo grand piano with string quartet, minimalist and emotional, slow build to an orchestral crescendo, airy reverb, poetic and dignified, 60–75 BPM.',
         'ORCHESTRAL ADAGIO: full symphony orchestra, cello and violin duet, French horns, timpani rolls only at climax, epic yet serene, heritage and grandeur, 55–70 BPM.'],
-    font=('SCR', 'ITA'), colors=('#FFFFFF', '#F4E2B4'), title_gap=5.0, title_y=80.0, punch=False, mg=False, sfx=False, broll_cap=.6,
+    font=('SCR', 'ITA'), colors=('#FFFFFF', '#F4E2B4'), title_gap=5.0, title_y=80.0, punch=False, punch_soft=True, mg=False, sfx=False, broll_cap=.6,
+    grade=dict(brightness=.10, contrast=-.06, saturation=.04, temperature=.06, highlight=-.05, shadow=.08),   # tươi sáng, trong trẻo, mềm, ấm hồng nhẹ
+    mgpal='tvc', flare=True,
+    design=('Phong cách: nhẹ nhàng, nữ tính, dịu dàng, điệu đà, xa hoa, sang trọng, bay bổng mơ mộng, tươi sáng trong trẻo. Màu chữ gợi ý: trắng ngà, champagne, vàng hồng (rose gold), hồng phấn, xanh trời nhạt – '
+            'trên nền sáng dùng nâu cà phê / xanh than mềm; luôn đủ tương phản.'),
     notrans=True))]
 PRO = {}
 def profile(jb):
@@ -559,7 +563,11 @@ def tighten(a, s, e):   # bỏ ngập ngừng: cắt ĐÚNG khoảng lặng gi�
         x2, y2 = max(lo, x - (.12 if k == 0 else .07)), min(hi, y + (.2 if k + 1 == len(iv) else .1))   # chỗ cắt giữa câu đệm ngắn để không dính tiếng ầm ừ
         if y2 - x2 > .3: out.append((max(0.0, x2), min(y2, a['dur'] - .05)))
     return out
-def grade_of(a):   # đo màu gốc từng cảnh → thông số lớp Điều chỉnh để ra ĐÚNG màu mẫu chủ gửi
+def grade_of(a):
+    g = dict(_grade_of(a) or {})
+    for k_, v_ in (PRO.get('grade') or {}).items(): g[k_] = round(max(-.5, min(.5, float(g.get(k_) or 0) + v_)), 3)   # phong cách riêng (TVC: sáng trong, mềm)
+    return g
+def _grade_of(a):   # đo màu gốc từng cảnh → thông số lớp Điều chỉnh để ra ĐÚNG màu mẫu chủ gửi
     if a.get('mau'): return a['mau']   # Claude đã XEM khung hình video này và đặt thông số
     try:
         import numpy as np, io
@@ -850,6 +858,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
                 if sh['line'] == 'A' and sh.get('face') and sh['t0'] + .2 < T < sh['t1'] - .35:
                     T = N.snap(T, beats, .12) if beats else T   # giật zoom trùng phách nếu phách ở rất gần từ khóa
                     if not sh.get('nz') and PRO.get('punch', True): sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
+                    elif not sh.get('nz') and PRO.get('punch_soft'): sh['keys'] = punch(sh['keys'], T, 1.04, 1.05, cap=min(1.15, sh.get('zc', 1.0) * 1.06))   # TVC: zoom nhẹ, bay bổng
                     lastp = T; break
     # (bỏ phần tự thêm chữ từ lời nói: chủ phản ánh ra cụm vô nghĩa như "NINH VÀ", "TRƯỜNG SỐNG" – chữ chỉ lấy từ AI, có kiểm tra trọn nghĩa)
     titles.sort(key=lambda z: z['t0'])
@@ -1412,6 +1421,22 @@ def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG
         mt = L.ts(L.drive('files/' + f, params={'fields': 'createdTime'})['createdTime']) if f else 0   # lúc ghi kịch bản lần đầu (file còn được ghi tiếp khi dựng)
     except Exception: mt = 0
     return max(LVT, mt)
+RV = 'rv1'   # chủ dặn 12/11 chiều: rút lại project Vũ Yên (Royal Island) và làm lại theo phong cách mới (lên lại kịch bản đủ video)
+def retract_vuyen():
+    try:
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRV') == RV or not lock(LISTF, 'dungRVL'): return
+        n_ = 0
+        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'id,name,parents'):
+            if 'royal island' in L.norm1(c['name']) or 'vu yen' in L.norm1(c['name']):
+                try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); n_ += 1
+                except Exception: pass
+        ad, idx = idx_now()
+        for nm, fid in list(idx.items()):
+            if nm.startswith('1xbvybGVINAR0d3KTMmuny6MFN1U0o3s2_'):   # kịch bản + trạng thái dựng của bộ Royal Island (giữ kết quả đọc video)
+                try: L.drive('files/' + fid, {'trashed': True}, method='PATCH')
+                except Exception: pass
+        list_edit(); L.mark(LISTF, dungRV=RV, dungRVL=None); log('  đã rút %d project Vũ Yên để làm lại' % n_)
+    except Exception as e: log('  không rút được project Vũ Yên:', e)
 def purge_old():   # chủ dặn 12/11: xóa HẾT project AI kiểu dựng cũ (vào thùng rác Drive) – chỉ giữ project dựng theo quy tắc mới nhất
     try:
         cs = [c for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'id,name,appProperties')
@@ -1535,6 +1560,38 @@ def lite(fid):   # bản nhẹ 480p/720p của video (máy chuyển đổi tạo
             xs.sort(key=lambda x: -int((x.get('videoMediaMetadata') or {}).get('height') or 0)); _LITE[fid] = xs[0]['id'] if xs else None
         except Exception: _LITE[fid] = None
     return _LITE[fid]
+def design_titles(jb, pl):   # chủ dặn 12/11: chọn MÀU + VỊ TRÍ chữ phải XEM khung hình thật (Claude nhìn) – tự do sáng tạo, không bó theo tông web
+    try:
+        T = [z for z in pl.get('titles') or []]
+        if not T: return pl
+        A = {'V%d' % a['i']: a for a in jb['A']}
+        pl2 = dict(pl, titles=[]); ts = [round((z['t0'] + z['t1']) / 2, 2) for z in T]
+        shs = N.preview(pl2, A, ts, os.path.join(ENG, 'fonts'))
+        if not shs: return pl
+        lst = '\n'.join('ô %d (tờ %d, vị trí %d): t=%.1fs %s – dòng: %s' % (i + 1, i // 8 + 1, i % 8 + 1, ts[i], '[nằm trên motion graphic – vùng chữ phía trên đã chừa sẵn]' if z.get('mg') else '', ' / '.join('%s (%s)' % (l[0], l[1]) for l in z['lines'])) for i, z in enumerate(T))
+        q = ('Bạn là art director video ngắn bất động sản. Ảnh = các khung hình THẬT của bản dựng (chưa có chữ), mỗi tờ 4 cột × 2 hàng, đọc trái→phải, trên→dưới. '
+             'Với TỪNG ô, chọn VỊ TRÍ dọc (y % chiều cao, 10–85) và MÀU cho chữ sao cho: đọc rõ (tương phản mạnh với đúng vùng nền sau chữ), không đè mặt / người / chi tiết chính, đặt vào vùng trống, '
+             'hài hòa với màu khung hình (tự do sáng tạo, KHÔNG bó theo một tông cố định), các chữ trong cùng video có một hệ màu nhất quán. Gợi ý từ bộ skill: dòng dẫn viết tay sáng nhẹ, cụm khóa đậm có thể glow mềm cùng tông; '
+             'màu nhấn có thể xanh, vàng đồng, nâu, đỏ, cam, hồng tùy shot; không viền cứng. ' + (PRO.get('design') or '') + '\n'
+             'Ô có ghi [nằm trên motion graphic] thì y trong khoảng 8–16.\n' + lst +
+             '\n\nTrả JSON {"chu":[{"o":số ô,"y":phần trăm,"mau_chinh":"#RRGGBB","mau_dan":"#RRGGBB","glow":true/false}]}')
+        j = N.ask_json(q, [('Tờ %d:' % (k + 1), b) for k, b in enumerate(shs)], model='opus', key='chu', log=log) or {}
+        n_ = 0
+        for d in j.get('chu') or []:
+            try:
+                z = T[int(d['o']) - 1]; y_ = float(d['y'])
+                if z.get('mg'): y_ = max(8.0, min(16.0, y_))
+                z['y_pct'] = max(8.0, min(85.0, y_)); z['yfix'] = True
+                hx = lambda c: c if re.match(r'^#[0-9A-Fa-f]{6}$', str(c or '')) else None
+                for k_, l_ in enumerate(z['lines']):
+                    c_ = hx(d.get('mau_chinh')) if k_ == len(z['lines']) - 1 else (hx(d.get('mau_dan')) or hx(d.get('mau_chinh')))
+                    if c_: l_[3] = c_.upper()
+                z['bright'] = not bool(d.get('glow', True)); n_ += 1
+            except Exception: pass
+        log('  Claude thiết kế màu / vị trí %d chữ theo khung hình thật' % n_)
+    except ClaudeWait: raise
+    except Exception as e: log('  không thiết kế được chữ (giữ cách đo tự động):', str(e)[:150])
+    return pl
 def thin_broll(pl, cap=.35):   # chủ dặn 12/11: cảnh phụ CHỈ khi cần – không che hết người nói (tối đa ~35 % thời lượng, không phủ liền > 4 s trừ khi bắt buộc)
     bs = list(pl.get('bshots') or [])
     if not bs: return pl
@@ -1603,7 +1660,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
             os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
             tz_ = any(min(e_, z['t1']) - max(s_, z['t0']) > .15 for z in pl.get('titles') or [])   # có chữ CapCut trong đoạn này → motion graphic chừa vùng chữ phía trên
-            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_)
+            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_, pal=PRO.get('mgpal'))
             out.append((s_, e_, o, nm)); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
         except Exception as e: mlog('bỏ 1 motion graphic:', repr(e)[:500])
@@ -1628,7 +1685,6 @@ def add_mg(jb, sc, pl, proj, host, adir):
         for z in pl.get('titles') or []:
             if min(e_, z['t1']) - max(s_, z['t0']) > .15:
                 z['y_pct'] = 11.5; z['bright'] = False; z['mg'] = 1
-                for k_, l_ in enumerate(z['lines']): l_[3] = '#F0D08A' if k_ == len(z['lines']) - 1 else '#FFFFFF'
     pl['shots'] = shots; pl['mg'] = [(o, nm) for _, _, o, nm in out]
     if len(out) > 1:   # chủ dặn 12/11: bản gửi kèm tin Zalo = GỘP các motion graphic lại thành 1 clip
         try:
@@ -1737,6 +1793,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     del MGLOG[:]
     try: pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
     except Exception as e: mlog('add_mg hỏng:', repr(e)[:400])
+    pl = design_titles(jb, pl)
     try:
         cf, ch_ = pick_cover(jb, pl, adir)
         if cf: pl['cover'], pl['coverh'] = cf, ch_
@@ -2215,7 +2272,7 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
 def pending():
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     if not drive_ok(): return 0   # Google đang chặn tải → không khởi động máy dựng
-    share_sys(); dedupe_proj()   # dọn trùng ngay cả khi không có việc dựng (12/11 trưa: sửa trực tiếp, không xóa project cũ)
+    share_sys(); retract_vuyen(); dedupe_proj()   # dọn trùng ngay cả khi không có việc dựng (12/11 trưa: sửa trực tiếp, không xóa project cũ)
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
