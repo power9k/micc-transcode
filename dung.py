@@ -1422,6 +1422,84 @@ def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG
     except Exception: mt = 0
     return max(LVT, mt)
 RV = 'rv1'   # chủ dặn 12/11 chiều: rút lại project Vũ Yên (Royal Island) và làm lại theo phong cách mới (lên lại kịch bản đủ video)
+HFV = 'hf1'   # chủ dặn 12/11: THỬ dựng hoàn toàn bằng HyperFrames (không qua CapCut) – 1 video Vũ Yên + 1 video Academy
+HF_ONLY = [None]
+HFDIR = '🎬 Bản dựng HyperFrames (thử)'
+def hf_key(jb):
+    p = L.norm1(path_of(jb['id']) + ' ' + (jb.get('name') or ''))
+    return 'vuyen' if ('royal island' in p or 'vu yen' in p) else ('academy' if 'academy' in p else None)
+def hf_todo(k):
+    try: return bool(k) and (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungHF_' + k) != HFV
+    except Exception: return False
+def hf_make(jb, pl, mu, proj, host):
+    k = hf_key(jb)
+    if not hf_todo(k) or not lock(LISTF, 'dungHFL_' + k): return
+    t0 = time.time()
+    try:
+        if ENG not in sys.path: sys.path.insert(0, ENG)
+        import hfvid
+        wd = os.path.join(L.TMP, 'hf'); shutil.rmtree(wd, ignore_errors=True); os.makedirs(wd)
+        A = {'V%d' % a['i']: a for a in jb['A']}; mf = {}; W_, H_ = pl.get('canvas') or (1080, 1920)
+        mgl = {'M%d' % (i + 1): o for i, (o, nm) in enumerate(pl.get('mg') or [])}
+        lay = ((pl.get('ashots') or []) + (pl.get('bshots') or [])) if pl.get('ashots') else pl['shots']
+        def cut(fid, ss, t, args, out):
+            err = None
+            for f in [fid, lite(fid)]:
+                if not f: continue
+                try: L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(f, max(0.0, ss), t) + args + [out], timeout=900); return out
+                except Exception as e: err = e
+            raise err or RuntimeError('không đọc được video')
+        for j, sh in enumerate(lay):
+            key = (sh['media'], round(sh['t0'], 3))
+            if sh['media'] in mgl: mf[key] = mgl[sh['media']]; continue
+            a = A.get(sh['media'])
+            if not a: continue
+            spd = float(sh.get('spd') or 1.0); d = sh['t1'] - sh['t0']
+            vf = 'scale=%d:%d:force_original_aspect_ratio=increase%s,fps=30' % (W_, H_, (',setpts=PTS/%.4f' % spd) if abs(spd - 1) > .01 else '')
+            try: mf[key] = cut(a['vid']['id'], sh['src'], d * spd + .15, ['-an', '-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '17', '-pix_fmt', 'yuv420p'], os.path.join(wd, 's%03d.mp4' % j))
+            except Exception as e: mlog('HyperFrames: không cắt được cảnh', sh['media'], str(e)[:120])
+        for j, sp in enumerate(pl.get('speech') or []):
+            a = A.get(sp['media'])
+            if not a: continue
+            try: mf[('aud', sp['media'], round(sp['t0'], 3))] = cut(a['vid']['id'], sp['src_in'], sp['t1'] - sp['t0'], ['-vn', '-ac', '2', '-ar', '48000'], os.path.join(wd, 'a%03d.wav' % j))
+            except Exception as e: mlog('HyperFrames: không lấy được tiếng', str(e)[:120])
+        mus = []
+        for j, m in enumerate(pl.get('music') or []):
+            bn = os.path.basename(m['file']).lower()
+            p_ = next((p for p in (mu or []) if (p.get('orig') or '').lower() == bn or os.path.basename(p.get('nm') or '').lower() == bn), None)
+            if not p_: continue
+            f = p_.get('ai') if p_.get('ai') and os.path.exists(p_['ai']) else None
+            if not f and p_.get('id'):
+                f = os.path.join(wd, 'mu%d%s' % (j, os.path.splitext(bn)[1] or '.mp3')); open(f, 'wb').write(raw(p_['id']))
+            if f: mus.append((f, m['t0'], m['t1'], m.get('src_in') or 0.0, max(3.0 if j == 0 else 0, m.get('fi') or 0), max(3.0 if j == len(pl['music']) - 1 else 0, m.get('fo') or 0)))
+        out = os.path.join(wd, 'HyperFrames - %s.mp4' % re.sub(r'[\\/:*?"<>|]+', ' ', proj).strip())
+        hfvid.render(pl, mf, mus, out, tvc=bool(PRO.get('punch_soft')), fontdir=os.path.join(ENG, 'fonts'), log=log, seed=proj)
+        par = next((c['id'] for c in lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (host, HFDIR, L.FOLDER), 'id')), None) or mkdir(HFDIR, host)
+        fid_ = put(os.path.basename(out), par, open(out, 'rb').read(), 'video/mp4')['id']
+        L.mark(LISTF, **{'dungHF_' + k: HFV, 'dungHFL_' + k: None})
+        L.tsay('🎬 Thử dựng HyperFrames: %s (%d giây)\n⏱ Dựng mất %d phút\n🔗 %s' % (proj, pl['total'], (time.time() - t0) / 60, weblink(par)))
+        log('  ✓ HyperFrames xong:', out, '(%.1f phút)' % ((time.time() - t0) / 60))
+    except ClaudeWait: raise
+    except Exception as e:
+        import traceback as _tb; log('  ✗ HyperFrames lỗi:', e, _tb.format_exc().replace('\n', ' ¶ ')[-600:])
+        try: L.mark(LISTF, **{'dungHFL_' + k: None})
+        except Exception: pass
+def hf_academy():   # bản thử Academy: dựng lại kịch bản đầu của source Academy mới nhất, CHỈ xuất bản HyperFrames (không đụng project CapCut)
+    if not hf_todo('academy'): return
+    try:
+        js = sorted([jb for jb in scan() if hf_key(jb) == 'academy'], key=lambda jb: max([v.get('createdTime') or '' for v in jb.get('vids') or []] or ['']), reverse=True)
+        ad, idx = idx_now()
+        for jb in js:
+            book = jget('%s_kichban.json' % jb['id'], idx) or {}
+            scs = book.get('scripts') or []
+            if not scs: continue
+            jb = load(jb); engine(); codes(jb); HF_ONLY[0] = True
+            log('AI dựng: THỬ HyperFrames cho', jb['name'])
+            try: publish(jb, scs[0], scs[0]['_n'])
+            finally: HF_ONLY[0] = None
+            return
+    except ClaudeWait: raise
+    except Exception as e: log('  ✗ thử HyperFrames Academy lỗi:', e)
 def retract_vuyen():
     try:
         if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRV') == RV or not lock(LISTF, 'dungRVL'): return
@@ -1540,10 +1618,13 @@ def publish(jb, sc, n):
     host = max(cnt, key=cnt.get) if cnt else jb['id']
     proj = safe(full_name(path_of(host), safe(re.sub(r'(?i)^(capcut|kịch bản|kich ban|kb)\s*\d*\s*[-–:]*\s*', '', sc.get('ten') or '') or '%s %d' % (jb['name'], n), 60)), 110)   # 🤖 dự án - nội dung
     rel = path_of(host) + '/' + proj; adir = DRV + '/' + kho()['rel']   # tài nguyên dựng lấy từ kho chung SETUP/Kho AI tải về
-    slot0 = '%s:%d' % (jb['id'], n); mark_old(host, slot0, True)   # khoá ✏️ trong lúc sửa
+    slot0 = '%s:%d' % (jb['id'], n)
+    if not HF_ONLY[0]: mark_old(host, slot0, True)   # khoá ✏️ trong lúc sửa
     try: r_ = _publish(jb, sc, n, host, proj, rel, adir)
-    except Exception: mark_old(host, slot0, False); raise
-    if not r_ or r_.get('exists'): mark_old(host, slot0, False)
+    except Exception:
+        if not HF_ONLY[0]: mark_old(host, slot0, False)
+        raise
+    if (not r_ or r_.get('exists')) and not HF_ONLY[0]: mark_old(host, slot0, False)
     return r_
 
 # ---- chủ dặn 11/11: motion graphic (HyperFrames) + file Word kịch bản + ảnh cover riêng (không trùng project khác) – tất cả lưu TRONG thư mục project
@@ -1810,6 +1891,8 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     r = subprocess.run([sys.executable, os.path.join(ENG, 'build.py'), pp], capture_output=True, text=True, timeout=600)
     od = os.path.join(pl['out_dir'], proj)
     if not os.path.exists(os.path.join(od, 'draft_content.json')): raise RuntimeError('dựng lỗi: ' + (r.stderr or r.stdout)[-300:])
+    hf_make(jb, pl, mu, proj, host)
+    if HF_ONLY[0]: return None
     inhost = [c for c in lq("'%s' in parents and appProperties has { key='dungP' and value='1' } and trashed=false" % host, 'id,name,appProperties,createdTime')]
     new_ = [c for c in inhost if (c.get('appProperties') or {}).get('dungL') == LV]
     old_ = [c for c in inhost if (c.get('appProperties') or {}).get('dungL') != LV]   # bản dựng kiểu cũ (1 track) → chủ dặn dựng lại rồi thay
@@ -2272,7 +2355,9 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
 def pending():
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     if not drive_ok(): return 0   # Google đang chặn tải → không khởi động máy dựng
-    share_sys(); retract_vuyen(); dedupe_proj()   # dọn trùng ngay cả khi không có việc dựng (12/11 trưa: sửa trực tiếp, không xóa project cũ)
+    share_sys(); retract_vuyen(); dedupe_proj()
+    if hf_todo('academy'): return 1   # còn bản thử HyperFrames chưa dựng → bật máy
+    pass   # dọn trùng ngay cả khi không có việc dựng (12/11 trưa: sửa trực tiếp, không xóa project cũ)
     for k in range(3):
         try: return len(tasks())
         except Exception as e: log('AI dựng: không quét được, thử lại', e); time.sleep(60)
@@ -2299,6 +2384,7 @@ def run(key, models, until):
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     mark_root(); fix_public(); retract_all(); share_sys(); free_stale(); dedupe_proj(); heal_list(); setup_bat()
+    if WID.endswith('18') or os.environ.get('WORKER') == '18': hf_academy()   # chủ dặn 12/11: thử 1 video Academy dựng hoàn toàn bằng HyperFrames
     idle, done_n, T, tT = 0, 0, [], 0
     while time.time() < until - 15 * 60 and not newer_code():
         if not drive_ok(): break   # chủ dặn 12/11: Google chặn hạn mức tải → ngưng, lượt sau (10 phút) tự thử lại
