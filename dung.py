@@ -486,8 +486,13 @@ PROFILES = [('royal island', dict(
     plan=('PHONG CÁCH RIÊNG BỘ NÀY (bắt buộc): video 16:9 kiểu TVC điện ảnh – sang trọng, tối giản, beauty, nhẹ nhàng, nữ tính. KHÔNG cần nói liên tục: '
           'chèn 1–3 KHOẢNG LẶNG (2–4 giây, không lời, chỉ cảnh đẹp + nhạc) ở chỗ chuyển ý bằng cách thêm mục "LANG 3" (số giây) vào danh sách aroll đúng chỗ đó. '
           'Ưu tiên cảnh phụ NGHỆ THUẬT: toàn cảnh, flycam, ánh sáng đẹp, mặt nước, kiến trúc, chi tiết sang trọng; chuyển động chậm. Chữ trên hình ÍT và ngắn, câu chữ tinh tế, giàu cảm xúc (không hô hào bán hàng).'),
-    music=('ELEGANT CINEMATIC TVC: waltz (3/4), symphonic orchestra, solo cello, strings, harp, soft piano, film-score, solemn and majestic, graceful, luxurious, slow tempo 60–90 BPM, '
-           'gentle swells, no trap, no EDM, no hard drums.'),
+    music=[   # chủ dặn 12/11: mỗi kịch bản 1 kiểu nhạc KHÁC nhau – đều sang trọng, điện ảnh, hợp TVC
+        'ELEGANT CINEMATIC WALTZ: 3/4 waltz, symphonic orchestra, solo cello lead, lush strings, harp glissandi, soft piano, film-score, solemn and majestic, graceful, 70–90 BPM, gentle swells, no hard drums.',
+        'LUXURY BOSSA NOVA: nylon-string guitar, brushed drums, upright bass, Rhodes, soft flute and string pad, sunset-terrace sophistication, 120–135 BPM relaxed groove, warm and intimate, five-star resort mood.',
+        'SMOOTH LOUNGE JAZZ: muted trumpet, tenor sax, brushed kit, walking upright bass, velvet piano chords, champagne-bar elegance, late-night luxury, 85–100 BPM, tasteful and classy.',
+        'LUXURY CINEMATIC TRAP: slow modern trap groove (70 BPM half-time) under a cinematic string ensemble and solo cello, deep but soft 808, crisp sparse hi-hats, piano motif, dark-gold opulent mood, modern yet refined, never aggressive.',
+        'NEO-CLASSICAL PIANO & STRINGS: solo grand piano with string quartet, minimalist and emotional, slow build to an orchestral crescendo, airy reverb, poetic and dignified, 60–75 BPM.',
+        'ORCHESTRAL ADAGIO: full symphony orchestra, cello and violin duet, French horns, timpani rolls only at climax, epic yet serene, heritage and grandeur, 55–70 BPM.'],
     font=('SCR', 'ITA'), colors=('#FFFFFF', '#F4E2B4'), title_gap=5.0, title_y=80.0, punch=False, mg=False, sfx=False, broll_cap=.6,
     notrans=True))]
 PRO = {}
@@ -833,7 +838,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         else: lines = [[big, main, 8.2 if main == 'BEB' else 6.6, c1]]
         y = (19.0 + (n % 3) * 4) if on_b else (68.0 + (n % 2) * 3)   # cảnh người nói: chữ dưới ngực, không đè mặt; vùng an toàn TikTok ≤75 %
         if PRO.get('font'):   # TVC sang trọng: chữ mềm mại, uyển chuyển (viết tay + nghiêng có chân), màu trắng / champagne, nhỏ gọn phía dưới
-            f1_, f2_ = PRO['font']; c1_, c2_ = PRO['colors']
+            f1_, f2_ = PRO['font'] if int(sc.get('_n') or 1) % 2 else PRO['font'][::-1]; c1_, c2_ = PRO['colors'] if int(sc.get('_n') or 1) % 3 else PRO['colors'][::-1]   # mỗi kịch bản 1 kiểu chữ khác
             big_ = tsafe(ti.get('big', ''), 40); lines = ([[lead[:1].upper() + lead[1:], f1_, 4.2, c2_]] if lead else []) + [[big_, f2_ if not lead else f1_, 5.6, c1_]]
             y = PRO.get('title_y', y)
         if ti.get('y'): y = max(12.0, min(80.0, float(ti['y'])))   # vị trí Claude kiểm duyệt yêu cầu
@@ -1120,7 +1125,7 @@ def ai_music(jb, sc, host, proj):   # chủ dặn 12/11: nhạc nền AI (Eleven
         est = max(30.0, t)
         q = ('Bạn là nhà soạn nhạc nền cho video ngắn bất động sản (TikTok/Reels). Video "%s", dài khoảng %.0f giây. Lời thoại theo giây:\n%s\n\n' % (sc.get('ten', ''), est, '\n'.join(lines)[:6000]) +
              'Chia video thành 1–4 ĐOẠN NHẠC theo các đổi ý / đổi cảm xúc của kịch bản (mỗi đoạn ≥ 12 giây; các đoạn nối liền phủ 0→100%). Mỗi đoạn là 1 bài nhạc riêng sẽ được ghép lại.\n'
-             (('PHONG CÁCH BẮT BUỘC CỦA BỘ NÀY (thay gu mặc định): ' + PRO['music'] + '\n') if PRO.get('music') else '') +
+             (('PHONG CÁCH NHẠC BẮT BUỘC CỦA KỊCH BẢN NÀY (thay gu mặc định; các đoạn có thể biến tấu nhưng giữ đúng dòng này): ' + PRO['music'][(int(sc.get('_n') or 1) - 1) % len(PRO['music'])] + '\n') if PRO.get('music') else '') +
              'Gu của chủ: nhạc LUÔN ngầu, hiện đại, kịch tính, có gu – trap, drill, bass house, cinematic hybrid, rock / blues nặng cho đoạn quy mô / sức mạnh / con số lớn; '
              'jazz, bossa nova, valse, bedroom pop, dream pop, lo-fi sang cho đoạn nhẹ / phong cách sống. KHÔNG nhạc quảng cáo sến, KHÔNG vui tươi trẻ con, KHÔNG da diết, KHÔNG ambient / thiền.\n'
              'Với MỖI đoạn viết "prompt" TIẾNG ANH CỰC KỲ CHI TIẾT, DÀI 3200–4000 KÝ TỰ (gần tối đa 4100) cho ElevenLabs Music, gồm: thể loại & tiểu thể loại, cảm xúc & năng lượng theo từng giây của đoạn, BPM chính xác, giọng điệu (key/scale), '
