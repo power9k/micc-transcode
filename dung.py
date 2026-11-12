@@ -1060,7 +1060,7 @@ def live_music(me=None):   # chủ dặn 12/11: nhạc nền của mỗi project
     try: return {h for c in lq("appProperties has { key='dungP' and value='1' } and trashed=false", 'id,appProperties') if c['id'] != me
                  for h in ((c.get('appProperties') or {}).get('dungMu') or '').split(',') if h}
     except Exception: return set()
-MIXKIT_TAGS = ['cinematic', 'hip-hop', 'trap', 'electronic', 'dramatic', 'house', 'rock', 'jazz', 'lofi', 'chill', 'funk', 'epic', 'drum-and-bass', 'dubstep', 'ambient']
+MIXKIT_TAGS = ['cinematic', 'hip-hop', 'trap', 'electronic', 'dramatic', 'house', 'rock', 'jazz', 'lofi', 'funk', 'epic', 'drum-and-bass', 'dubstep', 'blues']   # ngầu, hiện đại, kịch tính, có gu (không ambient / yoga / thiền)
 def fetch_music(n=8):   # kho hết bài chưa dùng → tải thêm nhạc miễn phí bản quyền (Mixkit Stock Music Free License) vào Kho chung / Nhạc nền
     kd = globals()['kho']()['music']; have = {nf(c['name']).lower() for c in lq("'%s' in parents" % kd, 'id,name')}; got = 0
     tags = MIXKIT_TAGS[:]; random.shuffle(tags)
@@ -1074,7 +1074,7 @@ def fetch_music(n=8):   # kho hết bài chưa dùng → tải thêm nhạc mi�
         for nm, gn, mi, se, url in its:
             if got >= n: break
             fn = safe('Mixkit - %s (%s).mp3' % (nm, gn or tg), 90)
-            if fn.lower() in have or int(mi) * 60 + int(se) < 45: continue
+            if fn.lower() in have or int(mi) * 60 + int(se) < 45 or re.search(r'(?i)ambient|yoga|meditat|relax|sleep|spa|kids|children|lullaby|piano|corporate', nm + ' ' + gn): continue
             try:
                 b = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=120).read()
                 if len(b) < 500000: continue
@@ -1820,7 +1820,7 @@ def edit(jb, key, models):
                 log('  kịch bản %d chưa đạt (lần %d/%d) – lượt sau dựng / sửa tiếp' % (n, book['tries'][str(n)], MAXT))
         except ClaudeWait: save(); raise
         except Exception as e:
-            book['tries'][str(n)] = int(book['tries'].get(str(n), 0)) + 1; log('  ✗ kịch bản', n, e)
+            import traceback as _tb; book['tries'][str(n)] = int(book['tries'].get(str(n), 0)) + 1; log('  ✗ kịch bản', n, e, '|', _tb.format_exc().replace('\n', ' ¶ ')[-700:])
         save()
     left = [sc for sc in book['scripts'] if sc['_n'] not in book['done'] and int(book['tries'].get(str(sc['_n']), 0)) < MAXT]
     if left:
@@ -1969,7 +1969,8 @@ def do_build(jb, n):
     tp2_ = time.time(); QAN[0] = 0
     try: r = publish(jb, sc, n)
     except ClaudeWait: raise
-    except Exception as e: r = None; log('  ✗ kịch bản', n, e)
+    except Exception as e:
+        r = None; import traceback as _tb; log('  ✗ kịch bản', n, e, '|', _tb.format_exc().replace('\n', ' ¶ ')[-700:])
     if r:
         stt.update(done=True); jput(st_name(jb, n), stt, ad, idx)
         log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
