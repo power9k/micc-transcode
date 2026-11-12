@@ -1343,6 +1343,7 @@ def review(jb, sc, pl, proj, adir, mu):
             sc['aroll'] = aro0; pl2 = build_plan(jb, sc, proj, adir, mu, None)
         if not pl2: break
         pl = pl2
+    if HF_ONLY[0]: log('  (bản thử HyperFrames: vẫn dựng dù kiểm tra chưa đạt)'); return pl
     log('  ✗ Claude kiểm tra chưa đạt sau 3 vòng sửa – KHÔNG giao project này:', proj); jb['qa_rej'] = jb.get('qa_rej', 0) + 1; jb['fixed'] = dict(sc, _n=sc0.get('_n')); return None
 GKEYS = ('brightness', 'contrast', 'saturation', 'temperature', 'tone', 'highlight', 'shadow')
 def claude_grades(jb, sc):   # Claude Sonnet NHÌN khung hình từng video dùng trong kịch bản → thông số lớp màu riêng (lưu lại, mỗi video xem 1 lần)
