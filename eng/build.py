@@ -292,6 +292,9 @@ def mus_keys(t0, t1, under, up):
             ded.append(pts[i])
     return [p for p in ded if t0 <= p[0] <= t1]
 MUs = []
+if PL['music']:   # chủ dặn 12/11: nhạc nền fade đầu và cuối video TỐI THIỂU 3 giây
+    _m0 = min(PL['music'], key=lambda m: m['t0']); _m1 = max(PL['music'], key=lambda m: m['t1'])
+    _m0['fi'] = max(_m0.get('fi') or 0, min(3.0, (_m0['t1'] - _m0['t0']) / 2)); _m1['fo'] = max(_m1.get('fo') or 0, min(3.0, (_m1['t1'] - _m1['t0']) / 2))
 for i, mu in enumerate(PL['music']):
     mid = amat(mu['file'] if re.match(r'^[A-Za-z]:/', mu['file']) else AD + '/' + mu['file'], mu['dur'], os.path.basename(mu['file']))   # nhạc AI nằm trong thư mục project (đường dẫn đầy đủ)
     if mu['src_in'] + mu['t1'] - mu['t0'] > mu['dur'] + 1e-3: E.append('music past end %s' % mu['file'])
