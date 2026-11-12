@@ -1896,7 +1896,7 @@ def edit(jb, key, models):
                 if not r.get('exists'):
                     try: tot = len(lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (LV, L.FOLDER), 'id'))
                     except Exception: tot = 0
-                    L.tsay('%s\n⏱ %s\n🔗 %s' % (r['proj'], why_time(jb, time.time() - tp_, int(book['tries'].get(str(n), 0))), weblink(r['id'])), photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # chủ dặn 12/11: Zalo không gửi được video → gửi thumbnail   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
+                    L.tsay('%s (%d giây)\n⏱ %s\n🔗 %s' % (r['proj'], r['dur'], why_time(jb, time.time() - tp_, int(book['tries'].get(str(n), 0))), weblink(r['id'])), photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # chủ dặn 12/11: Zalo không gửi được video → gửi thumbnail   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
             else:
                 book['tries'][str(n)] = int(book['tries'].get(str(n), 0)) + 1
                 if not jb.get('qa_rej'): book['tries'][str(n)] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
@@ -2067,7 +2067,7 @@ def do_build(jb, n):
             try: L.ix(link=r['id'])   # báo kho web có thư mục mới
             except Exception: pass
             link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
-            L.tsay('%s\n⏱ %s\n🔗 %s' % (r['proj'], why_time(jb, time.time() - tp2_, int(stt.get('tries') or 0)), link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
+            L.tsay('%s (%d giây)\n⏱ %s\n🔗 %s' % (r['proj'], r['dur'], why_time(jb, time.time() - tp2_, int(stt.get('tries') or 0)), link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
                    photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get("thumb") else None)   # chủ dặn 12/11: Zalo không gửi được video → chỉ thumbnail
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
