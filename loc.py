@@ -92,8 +92,7 @@ def fin(fid, ss=None, t=None):
     a = ['-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5']
     if ss is not None: a += ['-ss', '%.3f' % ss]
     if t is not None: a += ['-t', '%.3f' % t]
-    if anon_ok(fid): return a + ['-i', aurl(fid)]
-    return a + ['-headers', 'Authorization: Bearer %s\r\n' % rtok(), '-i', durl(fid)]
+    return a + ['-headers', 'Authorization: Bearer %s\r\n' % tok(), '-i', durl(fid)]   # chủ dặn 12/11: tải có đăng nhập bằng tài khoản MICC (không tải kiểu khách)
 def run(cmd, timeout=None):
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if p.returncode != 0: raise RuntimeError((cmd[0] + ': ' + p.stderr.strip().splitlines()[-1]) if p.stderr.strip() else cmd[0] + ' lỗi')
@@ -104,7 +103,7 @@ def download(fid, size, dst):
     if os.path.exists(dst): os.remove(dst)
     for tries in range(8):
         try:
-            req = urllib.request.Request(aurl(fid), headers={'Range': 'bytes=%d-' % got}) if anon_ok(fid) else urllib.request.Request(durl(fid), headers={'Authorization': 'Bearer ' + rtok(), 'Range': 'bytes=%d-' % got})
+            req = urllib.request.Request(durl(fid), headers={'Authorization': 'Bearer ' + tok(), 'Range': 'bytes=%d-' % got})   # tải có đăng nhập tài khoản MICC
             with urllib.request.urlopen(req, timeout=120) as r, open(dst, 'ab') as w:
                 if r.status == 200 and got: w.truncate(0); got = 0
                 while True:

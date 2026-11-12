@@ -5,7 +5,7 @@
 #     chọn câu nói hay nhất (đủ ý, đúng diễn xuất), cảnh phụ khớp lời, chữ nhấn ý chính
 #  3) DỰNG: bỏ ngập ngừng / ầm à, che vết cắt bằng giật zoom, cảnh phụ, chữ, nhạc, hiệu ứng âm thanh → draft CapCut
 #  4) Đưa project vào thư mục buổi quay (1 phiên bản duy nhất) + thêm vào MICC media · Hệ thống (không xóa)/AI dựng CapCut/Danh sách project CapCut.txt (máy nhân viên tự có lối tắt)
-import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse, urllib.error, random
+import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse, urllib.error, random, shutil
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
 
@@ -59,18 +59,31 @@ def lq(q, f='id,name,mimeType,size,createdTime,parents,appProperties,videoMediaM
             time.sleep(15 * (k + 1))
 def kids(fid): return lq("'%s' in parents" % fid)
 def get(fid, f='id,name,parents,appProperties'): return L.drive('files/' + fid, params={'fields': f})
-def raw(fid, anon=False):   # file nhỏ hay đổi (danh sách, trạng thái, kịch bản) → luôn đọc bằng tài khoản (đường khách có thể trả bản cũ đã lưu tạm); anon=True chỉ cho file lớn không đổi (nhạc, video)
-    if anon:
-      try:
-        with urllib.request.urlopen(urllib.request.Request(L.aurl(fid)), timeout=300) as r:
-            if 'text/html' not in (r.headers.get('Content-Type') or ''): return r.read()
-      except Exception: pass
-    for t in dict.fromkeys([L.rtok(), L.tok()]):   # đọc bằng tài khoản 2 trước, lỗi thì tài khoản MICC
+CDIR = os.path.expanduser('~/.cache/micc')   # bộ nhớ đệm trên máy GitHub (actions/cache giữ giữa các lượt) – file đã tải không tải lại từ Drive
+def _cget(fid):
+    try:
+        mt = L.drive('files/' + fid, params={'fields': 'modifiedTime,md5Checksum'})   # hỏi thông tin file không tính lượt tải
+        p = os.path.join(CDIR, '%s_%s' % (fid, re.sub(r'\W', '', mt.get('md5Checksum') or mt.get('modifiedTime') or '')))
+        return p, (open(p, 'rb').read() if os.path.exists(p) else None)
+    except Exception: return None, None
+def _cput(p, b):
+    try:
+        os.makedirs(CDIR, exist_ok=True); open(p, 'wb').write(b)
+        fs = sorted((os.path.join(CDIR, f) for f in os.listdir(CDIR)), key=os.path.getatime)
+        tot = sum(os.path.getsize(f) for f in fs)
+        while fs and tot > 600 << 20: tot -= os.path.getsize(fs[0]); os.remove(fs.pop(0))   # mỗi máy giữ tối đa ~600 MB (16 máy ≈ 10 GB, giới hạn GitHub)
+    except Exception: pass
+def raw(fid, anon=False):   # chủ dặn 12/11: đọc file bằng tài khoản MICC (có đăng nhập, không tải kiểu khách) + giữ bộ nhớ đệm
+    cp, hit = _cget(fid)
+    if hit is not None: return hit
+    err = None
+    for t in dict.fromkeys([L.tok(), L.rtok()]):   # tài khoản MICC trước, lỗi thì tài khoản 2
         try:
-            with urllib.request.urlopen(urllib.request.Request(L.durl(fid), headers={'Authorization': 'Bearer ' + t}), timeout=300) as r: return r.read()
-        except urllib.error.HTTPError as e:
-            if t == L.tok(): raise
-            L.log('  tài khoản 2 không đọc được file, dùng tài khoản MICC:', e.code)
+            with urllib.request.urlopen(urllib.request.Request(L.durl(fid), headers={'Authorization': 'Bearer ' + t}), timeout=300) as r: b = r.read()
+            if cp: _cput(cp, b)
+            return b
+        except urllib.error.HTTPError as e: err = e
+    raise err
 def put(name, parent, data, mime):  # tải file nhỏ lên Drive (multipart), thử lại khi Drive báo quá hạn mức
     for k in range(4):
         try: return _put(name, parent, data, mime)
@@ -1436,7 +1449,15 @@ def thumb(fid, out):   # ảnh đại diện Drive của video (không tính h�
     b = urllib.request.urlopen(req, timeout=60).read()
     if len(b) < 3000 or b[:1] == b'<': raise RuntimeError('không có ảnh đại diện')
     open(out, 'wb').write(b); return out
-def ffgrab(fid, ss, t, outargs, timeout=400):   # đọc 1 đoạn / 1 khung từ video: thử bản gốc, bị chặn thì dùng bản nhẹ
+def ffgrab(fid, ss, t, outargs, timeout=400):   # đọc 1 đoạn / 1 khung từ video: thử bản gốc, bị chặn thì dùng bản nhẹ (đoạn đã cắt giữ trong bộ nhớ đệm)
+    ck = os.path.join(CDIR, 'cut_%s' % _hl.md5(json.dumps([fid, ss, t, outargs[:-1]]).encode()).hexdigest()); out_ = outargs[-1]
+    if os.path.exists(ck): shutil.copy(ck, out_); return None
+    try: return _ffgrab(fid, ss, t, outargs, timeout)
+    finally:
+        try:
+            if os.path.exists(out_) and os.path.getsize(out_) > 1000: os.makedirs(CDIR, exist_ok=True); shutil.copy(out_, ck)
+        except Exception: pass
+def _ffgrab(fid, ss, t, outargs, timeout=400):
     err = None
     for f in [fid, lite(fid)]:
         if not f: continue
@@ -2063,7 +2084,8 @@ def pending():
 
 def drive_ok():   # tài khoản MICC còn tải được không (thử 1 file nhỏ của tài khoản) – bị chặn thì máy ngưng chờ thay vì dựng ra project thiếu
     try:
-        r = urllib.request.urlopen(urllib.request.Request(L.aurl(LISTF), headers={'Range': 'bytes=0-200'}), timeout=30).read(300)
+        try: r = urllib.request.urlopen(urllib.request.Request(L.durl(LISTF), headers={'Authorization': 'Bearer ' + L.tok()}), timeout=30).read(300)   # thử đúng cách máy đang tải (có đăng nhập)
+        except urllib.error.HTTPError as e: r = (b'Quota exceeded' if e.code == 403 and b'downloadQuotaExceeded' in (e.read() or b'') else b'')
         if b'Quota exceeded' in r or b'Too many users' in r:
             log('⏸ Google đang chặn hạn mức tải của tài khoản MICC – máy ngưng, 10 phút sau lượt mới tự thử lại')
             try:   # báo Zalo tối đa 3 tiếng 1 lần (16 máy cùng thấy → không gửi trùng)
