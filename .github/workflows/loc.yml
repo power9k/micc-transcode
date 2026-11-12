@@ -33,6 +33,15 @@ jobs:
         with:
           python-version: '3.11'
       - if: steps.chk.outputs.todo == '1'
+        name: Bộ nhớ đệm file đã tải (không tải lại từ Drive)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/micc
+          key: micc-media-${{ matrix.w }}-${{ github.run_id }}
+          restore-keys: |
+            micc-media-${{ matrix.w }}-
+            micc-media-
+      - if: steps.chk.outputs.todo == '1'
         name: Lưu đệm mô hình nghe lời thoại
         uses: actions/cache@v4
         with:
