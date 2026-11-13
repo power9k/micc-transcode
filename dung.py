@@ -1476,6 +1476,9 @@ def vbase(nm): return VRE.sub('', bare_nm(nm)).strip()
 def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
 LVT = 1794461334   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
 QAN = [0]   # số vòng Claude kiểm tra của project vừa dựng
+def dlen(sec):   # chủ dặn 13/11: độ dài video – quá 59 giây ghi rõ phút (vd 1 phút 12 giây)
+    m, s_ = divmod(int(round(float(sec))), 60)
+    return ('%d phút %02d giây' % (m, s_)) if m else ('%d giây' % s_)
 def why_time(jb, t_work, tries=0):   # chủ dặn 12/11: ngắn gọn – chỉ cho biết đã phải ngưng (chờ) bao lâu
     tot = time.time() - kb_start(jb); wait = max(0, tot - t_work)
     if wait > 3 * 3600: tot, wait = t_work, 0   # kịch bản lên từ lâu (dựng lại / thêm kịch bản) → chỉ tính thời gian dựng thật
@@ -1553,7 +1556,7 @@ def hf_make(jb, pl, mu, proj, host):
         par = next((c['id'] for c in lq("'%s' in parents and name='%s' and mimeType='%s' and trashed=false" % (host, HFDIR, L.FOLDER), 'id')), None) or mkdir(HFDIR, host)
         fid_ = put(os.path.basename(out), par, open(out, 'rb').read(), 'video/mp4')['id']
         L.mark(LISTF, **{'dungHF_' + k: HFV, 'dungHFL_' + k: None})
-        L.tsay('🎬 Thử dựng HyperFrames: %s (%d giây)\n⏱ Dựng mất %d phút\n🔗 %s' % (proj, pl['total'], (time.time() - t0) / 60, weblink(par)))
+        L.tsay('🎬 Thử dựng HyperFrames: %s (%s)\n⏱ Dựng mất %d phút\n🔗 %s' % (proj, dlen(pl['total']), (time.time() - t0) / 60, weblink(par)))
         log('  ✓ HyperFrames xong:', out, '(%.1f phút)' % ((time.time() - t0) / 60))
     except ClaudeWait: raise
     except Exception as e:
@@ -2113,7 +2116,7 @@ def edit(jb, key, models):
                 if not r.get('exists'):
                     try: tot = len(lq("appProperties has { key='dungL' and value='%s' } and mimeType='%s' and trashed=false" % (LV, L.FOLDER), 'id'))
                     except Exception: tot = 0
-                    L.tsay('%s (%d giây)\n⏱ %s\n🔗 %s' % (r['proj'], r['dur'], why_time(jb, time.time() - tp_, int(book['tries'].get(str(n), 0))), weblink(r['id'])), photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # chủ dặn 12/11: Zalo không gửi được video → gửi thumbnail   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
+                    L.tsay('%s (%s)\n⏱ %s\n🔗 %s' % (r['proj'], dlen(r['dur']), why_time(jb, time.time() - tp_, int(book['tries'].get(str(n), 0))), weblink(r['id'])), photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get('thumb') else None)   # chủ dặn 12/11: Zalo không gửi được video → gửi thumbnail   # chủ dặn 12/11: chỉ tên, thời gian dựng, link
             else:
                 book['tries'][str(n)] = int(book['tries'].get(str(n), 0)) + 1
                 if not jb.get('qa_rej'): book['tries'][str(n)] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
@@ -2306,7 +2309,7 @@ def do_build(jb, n):
                 try: L.ix(link=r['id'])   # báo kho web có thư mục mới
                 except Exception: pass
             link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
-            L.nsay(('✏️ ' if r.get('exists') else '') + '%s (%d giây)\n⏱ %s\n🔗 %s' % (r['proj'], r['dur'], why_time(jb, time.time() - tp2_, int(stt.get('tries') or 0)), link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
+            L.nsay(('✏️ ' if r.get('exists') else '') + '%s (%s)\n⏱ %s\n🔗 %s' % (r['proj'], dlen(r['dur']), why_time(jb, time.time() - tp2_, int(stt.get('tries') or 0)), link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
                    photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get("thumb") else None)   # chủ dặn 12/11: Zalo không gửi được video → chỉ thumbnail
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
