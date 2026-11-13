@@ -1477,7 +1477,9 @@ def vname(base, n): return safe(base, 112) + (' v%d' % n if n > 1 else '')
 LVT = 1794461334   # lúc bắt đầu đợt dựng lại hiện tại (đổi LV thì cập nhật) – kịch bản có từ trước thì tính thời gian dựng từ mốc này
 QAN = [0]   # số vòng Claude kiểm tra của project vừa dựng
 def why_time(jb, t_work, tries=0):   # chủ dặn 12/11: ngắn gọn – chỉ cho biết đã phải ngưng (chờ) bao lâu
-    tot = time.time() - kb_start(jb); wait = max(0, tot - t_work); mm, ss = divmod(int(tot), 60)
+    tot = time.time() - kb_start(jb); wait = max(0, tot - t_work)
+    if wait > 3 * 3600: tot, wait = t_work, 0   # kịch bản lên từ lâu (dựng lại / thêm kịch bản) → chỉ tính thời gian dựng thật
+    mm, ss = divmod(int(tot), 60)
     return 'Dựng mất %d phút %02d giây%s' % (mm, ss, ' (ngưng %d phút)' % round(wait / 60) if wait > 90 else '')
 def kb_start(jb):   # chủ dặn 12/11: thời gian dựng tính từ lúc XONG KỊCH BẢN (gồm cả chờ máy, tải cảnh phụ / nhạc, dựng motion graphic…)
     try:
@@ -2299,11 +2301,12 @@ def do_build(jb, n):
     if r:
         stt.update(done=True); jput(st_name(jb, n), stt, ad, idx)
         log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
-        if not r.get('exists'):
-            try: L.ix(link=r['id'])   # báo kho web có thư mục mới
-            except Exception: pass
+        if True:   # chủ dặn 13/11 tối: báo MỌI project AI dựng (mới hoặc sửa lại ✏️) vào nhóm thông báo
+            if not r.get('exists'):
+                try: L.ix(link=r['id'])   # báo kho web có thư mục mới
+                except Exception: pass
             link = weblink(r['id'])   # chủ dặn: link Zalo = đường dẫn theo thư mục trên web
-            L.tsay('%s (%d giây)\n⏱ %s\n🔗 %s' % (r['proj'], r['dur'], why_time(jb, time.time() - tp2_, int(stt.get('tries') or 0)), link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
+            L.nsay(('✏️ ' if r.get('exists') else '') + '%s (%d giây)\n⏱ %s\n🔗 %s' % (r['proj'], r['dur'], why_time(jb, time.time() - tp2_, int(stt.get('tries') or 0)), link),   # chủ dặn 12/11: chỉ tên project, thời gian dựng, link
                    photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get("thumb") else None)   # chủ dặn 12/11: Zalo không gửi được video → chỉ thumbnail
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1

@@ -572,6 +572,12 @@ def tsay(text, once=None, photo=None, video=None):  # báo NGAY vào nhóm test:
     for g in zcfg()['zt']:
         try: zsend(g, text, photo, video)
         except Exception as e: log('  Zalo test lỗi:', str(e)[:100])
+def nsay(text, photo=None):  # chủ dặn 13/11 tối: mỗi project AI dựng → báo cả NHÓM THÔNG BÁO (kèm nhóm test)
+    log('  [Zalo thông báo]', text.replace('\n', ' | ')[:160])
+    g = zcfg()
+    for x in list(dict.fromkeys(g['zn'] + g['zt'])):
+        try: zsend(x, text, photo, None)
+        except Exception as e: log('  Zalo thông báo lỗi:', str(e)[:100])
 def ix(files=None, dele=None, link=None):  # báo máy chủ đưa ngay vào kho web (không tốn hạn mức gọi mạng của máy chủ)
     b = {'files': files or []}
     if dele: b['del'] = dele
