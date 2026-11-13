@@ -36,7 +36,7 @@ def migrate_m():   # project cũ (G:/Drive của tôi/...) → M:/... để máy
                 if nb != b: update(f['id'], nb, 'application/json'); n += 1
             except Exception as e: log('  không đổi được đường dẫn', f['id'], e)
     if n: log('Đổi %d file project sang ổ M:' % n)
-SKIPDIR = re.compile(r'^(capcut|lọc|loc\b|bộ nhớ đệm|ai tải về|_ai)', re.I)
+SKIPDIR = re.compile(r'^(capcut|lọc|loc\b|bộ nhớ đệm|ai tải về|_ai|🎬|bản dựng hyperframes)', re.I)
 ENG = os.path.join(L.TMP, 'eng')
 _PL, _PF = [], [None]
 def log(*a):   # ghi log + file tiến độ trên Drive (SETUP/AI dựng – tiến độ.txt) để theo dõi khi máy đang chạy
