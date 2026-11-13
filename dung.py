@@ -1948,7 +1948,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     del MGLOG[:]
     try: pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
     except Exception as e: mlog('add_mg hỏng:', repr(e)[:400])
-    pl = design_titles(jb, pl)
+    if PRO.get('design'): pl = design_titles(jb, pl)   # chủ dặn 13/11: Academy giữ hiệu ứng chữ NHƯ CŨ – chỉ bộ có phong cách riêng (TVC) mới cho Claude tự chọn màu / vị trí chữ
     try:
         cf, ch_ = pick_cover(jb, pl, adir)
         if cf: pl['cover'], pl['coverh'] = cf, ch_
@@ -2463,6 +2463,15 @@ def vid_report(root='141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'):   # thống kê video 
                 log('  [VR] %.2f GB | %.1f phút | %s/%s' % (sz / 1e9, ms / 6e4, pth, c['name']))
     log('  [VR] TONG %.2f GB | %.1f phút | bản xem trước LRF: %d file %.2f GB' % (tot / 1e9, dur / 6e4, nlrf, slrf / 1e9))
 def pending():
+    try:   # 13/11 tối: 8 project Academy mới dựng bằng kiểu chữ mới → dựng lại (sửa tại chỗ) với chữ như cũ, 9:16, nhạc AI
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRA2') != '1':
+            L.mark(LISTF, dungRA2='1'); sid_ = '141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'; ad_, ix_ = idx_now(); bk_ = jget('%s_kichban.json' % sid_, ix_) or {}; k_ = 0
+            for sc_ in bk_.get('scripts') or []:
+                if int(sc_.get('_n') or 0) < 4: continue
+                nm_ = '%s_kb%d_L%s.json' % (sid_, sc_['_n'], LV); st_ = jget(nm_, ix_) or {}
+                if st_.get('done') or st_.get('tries'): st_.pop('done', None); st_['tries'] = 0; jput(nm_, st_, ad_, ix_); k_ += 1
+            L.mark(sid_, dungV=None); log('  Academy: đặt lại %d kịch bản để dựng lại với chữ như cũ' % k_)
+    except Exception as e: log('  đặt lại Academy lỗi', repr(e)[:200])
     try:   # 13/11: Academy đã lên 80 kịch bản nhưng còn dấu 'đã xong' cũ → máy bỏ qua; gỡ 1 lần
         if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRA') != '1':
             L.mark(LISTF, dungRA='1'); L.mark('141sOBTH8vLX7SpredUrXE9-EHY5E2JKj', dungV=None); log('  gỡ dấu đã xong của Academy để dựng 77 kịch bản mới')
