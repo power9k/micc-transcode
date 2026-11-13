@@ -154,7 +154,7 @@ def scan(all_=False):
     for s in srcs:   # 1 thư mục SOURCE = 1 lượt: đọc HẾT mọi thư mục con, Claude nhìn tổng thể rồi chia các kịch bản (mỗi cái < 2 phút)
         ap = s.get('appProperties') or {}
         if ONLY and ONLY not in L.norm1(path_of(s['id'])): continue   # chạy thử bản nâng cấp trên 1 dự án trước
-        if not all_ and (ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3)): continue
+        if not all_ and not (any(k in L.norm1(s['name'] + ' ' + path_of(s['id'])) for k in DEEP) and ap.get('dungPV') != PV) and (ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3)): continue
         dirs, kbtop, dn, st, hitx = [], {}, {}, [(s, None)], False
         while st:
             d, top = st.pop(); dirs.append(d['id']); dn[d['id']] = nf(d['name'])
@@ -269,6 +269,7 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 - A-roll: chỉ lấy câu người nói ĐÚNG lời thoại, nói trôi chảy, diễn xuất tốt (không đứng nhẩm, không nói lại, không nhăn mặt). Mỗi câu nói lại nhiều lần → chọn 1 bản hay nhất. Giữ TRỌN câu, không cắt giữa câu.
 - Cảnh phụ (B-roll) phải KHỚP lời đang nói. Không dùng cảnh có người đang nói câu khác. Mỗi cảnh dùng 1 lần, không lặp cảnh giống nhau.
 - Không cố nhét cảnh: ít cảnh đẹp thì dùng ít.
+- Các kịch bản KHÔNG được trùng chủ đề / trùng ý chính với nhau. ĐƯỢC mượn lại cảnh (kể cả câu kết) đã dùng ở kịch bản khác, nhưng phải hợp nội dung kịch bản, đúng nhân vật đang nói, và cùng buổi quay (cùng trang phục) – không ghép cảnh người nói mặc đồ khác buổi.
 - Đã có NHẬT KÝ HÌNH (Claude xem mọi khung hình chính) + nhãn âm thanh cho từng video: A-roll tránh đoạn ghi "ngập ngừng / quay đi / ra hiệu cắt / mờ / rung"; cảnh phụ chọn đoạn điểm ≥ 7, máy chạy mượt, nội dung KHỚP lời; tránh đoạn có gió/ù, ồn nếu lấy tiếng.
 - Câu đầu = câu hút (hook) mạnh nhất; câu cuối = kết trọn ý / kêu gọi.
 - Chữ: KHÔNG chạy phụ đề theo lời. Cứ 1–3 giây phải có 1 cụm chữ nhấn (video 60 s ≈ 25–35 cụm), hiện đúng lúc người nói nói chữ đó ("tu"); chọn chữ ĐẮT (số liệu, tên riêng, tính từ mạnh, lợi ích), không chép cả câu: "big" = TỪ KHÓA viết hoa ≤ 3 từ (số liệu, tên dự án, lợi ích), "small" = 1 dòng phụ ≤ 6 từ. Đúng chính tả tiếng Việt, trọn nghĩa.'''
@@ -445,6 +446,68 @@ def plan(jb, key, models, extra=''):
         time.sleep(20 * (rnd + 1))
     log('  Gemini hỏng hết (' + last + ') → tự chọn theo luật để vẫn ra project')
     return rule_plan(jb)
+DEEP = ('micc academy',)   # chủ dặn 13/11: buổi quay dài (18 tiếng Academy) phải ra NHIỀU kịch bản – đọc TRỌN lời thoại từng đoạn ~10 phút
+PV = 'd1'
+def is_deep(jb): return any(k in L.norm1(path_of(jb['id'])) for k in DEEP)
+def plan_deep(jb, extra='', have=(), w0=0):
+    C = codes(jb); rev = {}
+    for k, v in C.items(): rev.setdefault(v[0], []).append(k)
+    info = {}
+    for a in jb['A']:
+        d = a['vid'].get('dir'); pth = path_of(d) if d else ''
+        rel = re.split(r'/SOURCE/?', pth, 1)[-1] if '/SOURCE' in pth else pth
+        parts = [x for x in rel.split('/') if x]
+        cam = parts[-1] if parts and re.search(r'(?i)^m[áa]y ', parts[-1]) else ''
+        info[a['i']] = dict(buoi=parts[0] if parts else '', grp='/'.join(parts[:-1] if cam else parts), cam=cam, dur=float(a.get('dur') or (a['vid'].get('videoMediaMetadata') or {}).get('durationMillis') or 0))
+    vdur = lambda a: float((a['vid'].get('videoMediaMetadata') or {}).get('durationMillis') or 0) / 1000 or float(a.get('dur') or 0)
+    mains = [a for a in jb['A'] if not a['vid'].get('broll') and len(a.get('segs') or []) >= 40 and vdur(a) >= 900]   # bản quay gốc dài ≥ 15 phút
+    # 2 máy quay cùng 1 bài giảng → chỉ lên kịch bản từ 1 máy (máy có nhiều lời rõ hơn), tránh 2 kịch bản trùng nhau
+    by = {}
+    for a in mains: by.setdefault(info[a['i']]['grp'], {}).setdefault(info[a['i']]['cam'], []).append(a)
+    pick = []
+    for g, cams in by.items():
+        best = max(cams.values(), key=lambda xs: sum(len(sg['t']) for a in xs for sg in a['segs']))
+        pick += sorted(best, key=lambda a: a['vid']['name'])
+    shorts = [a for a in jb['A'] if a not in mains]
+    def cat_for(buoi):
+        out = []
+        for a in shorts:
+            if info[a['i']]['buoi'] and info[a['i']]['buoi'] != buoi and not re.search(r'(?i)tài nguyên|render', info[a['i']]['grp']): continue
+            out.append('[KHO CẢNH PHỤ – chỉ làm broll] video #%d (%s): ' % (a['i'], info[a['i']]['grp']) + L.summary(a).split('\nLời thoại:')[0][:300] + '\n' + N.vlog_text(a.get('vlog'), k=6))
+        return '\n\n'.join(out)[:12000]
+    wins = []
+    for a in pick:
+        ks = rev.get(a['i']) or []; cur, ln = [], 0
+        for k in ks:
+            i_, s_, e_ = C[k]; sg = next((g for g in a['segs'] if abs(float(g['s']) - s_) < .01), None)
+            t = '%s (%.1fs) %s' % (k, e_ - s_, (sg or {}).get('t', '').strip()); cur.append((t, s_)); ln += len(t)
+            if ln > 8500: wins.append((a, cur)); cur, ln = [], 0
+        if len(cur) > 15: wins.append((a, cur))
+    log('  lên kịch bản SÂU: %d video chính, %d đoạn ~10 phút' % (len(pick), len(wins)))
+    out, names = [], list(have)
+    for w, (a, cur) in enumerate(wins):
+        if w < w0: continue
+        try: L.mark(jb['id'], dungLock='%s:%d' % (WID, time.time()))
+        except Exception: pass
+        inf = info[a['i']]
+        txt = ('⚠ TÊN RIÊNG chuẩn theo thư mục: %s\n\n' % path_of(jb['id']) + extra +
+               'ĐOẠN %d/%d của bài giảng – video #%d, buổi "%s" (%s), từ phút %.0f đến %.0f.\n' % (w + 1, len(wins), a['i'], inf['buoi'], inf['cam'] or 'một máy', cur[0][1] / 60, cur[-1][1] / 60) +
+               'Người nói trong đoạn này mặc trang phục của buổi "%s" – cảnh phụ có người phải cùng buổi này.\n' % inf['buoi'] +
+               N.vlog_text(a.get('vlog'), k=12) + '\n\nCÁC CÂU NÓI (chỉ lấy aroll trong các mã này):\n' + '\n'.join(t for t, _ in cur) +
+               '\n\n' + cat_for(inf['buoi']) +
+               '\n\nCHỦ ĐỀ ĐÃ CÓ VIDEO (KHÔNG làm trùng ý chính, chỉ làm ý MỚI):\n' + ('\n'.join('• ' + x for x in names) or '(chưa có)') +
+               '\n\nNhiệm vụ: từ đoạn ~10 phút này, rút ra 0–2 video ngắn, mỗi video 1 ý trọn vẹn, hữu ích, KHÁC các chủ đề đã có (đoạn chỉ là hỏi han, nghỉ giải lao, lặp ý cũ → trả {"scripts":[]}).' +
+               '\nTrả đúng 1 khối JSON {"scripts":[...]} theo khung đã nêu.')
+        if profile(jb).get('plan'): txt += '\n' + profile(jb)['plan']
+        try: j = N.ask_json(txt, model='opus', key='scripts', sys_p=SYS + rules_extra(), log=log)
+        except ClaudeWait: log('  Claude hết hạn mức – lưu tới đoạn %d, lượt sau làm tiếp' % w); return out, w, False
+        except Exception as e: log('  đoạn %d lỗi:' % (w + 1), repr(e)[:200]); continue
+        for sc in (j or {}).get('scripts') or []:
+            if not sc.get('aroll'): continue
+            out.append(sc); names.append(sc.get('ten') or '')
+        log('  đoạn %d/%d: +%d kịch bản (tổng %d)' % (w + 1, len(wins), len((j or {}).get('scripts') or []), len(out)))
+        if j is None: return out, w, False
+    return out, len(wins), True
 def rule_plan(jb):   # lớp dự phòng không cần AI: lấy câu theo thứ tự quay, câu nói lại thì giữ lần sau cùng, chữ nhấn = số liệu / từ dài
     import difflib
     C = jb.get('C') or {}
@@ -2114,6 +2177,8 @@ def tasks(jobs=None):
                 except Exception: nv_ = len(jb['vids'])
             if not unread_ and not jb.get('upl') and len(jb['vids']) > nv_ + 2 and not _fresh(jb['ap'].get('dungLock')):
                 out.append((1, 'plan', jb, None)); log('  %s: có %d video mới sau khi lên kịch bản → lên lại kịch bản cho đủ' % (jb['name'], len(jb['vids']) - nv_)); continue
+            if is_deep(jb) and book.get('pv') != PV and not unread_ and not _fresh(jb['ap'].get('dungLock')):
+                out.append((1, 'plan', jb, None)); log('  %s: buổi quay dài → lên thêm kịch bản từ TRỌN lời thoại' % jb['name']); continue
             left = 0
             for sc in book.get('scripts') or []:
                 n = sc['_n']; stt = jget(st_name(jb, n), idx) or {}
@@ -2197,9 +2262,19 @@ def do_plan(jb, key, models):
     hint = ('CHỦ YÊU CẦU DỰNG LẠI (giữ đúng chủ đề, làm tốt hơn) các video đã giao: %s. Đưa các chủ đề này vào danh sách kịch bản trước.\n\n' % '; '.join(olds)) if olds else ''
     sty = style_of(jb)
     if sty: hint = 'PHONG CÁCH KÊNH (học từ các video đã hậu kỳ trước đó – dựng THEO phong cách này):\n' + sty + '\n\n' + hint
-    scs = plan(jb, key, models, hint)
-    for n, sc in enumerate(scs, 1): sc['_n'] = n
-    jput('%s_kichban.json' % jb['id'], {'scripts': scs, 'phong_cach': sty, 'nvid': len(jb['vids'])}, ad, idx)   # nvid: số video lúc lên kịch bản (thêm video mới → lên lại)
+    old_book = jget('%s_kichban.json' % jb['id'], idx) or {} if is_deep(jb) else {}
+    if is_deep(jb):   # giữ các kịch bản đã có (đã dựng), thêm kịch bản MỚI từ toàn bộ lời thoại
+        keep = list(old_book.get('scripts') or [])
+        new, w_, fin_ = plan_deep(jb, hint, [sc.get('ten') or '' for sc in keep], int(old_book.get('deep_w') or 0) if old_book.get('pv_try') == PV else 0)
+        n0 = max([int(sc.get('_n') or 0) for sc in keep] or [0])
+        for k_, sc in enumerate(new, 1): sc['_n'] = n0 + k_
+        scs = keep + new
+    else:
+        scs = plan(jb, key, models, hint)
+        for n, sc in enumerate(scs, 1): sc['_n'] = n
+    dp_ = dict(pv=PV if fin_ else None, pv_try=PV, deep_w=w_) if is_deep(jb) else {}
+    jput('%s_kichban.json' % jb['id'], dict({'scripts': scs, 'phong_cach': sty, 'nvid': len(jb['vids'])}, **dp_), ad, idx)
+    if is_deep(jb) and fin_: L.mark(jb['id'], dungPV=PV)   # nvid: số video lúc lên kịch bản (thêm video mới → lên lại)
     log('  ✓ lên kịch bản: %s – %d kịch bản (lưu lại, không lên lại)' % (jb['name'], len(scs)))
     try: L.tsay('📖 AI ĐÃ ĐỌC XONG & PHÂN TÍCH SOURCE\n📁 %s\n🎬 %d video · ra %d kịch bản:\n%s\n➡️ Bắt đầu tự dựng các project\n🔗 %s' % (
         path_of(jb['id']), len(jb['A']), len(scs), '\n'.join('• %s' % (sc.get('ten') or '') for sc in scs), weblink(jb['id'])))
