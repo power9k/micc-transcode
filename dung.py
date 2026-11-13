@@ -2363,7 +2363,24 @@ def heal_list():   # danh sách CapCut luôn đúng với các project AI dựng
     try: list_edit(); log('  đã làm mới danh sách CapCut')
     except Exception as e: log('  không làm mới được danh sách CapCut:', e)
 
+def status_log():   # bảng tình trạng mọi SOURCE (máy 1 in ra log mỗi lượt) – để trả lời chủ "đã hết project chưa"
+    fol = lq("mimeType='%s'" % L.FOLDER, 'id,name,parents,appProperties,createdTime')
+    by = {f['id']: f for f in fol}; memo = {L.ROOT: True}
+    def under(fid, d=0):
+        if fid in memo: return memo[fid]
+        f = by.get(fid); r = bool(f and d < 40 and any(under(p, d + 1) for p in f.get('parents') or [])); memo[fid] = r; return r
+    srcs = [f for f in fol if re.search(r'\bsources?\b', L.norm1(f['name'])) and under(f['id'])]
+    for f in sorted(srcs, key=lambda x: x.get('createdTime') or '', reverse=True):
+        ap = f.get('appProperties') or {}
+        st = 'XONG' if ap.get('dungV') == DV else ('HONG%s' % ap.get('dungFail') if ap.get('dungFail') else 'CHUA')
+        log('  [TT] %s | %s | kb=%s | %s' % (st, (f.get('createdTime') or '')[:10], ap.get('dungN') or '-', path_of(f['id'])[-110:]))
 def pending():
+    try: tt_ = float((L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungTT') or 0)
+    except Exception: tt_ = time.time()
+    if time.time() - tt_ > 1800:   # 30 phút in 1 lần, chỉ 1 máy
+        L.mark(LISTF, dungTT=str(int(time.time())))
+        try: status_log()
+        except Exception as e: log('  [TT] lỗi', repr(e)[:200])
     if PAUSE: heal_list(); setup_bat(); L.rtok(); return 0   # đang tạm dừng: vẫn giữ danh sách CapCut đúng
     if not drive_ok(): return 0   # Google đang chặn tải → không khởi động máy dựng
     share_sys(); retract_vuyen(); dedupe_proj()
