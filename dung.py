@@ -2274,7 +2274,7 @@ def do_plan(jb, key, models):
         for n, sc in enumerate(scs, 1): sc['_n'] = n
     dp_ = dict(pv=PV if fin_ else None, pv_try=PV, deep_w=w_) if is_deep(jb) else {}
     jput('%s_kichban.json' % jb['id'], dict({'scripts': scs, 'phong_cach': sty, 'nvid': len(jb['vids'])}, **dp_), ad, idx)
-    if is_deep(jb) and fin_: L.mark(jb['id'], dungPV=PV)   # nvid: số video lúc lên kịch bản (thêm video mới → lên lại)
+    if is_deep(jb) and fin_: L.mark(jb['id'], dungPV=PV, dungV=None)   # còn kịch bản mới chưa dựng → bỏ dấu 'đã xong' để máy quét lại   # nvid: số video lúc lên kịch bản (thêm video mới → lên lại)
     log('  ✓ lên kịch bản: %s – %d kịch bản (lưu lại, không lên lại)' % (jb['name'], len(scs)))
     try: L.tsay('📖 AI ĐÃ ĐỌC XONG & PHÂN TÍCH SOURCE\n📁 %s\n🎬 %d video · ra %d kịch bản:\n%s\n➡️ Bắt đầu tự dựng các project\n🔗 %s' % (
         path_of(jb['id']), len(jb['A']), len(scs), '\n'.join('• %s' % (sc.get('ten') or '') for sc in scs), weblink(jb['id'])))
@@ -2463,6 +2463,10 @@ def vid_report(root='141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'):   # thống kê video 
                 log('  [VR] %.2f GB | %.1f phút | %s/%s' % (sz / 1e9, ms / 6e4, pth, c['name']))
     log('  [VR] TONG %.2f GB | %.1f phút | bản xem trước LRF: %d file %.2f GB' % (tot / 1e9, dur / 6e4, nlrf, slrf / 1e9))
 def pending():
+    try:   # 13/11: Academy đã lên 80 kịch bản nhưng còn dấu 'đã xong' cũ → máy bỏ qua; gỡ 1 lần
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRA') != '1':
+            L.mark(LISTF, dungRA='1'); L.mark('141sOBTH8vLX7SpredUrXE9-EHY5E2JKj', dungV=None); log('  gỡ dấu đã xong của Academy để dựng 77 kịch bản mới')
+    except Exception as e: log('  gỡ dấu Academy lỗi', repr(e)[:200])
     try:
         if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungVR') != 'a1':
             L.mark(LISTF, dungVR='a1'); vid_report()
