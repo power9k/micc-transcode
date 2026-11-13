@@ -2374,7 +2374,24 @@ def status_log():   # bảng tình trạng mọi SOURCE (máy 1 in ra log mỗi 
         ap = f.get('appProperties') or {}
         st = 'XONG' if ap.get('dungV') == DV else ('HONG%s' % ap.get('dungFail') if ap.get('dungFail') else 'CHUA')
         log('  [TT] %s | %s | kb=%s | %s' % (st, (f.get('createdTime') or '')[:10], ap.get('dungN') or '-', path_of(f['id'])[-110:]))
+def vid_report(root='141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'):   # thống kê video 1 source (chủ hỏi 13/11: Academy bao nhiêu GB, mỗi file mấy phút)
+    st, tot, dur, nlrf, slrf = [(root, '')], 0, 0, 0, 0
+    while st:
+        d, pth = st.pop()
+        for c in kids(d):
+            if c['mimeType'] == L.FOLDER:
+                if not SKIPDIR.match(nf(c['name'])): st.append((c['id'], pth + '/' + nf(c['name'])))
+            elif L.is_video(c):
+                sz = int(c.get('size') or 0); ms = int((c.get('videoMediaMetadata') or {}).get('durationMillis') or 0)
+                if c['name'].lower().endswith('.lrf'): nlrf += 1; slrf += sz; continue
+                tot += sz; dur += ms
+                log('  [VR] %.2f GB | %.1f phút | %s/%s' % (sz / 1e9, ms / 6e4, pth, c['name']))
+    log('  [VR] TONG %.2f GB | %.1f phút | bản xem trước LRF: %d file %.2f GB' % (tot / 1e9, dur / 6e4, nlrf, slrf / 1e9))
 def pending():
+    try:
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungVR') != 'a1':
+            L.mark(LISTF, dungVR='a1'); vid_report()
+    except Exception as e: log('  [VR] lỗi', repr(e)[:200])
     try: tt_ = float((L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungTT') or 0)
     except Exception: tt_ = time.time()
     if time.time() - tt_ > 1800:   # 30 phút in 1 lần, chỉ 1 máy
