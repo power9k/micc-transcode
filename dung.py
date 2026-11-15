@@ -154,7 +154,7 @@ def scan(all_=False):
     for s in srcs:   # 1 thư mục SOURCE = 1 lượt: đọc HẾT mọi thư mục con, Claude nhìn tổng thể rồi chia các kịch bản (mỗi cái < 2 phút)
         ap = s.get('appProperties') or {}
         if ONLY and ONLY not in L.norm1(path_of(s['id'])): continue   # chạy thử bản nâng cấp trên 1 dự án trước
-        if not all_ and not (any(k in L.norm1(s['name'] + ' ' + path_of(s['id'])) for k in DEEP) and ap.get('dungPV') != PV) and (ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3)): continue
+        if not all_ and not (ap.get('dungPV') != PV) and (ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3)): continue
         dirs, kbtop, dn, st, hitx = [], {}, {}, [(s, None)], False
         while st:
             d, top = st.pop(); dirs.append(d['id']); dn[d['id']] = nf(d['name'])
@@ -446,9 +446,9 @@ def plan(jb, key, models, extra=''):
         time.sleep(20 * (rnd + 1))
     log('  Gemini hỏng hết (' + last + ') → tự chọn theo luật để vẫn ra project')
     return rule_plan(jb)
-DEEP = ('micc academy',)   # chủ dặn 13/11: buổi quay dài (18 tiếng Academy) phải ra NHIỀU kịch bản – đọc TRỌN lời thoại từng đoạn ~10 phút
+DEEP = ('',)   # chủ dặn 15/11: MỌI source đều phải ra nhiều kịch bản nhất có thể (ý / thông điệp không trùng; được dùng lại cảnh)
 PV = 'd1'
-def is_deep(jb): return any(k in L.norm1(path_of(jb['id'])) for k in DEEP)
+def is_deep(jb): return not jb.get('kbtop')   # source chủ tự chia "Kịch bản N" → giữ đúng số kịch bản của chủ
 def plan_deep(jb, extra='', have=(), w0=0):
     C = codes(jb); rev = {}
     for k, v in C.items(): rev.setdefault(v[0], []).append(k)
@@ -458,45 +458,48 @@ def plan_deep(jb, extra='', have=(), w0=0):
         rel = re.split(r'/SOURCE/?', pth, 1)[-1] if '/SOURCE' in pth else pth
         parts = [x for x in rel.split('/') if x]
         cam = parts[-1] if parts and re.search(r'(?i)^m[áa]y ', parts[-1]) else ''
-        info[a['i']] = dict(buoi=parts[0] if parts else '', grp='/'.join(parts[:-1] if cam else parts), cam=cam, dur=float(a.get('dur') or (a['vid'].get('videoMediaMetadata') or {}).get('durationMillis') or 0))
-    vdur = lambda a: float((a['vid'].get('videoMediaMetadata') or {}).get('durationMillis') or 0) / 1000 or float(a.get('dur') or 0)
-    mains = [a for a in jb['A'] if not a['vid'].get('broll') and len(a.get('segs') or []) >= 40 and vdur(a) >= 900]   # bản quay gốc dài ≥ 15 phút
+        info[a['i']] = dict(buoi=parts[0] if parts else '', grp='/'.join(parts[:-1] if cam else parts), cam=cam)
+    mains = [a for a in jb['A'] if not a['vid'].get('broll') and len(a.get('segs') or []) >= 3 and not re.search(r'(?i)render|tài nguyên|vid ', info[a['i']]['grp'])]
     # 2 máy quay cùng 1 bài giảng → chỉ lên kịch bản từ 1 máy (máy có nhiều lời rõ hơn), tránh 2 kịch bản trùng nhau
     by = {}
     for a in mains: by.setdefault(info[a['i']]['grp'], {}).setdefault(info[a['i']]['cam'], []).append(a)
     pick = []
     for g, cams in by.items():
         best = max(cams.values(), key=lambda xs: sum(len(sg['t']) for a in xs for sg in a['segs']))
-        pick += sorted(best, key=lambda a: a['vid']['name'])
+        pick += best
+    pick.sort(key=lambda a: (info[a['i']]['buoi'], a['vid']['name']))
     shorts = [a for a in jb['A'] if a not in mains]
     def cat_for(buoi):
         out = []
         for a in shorts:
-            if info[a['i']]['buoi'] and info[a['i']]['buoi'] != buoi and not re.search(r'(?i)tài nguyên|render', info[a['i']]['grp']): continue
+            if info[a['i']]['buoi'] and buoi and info[a['i']]['buoi'] != buoi and not re.search(r'(?i)tài nguyên|render|b.?roll|cảnh phụ|flycam|fly', info[a['i']]['grp']): continue
             out.append('[KHO CẢNH PHỤ – chỉ làm broll] video #%d (%s): ' % (a['i'], info[a['i']]['grp']) + L.summary(a).split('\nLời thoại:')[0][:300] + '\n' + N.vlog_text(a.get('vlog'), k=6))
-        return '\n\n'.join(out)[:12000]
-    wins = []
+        return '\n\n'.join(out)[:14000]
+    wins, cur, ln, vs, bu = [], [], 0, [], None
+    def flush():
+        if len(cur) >= 5: wins.append((list(vs), list(cur), bu))
     for a in pick:
-        ks = rev.get(a['i']) or []; cur, ln = [], 0
-        for k in ks:
+        if bu is not None and info[a['i']]['buoi'] != bu: flush(); cur, ln, vs = [], 0, []
+        bu = info[a['i']]['buoi']; vs.append(a)
+        for k in rev.get(a['i']) or []:
             i_, s_, e_ = C[k]; sg = next((g for g in a['segs'] if abs(float(g['s']) - s_) < .01), None)
-            t = '%s (%.1fs) %s' % (k, e_ - s_, (sg or {}).get('t', '').strip()); cur.append((t, s_)); ln += len(t)
-            if ln > 8500: wins.append((a, cur)); cur, ln = [], 0
-        if len(cur) > 15: wins.append((a, cur))
-    log('  lên kịch bản SÂU: %d video chính, %d đoạn ~10 phút' % (len(pick), len(wins)))
+            t = '%s (%.1fs) [video #%d] %s' % (k, e_ - s_, a['i'], (sg or {}).get('t', '').strip()); cur.append((t, s_)); ln += len(t)
+            if ln > 8500: flush(); cur, ln, vs = [], 0, [a]
+    flush()
+    small = len(wins) <= 2
+    log('  lên kịch bản SÂU: %d video có lời, %d đoạn' % (len(pick), len(wins)))
     out, names = [], list(have)
-    for w, (a, cur) in enumerate(wins):
+    for w, (vs_, cur_, bu_) in enumerate(wins):
         if w < w0: continue
         try: L.mark(jb['id'], dungLock='%s:%d' % (WID, time.time()))
         except Exception: pass
-        inf = info[a['i']]
         txt = ('⚠ TÊN RIÊNG chuẩn theo thư mục: %s\n\n' % path_of(jb['id']) + extra +
-               'ĐOẠN %d/%d của bài giảng – video #%d, buổi "%s" (%s), từ phút %.0f đến %.0f.\n' % (w + 1, len(wins), a['i'], inf['buoi'], inf['cam'] or 'một máy', cur[0][1] / 60, cur[-1][1] / 60) +
-               'Người nói trong đoạn này mặc trang phục của buổi "%s" – cảnh phụ có người phải cùng buổi này.\n' % inf['buoi'] +
-               N.vlog_text(a.get('vlog'), k=12) + '\n\nCÁC CÂU NÓI (chỉ lấy aroll trong các mã này):\n' + '\n'.join(t for t, _ in cur) +
-               '\n\n' + cat_for(inf['buoi']) +
-               '\n\nCHỦ ĐỀ ĐÃ CÓ VIDEO (KHÔNG làm trùng ý chính, chỉ làm ý MỚI):\n' + ('\n'.join('• ' + x for x in names) or '(chưa có)') +
-               '\n\nNhiệm vụ: từ đoạn ~10 phút này, rút ra 0–2 video ngắn, mỗi video 1 ý trọn vẹn, hữu ích, KHÁC các chủ đề đã có (đoạn chỉ là hỏi han, nghỉ giải lao, lặp ý cũ → trả {"scripts":[]}).' +
+               'ĐOẠN %d/%d của source – video %s, buổi "%s".\n' % (w + 1, len(wins), ', '.join('#%d' % a['i'] for a in vs_), bu_ or '(chung)') +
+               'Người nói trong đoạn này mặc trang phục của buổi này – cảnh phụ có người phải cùng buổi (cùng trang phục).\n' +
+               '\n'.join(N.vlog_text(a.get('vlog'), k=8) for a in vs_[:3]) + '\n\nCÁC CÂU NÓI (chỉ lấy aroll trong các mã này):\n' + '\n'.join(t for t, _ in cur_) +
+               '\n\n' + cat_for(bu_) +
+               '\n\nCHỦ ĐỀ ĐÃ CÓ VIDEO (KHÔNG làm trùng ý chính / thông điệp, chỉ làm ý MỚI):\n' + ('\n'.join('• ' + x for x in names) or '(chưa có)') +
+               '\n\nNhiệm vụ: rút ra càng NHIỀU video ngắn càng tốt (%s) từ đoạn này – mỗi video 1 câu chuyện / thông điệp trọn vẹn, KHÁC hẳn các chủ đề đã có (góc nhìn khác, đối tượng khách khác, lợi ích khác đều được). ĐƯỢC dùng lại câu / cảnh đã dùng ở video khác nếu hợp nội dung. Không còn ý mới thật sự → {"scripts":[]}.' % ('0–4 video' if small else '0–2 video') +
                '\nTrả đúng 1 khối JSON {"scripts":[...]} theo khung đã nêu.')
         if profile(jb).get('plan'): txt += '\n' + profile(jb)['plan']
         try: j = N.ask_json(txt, model='opus', key='scripts', sys_p=SYS + rules_extra(), log=log)
@@ -2190,7 +2193,7 @@ def tasks(jobs=None):
                 if stt.get('done') or int(stt.get('tries') or 0) >= MAXT: continue   # 'done' = sổ kiểu cũ
                 left += 1
                 if not _fresh(locks.get('L%d' % n)): out.append((0, 'build', jb, n))
-            if not left: L.mark(jb['id'], dungV=DV, dungFail=None); log('  %s: đã dựng xong mọi kịch bản' % jb['name'])
+            if not left: L.mark(jb['id'], dungV=DV, dungFail=None, **({} if is_deep(jb) else {'dungPV': PV})); log('  %s: đã dựng xong mọi kịch bản' % jb['name'])
             continue
         unread = [v for v in jb['vids'] if hong_name(v) not in idx and (ana_name(v) not in idx or xem_name(v) not in idx)]
         if unread:
