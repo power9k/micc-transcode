@@ -1936,7 +1936,7 @@ def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover 
     except Exception as e: log('  không tạo được file Word kịch bản:', e)
     try:
         if pl.get('cover'):
-            put('draft_cover.jpg', pf, open(pl['cover'], 'rb').read(), 'image/jpeg'); L.mark(pf, dungCH=pl['coverh'])
+            pl['cover_id'] = put('draft_cover.jpg', pf, open(pl['cover'], 'rb').read(), 'image/jpeg')['id']; L.mark(pf, dungCH=pl['coverh'])   # ảnh báo Zalo = cover đúng khung project (9:16), không lấy ảnh video gốc 16:9
     except Exception as e: log('  không lưu được ảnh cover:', e)
     return ids
 def _publish(jb, sc, n, host, proj, rel, adir):
@@ -2019,7 +2019,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
             list_edit(); pf = tgt['id']
             log('  đã ghi đè bản mới vào project cũ (giữ lối tắt):', proj)
             vid0 = next((A_[int(sh['media'][1:])]['vid']['id'] for sh in pl['shots'] if sh.get('line') == 'A' and sh['media'][1:].isdigit() and int(sh['media'][1:]) in A_), None) if (A_ := {a['i']: a for a in jb['A']}) else None
-            return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0, edited=True, mg=mgi)
+            return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=pl.get('cover_id') or vid0, edited=True, mg=mgi)
         except Exception as e: log('  không ghi đè được, tạo project mới:', e)
     pf = mkdir(proj, host, {'dungP': '1', 'dungS': slot, 'dungL': LV, 'dungVol': '1'})   # đánh dấu thư mục project (tên không còn chữ CapCut)
     try:
@@ -2042,7 +2042,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         except Exception: pass
         raise
     vid0 = next((A_[int(sh['media'][1:])]['vid']['id'] for sh in pl['shots'] if sh.get('line') == 'A' and sh['media'][1:].isdigit() and int(sh['media'][1:]) in A_), None) if (A_ := {a['i']: a for a in jb['A']}) else None
-    return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=vid0, mg=mgi)
+    return dict(proj=proj, dur=pl['total'], id=pf, url='https://drive.google.com/drive/folders/' + pf, thumb=pl.get('cover_id') or vid0, mg=mgi)
 
 # ---- nhiều máy GitHub chạy song song: mỗi máy giữ 1 thư mục source (khóa trên Drive), máy khác bỏ qua
 WID = '%s-%s' % (os.environ.get('GITHUB_RUN_ID', 'local'), os.environ.get('WORKER', '1'))
@@ -2300,7 +2300,7 @@ def do_build(jb, n):
     try: r = publish(jb, sc, n)
     except ClaudeWait: raise
     except Exception as e:
-        r = None; import traceback as _tb; log('  ✗ kịch bản', n, e, '|', _tb.format_exc().replace('\n', ' ¶ ')[-700:])
+        r = None; jb['crash'] = True; import traceback as _tb; log('  ✗ kịch bản', n, e, '|', _tb.format_exc().replace('\n', ' ¶ ')[-700:])
     if r:
         stt.update(done=True); jput(st_name(jb, n), stt, ad, idx)
         log('  ✓ %s (%.0fs) – %.1f phút' % (r['proj'], r['dur'], (time.time() - t0) / 60))
@@ -2313,7 +2313,8 @@ def do_build(jb, n):
                    photo=(L.SITE + '/xt/' + r['thumb'] + '?w=480') if r.get("thumb") else None)   # chủ dặn 12/11: Zalo không gửi được video → chỉ thumbnail
         return
     stt['tries'] = int(stt.get('tries') or 0) + 1
-    if not jb.get('qa_rej'): stt['tries'] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
+    if jb.pop('crash', None): log('  kịch bản %d lỗi giữa chừng (lần %d/4) – lượt sau thử lại' % (n, stt['tries'])); stt['tries'] = MAXT if stt['tries'] >= 4 else stt['tries']   # chủ dặn 15/11: lỗi tạm (hết hạn mức, Drive chậm) không bỏ luôn
+    elif not jb.get('qa_rej'): stt['tries'] = MAXT; log('  kịch bản %d không dựng được (thiếu câu / quá ngắn) – bỏ qua' % n)
     if jb.get('fixed'): stt['sc'] = jb['fixed']   # giữ chỗ Claude đã sửa → lần sau sửa tiếp, không làm lại từ đầu
     jput(st_name(jb, n), stt, ad, idx)
     log('  kịch bản %d chưa đạt (lần %d/%d) – sẽ dựng / sửa tiếp' % (n, stt['tries'], MAXT))
@@ -2380,11 +2381,11 @@ def fix_vol():   # chủ dặn 11/11: SFX + nhạc nền 0 dB (không giảm âm
     except Exception as e: log('  không sửa được âm lượng project cũ:', e)
 
 RT = 'r6'   # đợt thu hồi (chủ dặn 11/11 chiều): thu hồi mọi project AI dựng (chưa bị người dùng sửa) rồi dựng lại bằng bản mới nhất
-def share_sys():   # cho tài khoản 2 (miccgroup.media) quyền XEM thư mục hệ thống (kịch bản, trạng thái) → đọc file bằng tài khoản 2
+def share_sys():   # cho tài khoản 2 quyền XEM thư mục hệ thống (kịch bản, trạng thái) → đọc file bằng tài khoản 2
     try:
         for f in lq("'%s' in parents and name='MICC media · Hệ thống (không xóa)' and mimeType='%s'" % (L.ROOT, L.FOLDER), 'id,appProperties'):
-            if (f.get('appProperties') or {}).get('dungSh2') == '1': continue
-            L.drive('files/%s/permissions' % f['id'], {'role': 'reader', 'type': 'user', 'emailAddress': 'miccgroup.media@gmail.com'}, params={'supportsAllDrives': 'true', 'sendNotificationEmail': 'false'})
+            if (f.get('appProperties') or {}).get('dungSh2') == '1' or not os.environ.get('MICC_MAIL2'): continue   # địa chỉ tài khoản 2 để trong cài đặt bí mật, không ghi trong code
+            L.drive('files/%s/permissions' % f['id'], {'role': 'reader', 'type': 'user', 'emailAddress': os.environ['MICC_MAIL2']}, params={'supportsAllDrives': 'true', 'sendNotificationEmail': 'false'})
             L.mark(f['id'], dungSh2='1'); log('  đã cho tài khoản 2 xem thư mục hệ thống')
     except Exception as e: log('  không chia sẻ được thư mục hệ thống cho tài khoản 2:', str(e)[:200])
 def restore_r6():   # chủ dặn 11/11 tối: đưa lại các project đã thu hồi lên CapCut (bản mới dựng xong sẽ gắn ❌ bản cũ rồi thay)
@@ -2469,6 +2470,14 @@ def vid_report(root='141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'):   # thống kê video 
                 log('  [VR] %.2f GB | %.1f phút | %s/%s' % (sz / 1e9, ms / 6e4, pth, c['name']))
     log('  [VR] TONG %.2f GB | %.1f phút | bản xem trước LRF: %d file %.2f GB' % (tot / 1e9, dur / 6e4, nlrf, slrf / 1e9))
 def pending():
+    try:   # 15/11: 26 kịch bản Academy bị bỏ vì lỗi tạm (luật cũ bỏ luôn) → đặt lại để dựng tiếp
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRA3') != '1':
+            L.mark(LISTF, dungRA3='1'); sid_ = '141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'; ad_, ix_ = idx_now(); bk_ = jget('%s_kichban.json' % sid_, ix_) or {}; k_ = 0
+            for sc_ in bk_.get('scripts') or []:
+                nm_ = '%s_kb%d_L%s.json' % (sid_, sc_['_n'], LV); st_ = jget(nm_, ix_) or {}
+                if not st_.get('done') and int(st_.get('tries') or 0) >= MAXT: st_['tries'] = 0; jput(nm_, st_, ad_, ix_); k_ += 1
+            L.mark(sid_, dungV=None); log('  Academy: đặt lại %d kịch bản bị bỏ để dựng tiếp' % k_)
+    except Exception as e: log('  đặt lại Academy lỗi', repr(e)[:200])
     try:   # 13/11 tối: 8 project Academy mới dựng bằng kiểu chữ mới → dựng lại (sửa tại chỗ) với chữ như cũ, 9:16, nhạc AI
         if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRA2') != '1':
             L.mark(LISTF, dungRA2='1'); sid_ = '141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'; ad_, ix_ = idx_now(); bk_ = jget('%s_kichban.json' % sid_, ix_) or {}; k_ = 0
