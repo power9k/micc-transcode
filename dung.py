@@ -2284,6 +2284,7 @@ def do_plan(jb, key, models):
     jput('%s_kichban.json' % jb['id'], dict({'scripts': scs, 'phong_cach': sty, 'nvid': len(jb['vids'])}, **dp_), ad, idx)
     if is_deep(jb) and fin_: L.mark(jb['id'], dungPV=PV, dungV=None)   # còn kịch bản mới chưa dựng → bỏ dấu 'đã xong' để máy quét lại   # nvid: số video lúc lên kịch bản (thêm video mới → lên lại)
     log('  ✓ lên kịch bản: %s – %d kịch bản (lưu lại, không lên lại)' % (jb['name'], len(scs)))
+    if is_deep(jb) and (not fin_ or len(scs) <= len(keep)): return   # chủ phàn nàn 16/11: Nexme báo lặp – chỉ báo khi đã lên XONG và có kịch bản mới
     try: L.tsay('📖 AI ĐÃ ĐỌC XONG & PHÂN TÍCH SOURCE\n📁 %s\n🎬 %d video · ra %d kịch bản:\n%s\n➡️ Bắt đầu tự dựng các project\n🔗 %s' % (
         path_of(jb['id']), len(jb['A']), len(scs), '\n'.join('• %s' % (sc.get('ten') or '') for sc in scs), weblink(jb['id'])))
     except Exception as e: log('  không báo được Zalo:', e)
