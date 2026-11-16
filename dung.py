@@ -153,7 +153,8 @@ def scan(all_=False):
     jobs, now = [], time.time()
     for s in srcs:   # 1 thư mục SOURCE = 1 lượt: đọc HẾT mọi thư mục con, Claude nhìn tổng thể rồi chia các kịch bản (mỗi cái < 2 phút)
         ap = s.get('appProperties') or {}
-        if ONLY and ONLY not in L.norm1(path_of(s['id'])): continue   # chạy thử bản nâng cấp trên 1 dự án trước
+        if ONLY and ONLY not in L.norm1(path_of(s['id'])): continue
+        if dropped(s['id']): continue   # chủ dặn 16/11: bỏ Academy + Sự kiện   # chạy thử bản nâng cấp trên 1 dự án trước
         if not all_ and not (ap.get('dungPV') != PV) and (ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3)): continue
         dirs, kbtop, dn, st, hitx = [], {}, {}, [(s, None)], False
         while st:
@@ -2473,7 +2474,27 @@ def vid_report(root='141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'):   # thống kê video 
                 tot += sz; dur += ms
                 log('  [VR] %.2f GB | %.1f phút | %s/%s' % (sz / 1e9, ms / 6e4, pth, c['name']))
     log('  [VR] TONG %.2f GB | %.1f phút | bản xem trước LRF: %d file %.2f GB' % (tot / 1e9, dur / 6e4, nlrf, slrf / 1e9))
+DROP = ('micc academy', 'su kien')   # chủ dặn 16/11: KHÔNG tạo project cho Academy và các Sự kiện nữa, xóa hết project đã có
+def dropped(fid):
+    try: p_ = L.norm1(path_of(fid))
+    except Exception: return False
+    return any(k in p_ for k in DROP)
+def drop_projects():
+    try:
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungDROP') == '1' or not lock(LISTF, 'dungDROPL'): return
+        n_ = 0
+        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'id,name,parents,appProperties'):
+            sid_ = str((c.get('appProperties') or {}).get('dungS') or '').split(':')[0]
+            if (sid_ and dropped(sid_)) or any(L.norm1(c['name']).lstrip('🤖✏️ ').startswith(k) for k in ('micc academy -', 'khai pha tu duy -')):
+                try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); n_ += 1
+                except Exception: pass
+        for c in lq("name contains 'HyperFrames - ' and name contains 'Micc Academy' and trashed=false", 'id,name'):   # bản thử HyperFrames Academy
+            try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH')
+            except Exception: pass
+        list_edit(); L.mark(LISTF, dungDROP='1', dungDROPL=None); log('  đã xóa %d project Academy + Sự kiện (thùng rác Drive, khôi phục được 30 ngày)' % n_)
+    except Exception as e: log('  không xóa được project Academy / Sự kiện:', e)
 def pending():
+    drop_projects()
     try:   # 15/11: 26 kịch bản Academy bị bỏ vì lỗi tạm (luật cũ bỏ luôn) → đặt lại để dựng tiếp
         if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRA3') != '1':
             L.mark(LISTF, dungRA3='1'); sid_ = '141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'; ad_, ix_ = idx_now(); bk_ = jget('%s_kichban.json' % sid_, ix_) or {}; k_ = 0

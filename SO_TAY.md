@@ -27,3 +27,4 @@ Mọi phiên Claude làm việc với hệ thống này dùng chung sổ này. C
 
 ## Nhật ký
 - 16/11 (phiên chính): chủ bảo DỪNG HẾT → đã hủy mọi lượt chạy, `PAUSE = True`. Sửa lỗi Nexme báo Zalo lặp khi lên kịch bản dở dang. Chủ tách phiên riêng chỉ bàn về video Academy.
+- 16/11 (phiên chính): chủ dặn XÓA HẾT project Academy và project các Sự kiện (vào thùng rác Drive), từ nay KHÔNG tạo project cho Academy và Sự kiện nữa (`DROP` trong dung.py). Máy dựng vẫn đang tạm dừng (`PAUSE = True`).
