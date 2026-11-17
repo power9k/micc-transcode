@@ -2499,7 +2499,7 @@ def pending():
         m_ = L.api('meta'); log('  [META] ft=%d fl=%d av=%d avu=%d people=%d keys=%s' % (len(m_.get('ft') or {}), len(m_.get('fl') or {}), len(m_.get('av') or {}), len(m_.get('avu') or {}), len(m_.get('people') or {}), ','.join(sorted(m_.keys()))[:200])); log('  [META] ftk', ' '.join(sorted(m_.get('ft') or {}))); log('  [META] flk', ' '.join(sorted(m_.get('fl') or {}))); log('  [META] rev', m_.get('rev'), 'size', len(json.dumps(m_)))
         for fid_, v_ in list((m_.get('ft') or {}).items())[:4]:
             for s_ in ('b', ''):
-                try: a_ = L.api('avimg', h=v_[0], s=s_); log('  [AVIMG]', fid_, s_, 'ok', a_.get('ok'), 'len', len(a_.get('b64') or ''), str(a_.get('error') or '')[:150])
+                try: a_ = L.http(L.API, dict(action='avimg', h=v_[0], s=s_), timeout=120); log('  [AVIMG]', fid_, s_, 'ok', a_.get('ok'), 'len', len(a_.get('b64') or ''), str(a_.get('error') or '')[:150])
                 except Exception as e: log('  [AVIMG]', fid_, s_, 'lỗi', repr(e)[:200])
     except Exception as e: log('  [META] lỗi', repr(e)[:300])
     try: d_ = L.api('diag'); log('  [DIAG]', json.dumps(d_, ensure_ascii=False)[:600])
