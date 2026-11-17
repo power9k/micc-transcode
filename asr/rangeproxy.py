@@ -17,7 +17,9 @@ import urllib.request
 FILE_ID, PORT = sys.argv[1], int(sys.argv[2])
 URL = f"https://drive.usercontent.google.com/download?id={FILE_ID}&export=download&confirm=t"
 CHUNK = 8 * 1024 * 1024
-CTX = ssl.create_default_context(cafile="/root/.ccr/ca-bundle.crt")
+import os
+CA = "/root/.ccr/ca-bundle.crt"
+CTX = ssl.create_default_context(cafile=CA) if os.access(CA, os.R_OK) else ssl.create_default_context()
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler(), urllib.request.HTTPSHandler(context=CTX))
 
 
