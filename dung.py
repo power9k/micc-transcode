@@ -2495,6 +2495,15 @@ def drop_projects():
     except Exception as e: log('  không xóa được project Academy / Sự kiện:', e)
 def pending():
     drop_projects()
+    try:   # 17/11: chẩn đoán ảnh bìa thư mục / avatar biến mất trên web (chỉ in số lượng)
+        m_ = L.api('meta'); log('  [META] ft=%d fl=%d av=%d avu=%d people=%d keys=%s' % (len(m_.get('ft') or {}), len(m_.get('fl') or {}), len(m_.get('av') or {}), len(m_.get('avu') or {}), len(m_.get('people') or {}), ','.join(sorted(m_.keys()))[:200])); log('  [META] ftk', ' '.join(sorted(m_.get('ft') or {}))); log('  [META] flk', ' '.join(sorted(m_.get('fl') or {}))); log('  [META] rev', m_.get('rev'), 'size', len(json.dumps(m_)))
+        for fid_, v_ in list((m_.get('ft') or {}).items())[:4]:
+            for s_ in ('b', ''):
+                try: a_ = L.http(L.API, dict(action='avimg', h=v_[0], s=s_), timeout=120); log('  [AVIMG]', fid_, s_, 'ok', a_.get('ok'), 'len', len(a_.get('b64') or ''), str(a_.get('error') or '')[:150])
+                except Exception as e: log('  [AVIMG]', fid_, s_, 'lỗi', repr(e)[:200])
+    except Exception as e: log('  [META] lỗi', repr(e)[:300])
+    try: d_ = L.api('diag'); log('  [DIAG]', json.dumps(d_, ensure_ascii=False)[:600])
+    except Exception as e: log('  [DIAG] lỗi', repr(e)[:300])
     try:   # 15/11: 26 kịch bản Academy bị bỏ vì lỗi tạm (luật cũ bỏ luôn) → đặt lại để dựng tiếp
         if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRA3') != '1':
             L.mark(LISTF, dungRA3='1'); sid_ = '141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'; ad_, ix_ = idx_now(); bk_ = jget('%s_kichban.json' % sid_, ix_) or {}; k_ = 0
