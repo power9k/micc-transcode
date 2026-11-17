@@ -27,3 +27,9 @@ Mọi phiên Claude làm việc với hệ thống này dùng chung sổ này. C
 
 ## Nhật ký
 - 16/11 (phiên chính): chủ bảo DỪNG HẾT → đã hủy mọi lượt chạy, `PAUSE = True`. Sửa lỗi Nexme báo Zalo lặp khi lên kịch bản dở dang. Chủ tách phiên riêng chỉ bàn về video Academy.
+- 17/11 (phiên Academy, Remotion): chủ chốt quy trình video Academy mới:
+  - Mỗi video 1:30–2:00, lời diễn giải chi tiết, có ví dụ cụ thể; vẫn lên nhiều kịch bản nhất có thể (đã có 54 kịch bản từ 5 file buổi 13/10).
+  - Cắt kỹ khoảng nghỉ, hơi thở, ậm ừ; câu nói lặp hay nói hỏng thì cắt còn một lần cho mượt.
+  - Không làm nét: dùng thẳng file MP4 gốc chất lượng tốt nhất trên Drive (không dùng .LRF/720p/480p). Âm thanh chỉ lọc tạp âm.
+  - Motion graphic phải vui mắt, nhiều hiệu ứng, tràn ngập vùng an toàn. Ví dụ nào được nhắc tới (kênh, người, dự án) phải có hình thật: avatar + tên kênh, ảnh chụp TikTok, video đang chạy, chỉ số like…, không chỉ có chữ.
+  - Dựng bằng Remotion. Mốc thời gian từng chữ lấy bằng Whisper chạy trên máy GitHub (workflow riêng `asr-words.yml` trên nhánh claude/…, không đụng main).
