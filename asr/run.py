@@ -27,8 +27,8 @@ for req_path in todo:
         wav = "/tmp/asr_seg.wav"
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{a0:.3f}", "-to", f"{b + 0.5:.3f}", "-i", f"http://127.0.0.1:{port}/v.mp4",
                         "-map", "0:a:0", "-ac", "1", "-ar", "16000", wav], check=True)
-        segs, _ = asr.transcribe(wav, language="vi", word_timestamps=True, vad_filter=False, beam_size=5,
-                                 condition_on_previous_text=False, temperature=0)
+        segs, _ = asr.transcribe(wav, language="vi", word_timestamps=True, vad_filter=bool(R.get("vad")), beam_size=5,
+                                 condition_on_previous_text=False, temperature=0, initial_prompt=R.get("prompt"))
         for s in segs:
             for w in (s.words or []):
                 words.append({"w": w.word.strip(), "s": round(a0 + w.start, 3), "e": round(a0 + w.end, 3), "p": round(w.probability, 3)})
