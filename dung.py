@@ -2496,7 +2496,7 @@ def drop_projects():
 def pending():
     drop_projects()
     try:   # 17/11: chẩn đoán ảnh bìa thư mục / avatar biến mất trên web (chỉ in số lượng)
-        m_ = L.api('meta'); log('  [META] ft=%d fl=%d av=%d avu=%d people=%d keys=%s' % (len(m_.get('ft') or {}), len(m_.get('fl') or {}), len(m_.get('av') or {}), len(m_.get('avu') or {}), len(m_.get('people') or {}), ','.join(sorted(m_.keys()))[:200]))
+        m_ = L.api('meta'); log('  [META] ft=%d fl=%d av=%d avu=%d people=%d keys=%s' % (len(m_.get('ft') or {}), len(m_.get('fl') or {}), len(m_.get('av') or {}), len(m_.get('avu') or {}), len(m_.get('people') or {}), ','.join(sorted(m_.keys()))[:200])); log('  [META] ftk', ' '.join(sorted(m_.get('ft') or {}))); log('  [META] flk', ' '.join(sorted(m_.get('fl') or {}))); log('  [META] rev', m_.get('rev'), 'size', len(json.dumps(m_)))
     except Exception as e: log('  [META] lỗi', repr(e)[:300])
     try: d_ = L.api('diag'); log('  [DIAG]', json.dumps(d_, ensure_ascii=False)[:600])
     except Exception as e: log('  [DIAG] lỗi', repr(e)[:300])
