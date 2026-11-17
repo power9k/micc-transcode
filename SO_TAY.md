@@ -18,6 +18,11 @@ Mọi phiên Claude làm việc với hệ thống này dùng chung sổ này. C
 - Báo Zalo: mỗi project AI dựng → nhóm thông báo (+ nhóm test). Mẫu: "🤖 Tên (N giây | X phút Y giây)\n⏱ Dựng mất…\n🔗 link" + ảnh cover 9:16.
 - Royal Island Vũ Yên = TVC điện ảnh 16:9, sáng, nữ tính, sang trọng.
 
+## Đánh số phiên bản web (chủ dặn 17/11)
+- Chủ yêu cầu mới SAU KHI Claude đã cập nhật xong hết → nhảy bản lớn mới, bản nhỏ đầu tiên là .1 (vd đang 263.55 → 264.1).
+- Chủ nhắn thêm yêu cầu TRONG LÚC Claude đang xử lý → mỗi yêu cầu +1 bản nhỏ (264.1 → 264.2 → …).
+- Nhật ký Ctrl + U (`changes.js`) ghi theo bản lớn.
+
 ## Academy (Micc Academy – source `141sOBTH8vLX7SpredUrXE9-EHY5E2JKj`)
 - KHUNG DỌC 9:16, hiệu ứng chữ NHƯ CŨ (không dùng kiểu chữ tự chọn màu của TVC), nhạc AI, motion graphic khi cần.
 - 22 file quay gốc, 261 GB, ~18,3 giờ (buổi 2, 3 có 2 máy quay cùng lúc → nội dung thật ~11 giờ).
@@ -28,3 +33,4 @@ Mọi phiên Claude làm việc với hệ thống này dùng chung sổ này. C
 ## Nhật ký
 - 16/11 (phiên chính): chủ bảo DỪNG HẾT → đã hủy mọi lượt chạy, `PAUSE = True`. Sửa lỗi Nexme báo Zalo lặp khi lên kịch bản dở dang. Chủ tách phiên riêng chỉ bàn về video Academy.
 - 16/11 (phiên chính): chủ dặn XÓA HẾT project Academy và project các Sự kiện (vào thùng rác Drive), từ nay KHÔNG tạo project cho Academy và Sự kiện nữa (`DROP` trong dung.py). Máy dựng vẫn đang tạm dừng (`PAUSE = True`).
+- 17/11 (phiên chính): quy tắc đánh số phiên bản web (mục trên). Web đang ở 263.55; yêu cầu mới tiếp theo → 264.1.
