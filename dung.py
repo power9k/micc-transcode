@@ -8,7 +8,6 @@
 import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse, urllib.error, random, shutil
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
-ClaudeWait = N.ClaudeWait   # 17/11: thiếu dòng này → lên kịch bản The Fullton hỏng (name 'ClaudeWait' is not defined)
 
 DV = '24'
 LV = '18'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
@@ -313,6 +312,111 @@ def doc_text(jb):   # chủ dặn 17/11: đọc file kịch bản MỌI định 
             if t: out.append('FILE KỊCH BẢN "%s" (thư mục: %s):\n%s' % (d['name'], (jb.get('dn') or {}).get(d.get('dir'), ''), t[:12000]))
         except Exception as e: log('  không đọc được file kịch bản', d['name'], repr(e)[:150])
     return '\n\n'.join(out)
+
+# ---------------------------------------------------------------- Gemini Pro qua Gemini CLI (đăng nhập tài khoản có gói Pro/Ultra, chìa khóa khóa hóa trên Drive)
+_CLI = []
+def cli_ready():
+    if _CLI: return _CLI[0]
+    ok = False
+    try:
+        env = os.environ.get('GEMINI_CLI_CREDS', '').strip()   # cách 2: chủ tự dán nội dung oauth_creds.json vào GitHub secret GEMINI_CLI_CREDS
+        if env:
+            gd = os.path.expanduser('~/.gemini'); os.makedirs(gd, exist_ok=True)
+            open(os.path.join(gd, 'oauth_creds.json'), 'w').write(env)
+            json.dump({'security': {'auth': {'selectedType': 'oauth-personal'}}, 'selectedAuthType': 'oauth-personal'}, open(os.path.join(gd, 'settings.json'), 'w'))
+            if not subprocess.run('command -v gemini', shell=True, capture_output=True).stdout:
+                subprocess.run('npm install -g @google/gemini-cli >/dev/null 2>&1', shell=True, timeout=300)
+            ok = bool(subprocess.run('command -v gemini', shell=True, capture_output=True).stdout)
+            log('  Gemini Pro (GitHub secret):', 'sẵn sàng' if ok else 'không cài được'); _CLI.append(ok); return ok
+        f = lq("'%s' in parents and name='Khoa Gemini.bin'" % cache_dir(), 'id')
+        if f:
+            subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'cryptography'], capture_output=True)
+            from cryptography.hazmat.primitives import serialization, hashes, padding as P
+            from cryptography.hazmat.primitives.asymmetric import padding
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            b = raw(f[0]['id']); assert b[:4] == b'MGC1'
+            n = int.from_bytes(b[4:6], 'big'); ek, iv, ct = b[6:6 + n], b[6 + n:22 + n], b[22 + n:]
+            pk = serialization.load_der_private_key(base64.b64decode(re.search(r"GEMINI_CLI_PRIV\s*=\s*'([^']+)'", L.cfg()['src']).group(1)), None)
+            k = pk.decrypt(ek, padding.OAEP(mgf=padding.MGF1(hashes.SHA1()), algorithm=hashes.SHA1(), label=None))
+            d = Cipher(algorithms.AES(k), modes.CBC(iv)).decryptor(); u = P.PKCS7(128).unpadder()
+            cred = u.update(d.update(ct) + d.finalize()) + u.finalize()
+            gd = os.path.expanduser('~/.gemini'); os.makedirs(gd, exist_ok=True)
+            open(os.path.join(gd, 'oauth_creds.json'), 'wb').write(cred)
+            json.dump({'security': {'auth': {'selectedType': 'oauth-personal'}}, 'selectedAuthType': 'oauth-personal'}, open(os.path.join(gd, 'settings.json'), 'w'))
+            if not subprocess.run('command -v gemini', shell=True, capture_output=True).stdout:
+                subprocess.run('npm install -g @google/gemini-cli >/dev/null 2>&1', shell=True, timeout=300)
+            ok = bool(subprocess.run('command -v gemini', shell=True, capture_output=True).stdout)
+            log('  Gemini Pro (tài khoản đã kết nối):', 'sẵn sàng' if ok else 'không cài được')
+    except Exception as e: log('  không dùng được Gemini Pro đã kết nối:', e)
+    _CLI.append(ok); return ok
+def cli_plan(parts):
+    if not cli_ready(): return None
+    import tempfile
+    d = tempfile.mkdtemp(dir=L.TMP); txt, refs = [SYS, ''], []
+    for p in parts:
+        if 'text' in p: txt.append(p['text'])
+        elif 'inline_data' in p and len(refs) < 60:
+            fn = 'h%d.jpg' % len(refs); open(os.path.join(d, fn), 'wb').write(base64.b64decode(p['inline_data']['data'])); refs.append(fn); txt.append('(ảnh %s)' % fn)
+    open(os.path.join(d, 'yeucau.txt'), 'w', encoding='utf-8').write('\n'.join(txt))
+    q = 'Đọc yêu cầu trong @yeucau.txt, xem các ảnh ' + ' '.join('@' + r for r in refs) + ' rồi làm đúng yêu cầu. CHỈ trả về JSON, không giải thích.'
+    for args in (['--output-format', 'json'], []):
+        try:
+            r = subprocess.run(['gemini', '-p', q] + args, cwd=d, capture_output=True, text=True, timeout=900)
+            out = r.stdout.strip()
+            try: out = json.loads(out).get('response', out)
+            except Exception: pass
+            m = re.search(r'\{.*\}', out, re.S)
+            if m:
+                sc = json.loads(m.group(0)).get('scripts')
+                if sc is not None: log('  Gemini Pro (tài khoản) lên kế hoạch: %d kịch bản' % len(sc)); return sc
+            log('  Gemini Pro (tài khoản) chưa trả JSON:', (r.stderr or out)[-200:])
+        except Exception as e: log('  Gemini Pro (tài khoản) lỗi:', e)
+    return None
+# ---------------------------------------------------------------- Claude Code chạy không người bấm, dùng gói Claude Max (không tốn tiền API)
+ClaudeWait = N.ClaudeWait
+_CL = []
+def claude_ready():
+    if _CL: return _CL[0]
+    ok = False
+    if os.environ.get('CLAUDE_CODE_OAUTH_TOKEN', '').strip():
+        if not subprocess.run('command -v claude', shell=True, capture_output=True).stdout:
+            subprocess.run('npm install -g @anthropic-ai/claude-code >/dev/null 2>&1', shell=True, timeout=300)
+        ok = bool(subprocess.run('command -v claude', shell=True, capture_output=True).stdout)
+        log('  Claude (gói Max):', 'sẵn sàng' if ok else 'không cài được')
+    _CL.append(ok); return ok
+def claude_plan(parts):
+    if not claude_ready(): return None
+    import tempfile
+    d = tempfile.mkdtemp(dir=L.TMP); txt, refs, nb = [SYS, ''], [], 0
+    for p in parts:   # lời thoại + mô tả đưa thẳng vào câu hỏi (stdin); ảnh để file cho Claude tự mở (ưu tiên ảnh cảnh phụ, tối đa 30)
+        if 'text' in p: txt.append(p['text']); nb = 1 if 'KHO CẢNH PHỤ' in p['text'] else (0 if p['text'].startswith('VIDEO') else nb)
+        elif 'inline_data' in p and len(refs) < 30 and (nb or len(refs) < 12):
+            fn = 'h%d.jpg' % len(refs); open(os.path.join(d, fn), 'wb').write(base64.b64decode(p['inline_data']['data'])); refs.append(fn); txt.append('(ảnh: %s)' % fn)
+    body = '\n'.join(txt)
+    q = ('Bạn là editor video. Toàn bộ yêu cầu + dữ liệu buổi quay nằm ở nội dung đầu vào. Dùng công cụ Read mở các ảnh h*.jpg trong thư mục hiện tại khi cần nhìn cảnh '
+         '(nhất là ảnh cảnh phụ để ghép đúng lời). Câu trả lời CUỐI CÙNG chỉ là 1 khối JSON {"scripts":[...]} đúng khung đã nêu, không giải thích gì thêm.')
+    for k in range(2):
+        try:
+            r = subprocess.run(['claude', '-p', q, '--output-format', 'json', '--allowedTools', 'Read'], input=body,
+                               cwd=d, capture_output=True, text=True, timeout=1500)
+            out = r.stdout.strip()
+            try: out = json.loads(out).get('result', out)
+            except Exception: pass
+            m = re.search(r'\{.*\}', out or '', re.S)
+            if m:
+                try:
+                    sc = json.loads(m.group(0)).get('scripts')
+                    if sc is not None: log('  Claude lên kế hoạch: %d kịch bản' % len(sc)); return sc
+                except Exception as e: log('  Claude trả JSON hỏng:', e)
+            log('  Claude chưa trả JSON:', (r.stderr or out or '')[-300:])
+        except Exception as e: log('  Claude lỗi:', e)
+    return None
+def faceless(a):   # bản thu tiếng (không thấy người nói) → phải phủ kín cảnh phụ
+    fc = (a.get('see') or {}).get('faces'); kt = a.get('kt') or []
+    if fc is None or len(kt) < 3 or len(fc) >= .2 * len(kt): return False
+    dn = (a.get('vlog') or {}).get('doan') or []   # mặt nhỏ / quay xa YuNet có thể sót → hỏi thêm nhật ký hình của Claude
+    ppl = sum(1 for x in dn if re.search(r'(?i)người|nói|dẫn|mc|cô gái|chàng trai|anh |chị |đứng|cầm mic', '%s %s' % (x.get('noi_dung', ''), x.get('canh', ''))))
+    return not (dn and ppl >= .3 * len(dn))
 
 def codes(jb):   # mã câu C1, C2… (cùng thứ tự với lúc lên kế hoạch) – cần cả khi dựng lại kịch bản đã lưu
     C = jb['C'] = {}
