@@ -8,6 +8,7 @@ import glob, json, os, socket, subprocess, sys, time
 def free_port():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
 
+os.makedirs("asr/results", exist_ok=True)
 todo = [p for p in sorted(glob.glob("asr/requests/*.json")) if not os.path.exists(p.replace("requests", "results"))]
 if not todo: print("nothing to do"); sys.exit(0)
 from faster_whisper import WhisperModel
