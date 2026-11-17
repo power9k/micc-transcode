@@ -8,6 +8,7 @@
 import os, io, sys, json, time, re, math, threading, queue, zipfile, base64, subprocess, unicodedata, urllib.request, urllib.parse, urllib.error, random, shutil
 import loc as L
 import xem as X, nao as N   # bản nâng cấp: X = mắt + tai (khung hình, mặt, âm thanh, nhạc), N = bộ não Claude
+ClaudeWait = N.ClaudeWait   # 17/11: thiếu dòng này → lên kịch bản The Fullton hỏng (name 'ClaudeWait' is not defined)
 
 DV = '24'
 LV = '18'   # kiểu dựng: 2 = nhiều lớp (A-roll / B-roll / màu / chữ / nhạc / SFX)                                   # đổi số này = dựng lại mọi buổi quay
