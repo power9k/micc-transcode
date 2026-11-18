@@ -1906,7 +1906,19 @@ def add_mg(jb, sc, pl, proj, host, adir):
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
             os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
             tz_ = any(min(e_, z['t1']) - max(s_, z['t0']) > .15 for z in pl.get('titles') or [])   # có chữ CapCut trong đoạn này → motion graphic chừa vùng chữ phía trên
-            if str(p.get('loai') or '').startswith('ref_') and hasattr(MG, 'render_ref'): MG.render_ref(p['loai'], o, e_ - s_, clip, p, seed='%s|%d|%.1f' % (proj, len(out), s_), wm=(path_of(jb['id']).split('/')[-2] if '/' in path_of(jb['id']) else ''))   # kiểu video mẫu của chủ
+            if str(p.get('loai') or '').startswith('ref_') and hasattr(MG, 'render_ref'):   # kiểu video mẫu của chủ – nền = chính người nói (khung hình đúng lúc đó) làm mờ + phủ tối vừa phải
+                bgf = None
+                try:
+                    a0_ = next((sh for sh in pl['shots'] if sh.get('line') == 'A' and sh['t0'] <= s_ + .05 and sh['t1'] >= s_ + .3), None); A0 = {'V%d' % a['i']: a for a in jb['A']}.get(a0_['media']) if a0_ else None
+                    if A0:
+                        bgf = os.path.join(MGW, 'mgbg%d.jpg' % len(out)); ss_ = a0_['src'] + (s_ - a0_['t0']) * a0_.get('spd', 1.0) + .3
+                        for f_ in [A0['vid']['id'], lite(A0['vid']['id'])]:
+                            if not f_: continue
+                            try: L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(f_, max(0.0, ss_), .5) + ['-frames:v', '1', '-q:v', '3', bgf], timeout=300); break
+                            except Exception: pass
+                        if not os.path.exists(bgf): bgf = thumb(A0['vid']['id'], bgf)
+                except Exception as e_bg: mlog('motion: chưa lấy được khung người nói làm nền:', repr(e_bg)[:120]); bgf = None
+                MG.render_ref(p['loai'], o, e_ - s_, clip, p, seed='%s|%d|%.1f' % (proj, len(out), s_), wm=(path_of(jb['id']).split('/')[-2] if '/' in path_of(jb['id']) else ''), bg=bgf)
             else: MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_, pal=PRO.get('mgpal') or CUR.get('pal'))
             out.append((s_, e_, o, nm, str(p.get('loai') or ''))); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
@@ -2629,15 +2641,15 @@ def drop_projects():
 def pending():
     drop_projects()
     try:   # 18/11: chủ dặn DỰNG LẠI The Fullton – lên kịch bản lại (hook hấp dẫn hơn) + dựng mới khác biệt (nhạc / motion / âm thanh hiệu ứng), thay vào đúng project cũ (thêm v2)
-        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF4') != '1':
-            L.mark(LISTF, dungRF4='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF5') != '1':
+            L.mark(LISTF, dungRF5='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
             for nm_, id_ in list(ix_.items()):
                 if nm_.startswith(sid_ + '_kichban') or nm_.startswith(sid_ + '_kb'):
                     try: L.drive('files/' + id_, {'trashed': True}, method='PATCH'); k_ += 1
                     except Exception: pass
             for h_ in ('1XKLN8IqUZUazW1ntWZCdaAdUeIBmQuEw', '1lOtfRWCj9be3EYPiqkY4IfLBFQbLD6Ko', sid_):
                 for c_ in lq("'%s' in parents and appProperties has { key='dungP' and value='1' } and trashed=false" % h_, 'id,name'):
-                    try: L.drive('files/' + c_['id'], {'appProperties': {'dungL': 'redo'}}, method='PATCH'); log('  The Fullton: đánh dấu dựng lại', c_['name'])
+                    try: L.drive('files/' + c_['id'], {'trashed': True}, method='PATCH'); log('  The Fullton: bỏ project cũ (chưa đúng phong cách mẫu) vào thùng rác', c_['name'])
                     except Exception: pass
             L.mark(sid_, dungV=None, dungPV=None, dungFail=None, dungFailV=None, dungLock=None); log('  The Fullton: bỏ %d file kịch bản cũ → lên kịch bản + dựng lại' % k_)
     except Exception as e: log('  dựng lại The Fullton lỗi', repr(e)[:200])

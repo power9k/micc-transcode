@@ -420,7 +420,7 @@ export const Mg = ({css, body, js, dur, img}) => {
   const ref = useRef(null), tl = useRef(null), frame = useCurrentFrame(), {fps} = useVideoConfig();
   const [h] = useState(() => delayRender('motion graphic'));
   useLayoutEffect(() => {
-    const R = ref.current; R.innerHTML = img ? body.split('src="clip.jpg"').join('src="' + staticFile('clip.jpg') + '"').split('url(clip.jpg)').join('url(' + staticFile('clip.jpg') + ')') : body;
+    const R = ref.current; R.innerHTML = img ? body.split('src="clip.jpg"').join('src="' + staticFile('clip.jpg') + '"').split('url(clip.jpg)').join('url(' + staticFile('clip.jpg') + ')').split('url(bg.jpg)').join('url(' + staticFile('bg.jpg') + ')') : body;
     const t = gsap.timeline({paused: true}); new Function('gsap', 'tl', 'D', 'R', js)(gsap, t, Number(dur), R); tl.current = t;
     const ims = Array.from(R.querySelectorAll('img'));
     Promise.all(ims.map(i => i.complete ? 1 : new Promise(r => { i.onload = r; i.onerror = r; }))).then(() => { t.seek(frame / fps, false); continueRender(h); });
@@ -457,8 +457,8 @@ def rm_run(comp, props, pub, out, timeout):
 # ---------------------------------------------------------------- KIỂU MẪU (chủ gửi video Remotion mẫu 18/11): nền = cảnh mờ tối + bụi vàng + chữ chìm; nội dung vàng gradient / xanh than; chừa góc dưới trái cho người nói tách nền (CapCut)
 REF_CSS = """
 .rbg{position:absolute;inset:-60px;background:radial-gradient(ellipse at 50% 30%,#2a3346,#0c111c 70%)}
-.rbgi{position:absolute;inset:-80px;background-size:cover;background-position:center;filter:blur(18px) brightness(.42) saturate(.8)}
-.rshade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(6,9,16,.55),rgba(6,9,16,.25) 40%,rgba(6,9,16,.7))}
+.rbgi{position:absolute;inset:-80px;background-size:cover;background-position:center 30%;filter:blur(16px) brightness(.7) saturate(.9)}
+.rshade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(8,12,22,.5),rgba(8,12,22,.32) 40%,rgba(8,12,22,.62))}
 .rwm{position:absolute;left:0;right:0;bottom:200px;text-align:center;font:900 120px/1 Arial,sans-serif;letter-spacing:.08em;color:rgba(255,255,255,.05);white-space:nowrap}
 .rdust{position:absolute;width:6px;height:6px;border-radius:50%;background:#ffe3a1;box-shadow:0 0 10px 3px rgba(255,205,110,.7)}
 .gold{background:linear-gradient(180deg,#fff1c6,#e9bf62 45%,#b6842c);-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -479,10 +479,10 @@ REF_CSS = """
 .rmq{position:absolute;left:0;white-space:nowrap;display:flex;gap:18px}
 """
 def _esc(t): return str(t or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-def scene_ref(loai, dur, clip, data, r, wm=''):
+def scene_ref(loai, dur, clip, data, r, wm='', bg=False):
     d = data or {}; muc = [str(x)[:40] for x in (d.get('muc') or []) if str(x).strip()]; so = int(d.get('so') or 0) or r.choice([12, 24, 36, 80]); nhan = _esc((d.get('nhan') or '')[:28]); ten = _esc((d.get('ten') or '')[:30]); icon = _esc((d.get('icon') or '✦')[:2])
     img = '<img src="clip.jpg">' if clip else ''
-    body = '<div class="rbg"></div>' + ('<div class="rbgi" style="background-image:url(clip.jpg)"></div>' if clip else '') + '<div class="rshade"></div>' + ('<div class="rwm">%s</div>' % _esc(wm.upper()[:22]) if wm else '')
+    body = '<div class="rbg"></div>' + ('<div class="rbgi" style="background-image:url(%s)"></div>' % ('bg.jpg' if bg else 'clip.jpg') if (bg or clip) else '')   # hướng dẫn chủ: nền = chính cảnh người nói làm mờ + phủ tối vừa phải + '<div class="rshade"></div>' + ('<div class="rwm">%s</div>' % _esc(wm.upper()[:22]) if wm else '')
     body += ''.join('<div class="rdust" style="left:%dpx;top:%dpx;opacity:0"></div>' % (r.randint(40, 1040), r.randint(300, 1800)) for _ in range(26))
     js = "tl.fromTo('.rdust',{opacity:0,y:40},{opacity:.9,y:-260,duration:Math.max(2,D),stagger:.07,ease:'sine.out'},0);"
     pop = lambda sel, t: "tl.fromTo('%s',{opacity:0,scale:.6,y:60},{opacity:1,scale:1,y:0,duration:.45,ease:'back.out(1.6)'},%.2f);" % (sel, t)
@@ -533,7 +533,7 @@ def scene_ref(loai, dur, clip, data, r, wm=''):
         js += "tl.fromTo('#ray',{opacity:0,rotation:0},{opacity:1,rotation:40,duration:D,ease:'none'},0);" + pop('#ring', .15) + "tl.fromTo('.rt',{opacity:0,scale:.4},{opacity:1,scale:1,duration:.35,stagger:%.2f,ease:'back.out(2)'},.6);" % max(.2, (dur - 1.2) / max(1, len(tg)))
         js += "tl.fromTo('#mq1',{x:0},{x:-900,duration:D,ease:'none'},0);tl.fromTo('#mq2',{x:-900},{x:0,duration:D,ease:'none'},0);"
     return body, js
-def render_ref(loai, out, dur, clip=None, data=None, work=None, log=print, seed=None, wm=''):
+def render_ref(loai, out, dur, clip=None, data=None, work=None, log=print, seed=None, wm='', bg=None):
     r = random.Random(int(hashlib.md5(('%s|%s|%s' % (seed or out, loai, dur)).encode()).hexdigest()[:8], 16))
     work = work or out + '.d'; shutil.rmtree(work, ignore_errors=True); os.makedirs(os.path.join(work, 'public'))
     if clip:
@@ -541,7 +541,9 @@ def render_ref(loai, out, dur, clip=None, data=None, work=None, log=print, seed=
         if clip.lower().endswith('.jpg'): shutil.copy(clip, jp)
         else: subprocess.run(['ffmpeg', '-y', '-v', 'error', '-ss', '0.4', '-i', clip, '-frames:v', '1', '-q:v', '2', jp], timeout=120)
         clip = jp if os.path.exists(jp) else None
-    body, js = scene_ref(loai, round(dur, 2), clip, data, r, wm)
+    if bg and os.path.exists(bg): shutil.copy(bg, os.path.join(work, 'public', 'bg.jpg'))
+    else: bg = None
+    body, js = scene_ref(loai, round(dur, 2), clip, data, r, wm, bool(bg))
     js += "tl.to('#root',{opacity:1,duration:.01},D-.01);"
-    props = os.path.join(work, 'props.json'); json.dump(dict(css=REF_CSS, body=body, js=js, dur=round(dur, 2), img=bool(clip)), open(props, 'w'))
+    props = os.path.join(work, 'props.json'); json.dump(dict(css=REF_CSS, body=body, js=js, dur=round(dur, 2), img=bool(clip or bg)), open(props, 'w'))
     rm_setup(log); rm_run('mg', props, os.path.join(work, 'public'), out, 900); shutil.rmtree(work, ignore_errors=True); return out
