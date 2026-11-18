@@ -1887,7 +1887,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
         if not (a['vid'].get('broll') or not a.get('segs')): continue
         for x in sorted(((a.get('vlog') or {}).get('doan') or []), key=lambda x: -float(x.get('diem') or 0))[:2]:
             if float(x.get('diem') or 0) >= 7: rows.append('#%d %.1f–%.1fs: %s' % (a['i'], float(x['s']), float(x['e']), str(x.get('noi_dung') or '')[:90]))
-    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log, avoid='\n'.join('- ' + ' → '.join(e.get('mg') or []) for e in (CUR.get('hist') or [])[-10:] if e.get('mg')) + (('\n\nNGUYÊN TẮC MOTION CỦA CHỦ: ' + ' '.join(l for l in GUIDE.split('\n') if l.startswith(('MOTION GRAPHIC', 'GU:', 'VÙNG AN TOÀN')))) if GUIDE else '')); CUR['mg'] = [str(p.get('loai')) for p in picks if isinstance(p, dict)]; mlog('Claude chọn motion:', json.dumps(picks, ensure_ascii=False)[:400])
+    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log, avoid='\n'.join('- ' + ' → '.join(e.get('mg') or []) for e in (CUR.get('hist') or [])[-10:] if e.get('mg')) + '\n\nPHONG CÁCH MẪU CỦA CHỦ (video Remotion mẫu 18/11 – bắt chước ~80%%): ưu tiên các loại ref_… (khoảng 4/5 số đoạn), mỗi đoạn kèm dữ liệu THẬT lấy từ lời nói: "muc" (danh sách ý / nhãn ngắn ≤ 4 chữ), "so" (con số), "nhan" (nhãn ngắn), "ten" (tên dự án / kênh / người được nhắc), "icon" (1 emoji hợp ý). Không bịa số.' + (('\n\nNGUYÊN TẮC MOTION CỦA CHỦ: ' + ' '.join(l for l in GUIDE.split('\n') if l.startswith(('MOTION GRAPHIC', 'GU:', 'VÙNG AN TOÀN')))) if GUIDE else '')); CUR['mg'] = [str(p.get('loai')) for p in picks if isinstance(p, dict)]; mlog('Claude chọn motion:', json.dumps(picks, ensure_ascii=False)[:400])
     except Exception as e: mlog('Claude chưa chọn được đoạn motion graphic:', repr(e)); return pl
     out, last = [], -9.0
     for p in sorted([p for p in picks if isinstance(p, dict)], key=lambda p: float(p.get('s') or 0)):
@@ -1906,8 +1906,9 @@ def add_mg(jb, sc, pl, proj, host, adir):
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
             os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
             tz_ = any(min(e_, z['t1']) - max(s_, z['t0']) > .15 for z in pl.get('titles') or [])   # có chữ CapCut trong đoạn này → motion graphic chừa vùng chữ phía trên
-            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_, pal=PRO.get('mgpal') or CUR.get('pal'))
-            out.append((s_, e_, o, nm)); last = e_
+            if str(p.get('loai') or '').startswith('ref_') and hasattr(MG, 'render_ref'): MG.render_ref(p['loai'], o, e_ - s_, clip, p, seed='%s|%d|%.1f' % (proj, len(out), s_), wm=(path_of(jb['id']).split('/')[-2] if '/' in path_of(jb['id']) else ''))   # kiểu video mẫu của chủ
+            else: MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_, pal=PRO.get('mgpal') or CUR.get('pal'))
+            out.append((s_, e_, o, nm, str(p.get('loai') or ''))); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
         except Exception as e: mlog('bỏ 1 motion graphic:', repr(e)[:500])
     def cut_(lst, s_, e_):   # cắt bỏ phần chồng [s_, e_] khỏi danh sách cảnh (giữ phần trước / sau)
@@ -1918,8 +1919,12 @@ def add_mg(jb, sc, pl, proj, host, adir):
             if sh['t1'] > e_ + .05: res.append(dict(sh, src=round(sh['src'] + (e_ - sh['t0']) * sh.get('spd', 1.0), 3), t0=round(e_, 3), keys=[[round(e_, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]]))
         return sorted(res, key=lambda x: x['t0'])
     shots = pl['shots']; bsh = list(pl.get('bshots') or [])
-    for i, (s_, e_, o, nm) in enumerate(out):
+    shots0 = list(pl['shots']); pl['mattes'] = []
+    for i, (s_, e_, o, nm, lo_) in enumerate(out):
         k = 'M%d' % (i + 1)
+        if lo_.startswith('ref_') and not PRO.get('canvas'):   # mẫu của chủ: người nói tách nền TO ở góc dưới trái, nằm TRÊN khung nội dung (CapCut Xóa nền)
+            a0 = next((sh for sh in shots0 if sh.get('line') == 'A' and sh['t0'] <= s_ + .05 and sh['t1'] >= s_ + .3 and str(sh['media']).startswith('V')), None)
+            if a0: pl['mattes'].append(dict(media=a0['media'], src=round(a0['src'] + (s_ - a0['t0']) * a0.get('spd', 1.0), 3), t0=round(s_, 3), t1=round(min(e_, a0['t1']), 3)))
         pl['media'][k] = dict(path=DRV + '/' + path_of(host) + '/' + proj + '/' + MGDIR + '/' + nm, dur=round(e_ - s_ + .05, 3), w=1080, h=1920,
                               kind='video', has_audio=False, name=nm, S0=1.0, grade=None)
         mg_sh = dict(media=k, src=0.0, t0=round(s_, 3), t1=round(e_, 3), line='B', bi=-1, mg=1, keys=[[round(s_, 3), 1.0, .5, .5, 0.0], [round(e_, 3), 1.0, .5, .5, 0.0]], punch_abs=[])
@@ -1927,14 +1932,14 @@ def add_mg(jb, sc, pl, proj, host, adir):
         bsh = sorted(cut_(bsh, s_, e_) + [dict(mg_sh)], key=lambda x: x['t0'])   # bộ dựng CapCut đọc lớp cảnh phụ (bshots) – motion graphic nằm lớp trên người nói
         pl['pips'] = [p_ for p_ in pl.get('pips') or [] if p_['t1'] <= s_ or p_['t0'] >= e_]   # không đặt khung người nói nhỏ đè lên motion graphic
     if out and 'bshots' in pl: pl['bshots'] = bsh
-    for s_, e_, o_, nm_ in out:   # chủ dặn 12/11: chữ và motion graphic PHỐI HỢP – chữ nằm đúng vùng trống motion graphic chừa sẵn (trên cùng), màu hợp nền xanh than
+    for s_, e_, o_, nm_, lo_ in out:   # chủ dặn 12/11: chữ và motion graphic PHỐI HỢP – chữ nằm đúng vùng trống motion graphic chừa sẵn (trên cùng), màu hợp nền xanh than
         for z in pl.get('titles') or []:
             if min(e_, z['t1']) - max(s_, z['t0']) > .15:
-                z['y_pct'] = 11.5; z['bright'] = False; z['mg'] = 1
-    pl['shots'] = shots; pl['mg'] = [(o, nm) for _, _, o, nm in out]
+                z['y_pct'] = 17.0; z['bright'] = False; z['mg'] = 1   # 18/11: vẫn trong vùng an toàn (y ≥ 270 px)
+    pl['shots'] = shots; pl['mg'] = [(o, nm) for _, _, o, nm, _l in out]
     if len(out) > 1:   # chủ dặn 12/11: bản gửi kèm tin Zalo = GỘP các motion graphic lại thành 1 clip
         try:
-            lst = os.path.join(MGW, 'gop.txt'); open(lst, 'w').write(''.join("file '%s'\n" % o for _, _, o, _ in out))
+            lst = os.path.join(MGW, 'gop.txt'); open(lst, 'w').write(''.join("file '%s'\n" % o for _, _, o, _, _l in out))
             g_ = os.path.join(MGW, 'mg - tổng hợp.mp4')
             L.run(['ffmpeg', '-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', lst, '-c:v', 'libx264', '-crf', '23', '-pix_fmt', 'yuv420p', '-an', g_], timeout=300)
             pl['mg_all'] = g_
@@ -2233,8 +2238,8 @@ def edit(jb, key, models):
     return done
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
-ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
-PAUSE = True   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+ONLY = 'the fullton'   # bỏ trống ('') = chạy mọi thư mục source
+PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 # ================================================================ HÀNG VIỆC CHUNG cho mọi máy GitHub (chủ dặn 11/11)
 # mọi máy = 1 cỗ máy: việc chia nhỏ (ĐỌC 1 video · LÊN KỊCH BẢN 1 source · DỰNG 1 kịch bản); máy rảnh nhận việc gần xong nhất trước
 # (dựng → lên kịch bản → đọc) → project ra lần lượt, các máy còn lại vẫn đọc song song các source khác. Khóa từng việc trên Drive.
@@ -2624,8 +2629,8 @@ def drop_projects():
 def pending():
     drop_projects()
     try:   # 18/11: chủ dặn DỰNG LẠI The Fullton – lên kịch bản lại (hook hấp dẫn hơn) + dựng mới khác biệt (nhạc / motion / âm thanh hiệu ứng), thay vào đúng project cũ (thêm v2)
-        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF3') != '1':
-            L.mark(LISTF, dungRF3='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF4') != '1':
+            L.mark(LISTF, dungRF4='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
             for nm_, id_ in list(ix_.items()):
                 if nm_.startswith(sid_ + '_kichban') or nm_.startswith(sid_ + '_kb'):
                     try: L.drive('files/' + id_, {'trashed': True}, method='PATCH'); k_ += 1

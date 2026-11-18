@@ -9,7 +9,13 @@ import json, os, re, shutil, subprocess, hashlib, random
 W, H = 1080, 1920
 K = ['#050914', '#090e1c', '#0d1426', '#131c32', '#1a2744']   # nền web --k0..k3 (+1 sáng hơn)
 G = {'g1': '#d6b262', 'g2': '#f0d08a', 'g3': '#f4e2b4', 'g4': '#967632', 'g5': '#b08c3e', 'g6': '#f7e8c4'}
-LOAI = {
+LOAI = {   # 18/11 chủ gửi video mẫu Remotion: ƯU TIÊN các loại kiểu mẫu (ref_…) – nền cảnh mờ tối + bụi vàng, nội dung vàng / xanh than, người nói tách nền góc dưới trái
+    'ref_dien_thoai': 'điện thoại chứa LƯỚI ảnh / video thật + thẻ bay quanh + bộ đếm tăng vọt (số lượng video / sản phẩm / căn / khách – cần "so" + "nhan")',
+    'ref_the_kenh': 'thẻ kiểu TikTok: chip hồ sơ (tên + chỉ số) + khung video thật + nhãn chú thích dưới thẻ (giới thiệu kênh / dự án / người / ví dụ cụ thể – cần "ten", "nhan")',
+    'ref_lich': 'tờ lịch kín dần biểu tượng + bộ đếm +N tăng (kết quả dồn dập: booking, khách, giao dịch, ngày – cần "so", "nhan")',
+    'ref_danh_sach': 'khung video thật bên trái + cột thẻ đánh số 1, 2, 3 bên phải (lý do / bước / ý chính – cần "muc" 2–3 ý ngắn)',
+    'ref_so_sanh': 'biểu tượng tròn trên + 2 thẻ: đỏ ✗ (sai) và vàng ✓ (đúng), chữ "vs" ở giữa (so sánh đúng / sai, cũ / mới – cần "muc": [ý sai 1, ý sai 2, ý đúng 1, ý đúng 2], "icon")',
+    'ref_vong_tag': 'vòng tròn vàng tỏa tia + biểu tượng giữa + nhãn bay quanh + dải nhãn chạy liên tục phía dưới (thông số, đặc điểm, tiện ích – cần "muc" 3–6 nhãn, "icon")',
     'ban_do': 'bản đồ / vị trí / kết nối: lưới bản đồ, ghim rơi, sóng lan, đường đi vẽ dần qua nhiều điểm, cảnh dự án trong mặt nạ',
     'khu_3d': 'khu nhà / tòa tháp 3D mọc lên trên sàn xoay (quy mô, siêu dự án, mật độ, số tòa)',
     'tang_truong': 'biểu đồ cột / đường tăng + mũi tên lên, đồng xu (giá tăng, sinh lời, lãi, tiềm năng)',
@@ -414,7 +420,7 @@ export const Mg = ({css, body, js, dur, img}) => {
   const ref = useRef(null), tl = useRef(null), frame = useCurrentFrame(), {fps} = useVideoConfig();
   const [h] = useState(() => delayRender('motion graphic'));
   useLayoutEffect(() => {
-    const R = ref.current; R.innerHTML = img ? body.split('src="clip.jpg"').join('src="' + staticFile('clip.jpg') + '"') : body;
+    const R = ref.current; R.innerHTML = img ? body.split('src="clip.jpg"').join('src="' + staticFile('clip.jpg') + '"').split('url(clip.jpg)').join('url(' + staticFile('clip.jpg') + ')') : body;
     const t = gsap.timeline({paused: true}); new Function('gsap', 'tl', 'D', 'R', js)(gsap, t, Number(dur), R); tl.current = t;
     const ims = Array.from(R.querySelectorAll('img'));
     Promise.all(ims.map(i => i.complete ? 1 : new Promise(r => { i.onload = r; i.onerror = r; }))).then(() => { t.seek(frame / fps, false); continueRender(h); });
@@ -447,3 +453,95 @@ def rm_run(comp, props, pub, out, timeout):
                        cwd=RM_DIR, capture_output=True, text=True, timeout=timeout)
     if not os.path.exists(out) or os.path.getsize(out) < 10000: raise RuntimeError('Remotion dựng lỗi: ' + (r.stderr or r.stdout)[-400:])
     return out
+
+# ---------------------------------------------------------------- KIỂU MẪU (chủ gửi video Remotion mẫu 18/11): nền = cảnh mờ tối + bụi vàng + chữ chìm; nội dung vàng gradient / xanh than; chừa góc dưới trái cho người nói tách nền (CapCut)
+REF_CSS = """
+.rbg{position:absolute;inset:-60px;background:radial-gradient(ellipse at 50% 30%,#2a3346,#0c111c 70%)}
+.rbgi{position:absolute;inset:-80px;background-size:cover;background-position:center;filter:blur(18px) brightness(.42) saturate(.8)}
+.rshade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(6,9,16,.55),rgba(6,9,16,.25) 40%,rgba(6,9,16,.7))}
+.rwm{position:absolute;left:0;right:0;bottom:200px;text-align:center;font:900 120px/1 Arial,sans-serif;letter-spacing:.08em;color:rgba(255,255,255,.05);white-space:nowrap}
+.rdust{position:absolute;width:6px;height:6px;border-radius:50%;background:#ffe3a1;box-shadow:0 0 10px 3px rgba(255,205,110,.7)}
+.gold{background:linear-gradient(180deg,#fff1c6,#e9bf62 45%,#b6842c);-webkit-background-clip:text;background-clip:text;color:transparent}
+.rcard{position:absolute;border-radius:26px;overflow:hidden;background:#111a2c;box-shadow:0 0 0 3px rgba(233,191,98,.85),0 30px 70px rgba(0,0,0,.6)}
+.rcard img{width:100%;height:100%;object-fit:cover;display:block}
+.rtile{position:absolute;border-radius:12px;overflow:hidden;background:linear-gradient(135deg,#2c3a55,#141c2e);box-shadow:0 0 0 2px rgba(255,255,255,.12)}
+.rtile img{width:100%;height:100%;object-fit:cover}
+.rpill{position:absolute;padding:14px 26px;border-radius:999px;background:linear-gradient(180deg,#f6dd9c,#d9a94a);color:#1d1404;font:800 30px/1 Arial,sans-serif;white-space:nowrap;box-shadow:0 8px 22px rgba(0,0,0,.45)}
+.rtag{position:absolute;padding:12px 22px;border-radius:14px;background:rgba(18,26,44,.92);color:#f3e6c4;font:700 28px/1 Arial,sans-serif;white-space:nowrap;box-shadow:0 0 0 2px rgba(233,191,98,.55)}
+.rnum{position:absolute;font:900 120px/1 Arial,sans-serif}
+.rlbl{position:absolute;font:800 34px/1 Arial,sans-serif;color:#f3e6c4;letter-spacing:.06em}
+.rchip{position:absolute;display:flex;align-items:center;gap:18px;padding:14px 28px 14px 14px;border-radius:999px;background:rgba(14,20,34,.95);box-shadow:0 0 0 2px rgba(233,191,98,.6)}
+.rchip i{width:74px;height:74px;border-radius:50%;background:linear-gradient(135deg,#e9bf62,#8a6224);display:flex;align-items:center;justify-content:center;font:900 34px/1 Arial;color:#1d1404;font-style:normal}
+.rchip b{display:block;font:800 34px/1.1 Arial,sans-serif;color:#fff}.rchip u{display:block;text-decoration:none;font:600 24px/1.2 Arial,sans-serif;color:#c9cfdb}
+.rcell{position:absolute;border-radius:10px;background:#efe6d2;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);font:700 22px/1 Arial;color:#8b8172;display:flex;align-items:flex-start;justify-content:flex-start;padding:6px}
+.rico{position:absolute;inset:8px;border-radius:8px;background:linear-gradient(135deg,#ffe39a,#d59b35);display:flex;align-items:center;justify-content:center;font-size:34px;opacity:0}
+.rbox{position:absolute;border-radius:24px;padding:30px 28px;font:800 34px/1.3 Arial,sans-serif}
+.rmq{position:absolute;left:0;white-space:nowrap;display:flex;gap:18px}
+"""
+def _esc(t): return str(t or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+def scene_ref(loai, dur, clip, data, r, wm=''):
+    d = data or {}; muc = [str(x)[:40] for x in (d.get('muc') or []) if str(x).strip()]; so = int(d.get('so') or 0) or r.choice([12, 24, 36, 80]); nhan = _esc((d.get('nhan') or '')[:28]); ten = _esc((d.get('ten') or '')[:30]); icon = _esc((d.get('icon') or '✦')[:2])
+    img = '<img src="clip.jpg">' if clip else ''
+    body = '<div class="rbg"></div>' + ('<div class="rbgi" style="background-image:url(clip.jpg)"></div>' if clip else '') + '<div class="rshade"></div>' + ('<div class="rwm">%s</div>' % _esc(wm.upper()[:22]) if wm else '')
+    body += ''.join('<div class="rdust" style="left:%dpx;top:%dpx;opacity:0"></div>' % (r.randint(40, 1040), r.randint(300, 1800)) for _ in range(26))
+    js = "tl.fromTo('.rdust',{opacity:0,y:40},{opacity:.9,y:-260,duration:Math.max(2,D),stagger:.07,ease:'sine.out'},0);"
+    pop = lambda sel, t: "tl.fromTo('%s',{opacity:0,scale:.6,y:60},{opacity:1,scale:1,y:0,duration:.45,ease:'back.out(1.6)'},%.2f);" % (sel, t)
+    count = lambda sel, a, b, t0, t1, pre='': "(()=>{const o={v:%d};tl.to(o,{v:%d,duration:%.2f,ease:'power2.out',onUpdate:()=>{const e=document.querySelector('%s');if(e)e.textContent='%s'+Math.round(o.v)}},%.2f)})();" % (a, b, t1 - t0, sel, pre, t0)
+    if loai == 'ref_dien_thoai':
+        body += '<div class="rcard" id="ph" style="left:330px;top:560px;width:420px;height:820px;border-radius:56px;padding:26px;box-sizing:border-box;background:#0e1626">'
+        body += ''.join('<div class="rtile" style="left:%dpx;top:%dpx;width:116px;height:150px">%s</div>' % (26 + (i % 3) * 124, 70 + (i // 3) * 158, img) for i in range(12)) + '</div>'
+        for k, (x, y) in enumerate([(120, 640), (760, 700), (110, 980), (780, 1040), (150, 1270)]):
+            body += '<div class="rcard rfly" style="left:%dpx;top:%dpx;width:190px;height:250px;transform:rotate(%ddeg)">%s</div>' % (x, y, r.randint(-8, 8), img)
+        body += '<div class="rnum gold" id="cnt" style="left:770px;top:1240px">0</div><div class="rlbl" style="left:780px;top:1370px">%s</div>' % (nhan or 'VIDEO')
+        js += pop('#ph', .15) + "tl.fromTo('#ph .rtile',{opacity:0,scale:.5},{opacity:1,scale:1,duration:.3,stagger:.05,ease:'back.out(2)'},.4);"
+        js += "tl.fromTo('.rfly',{opacity:0,scale:1.6,x:(i)=>i%2?260:-260},{opacity:1,scale:1,x:0,duration:.4,stagger:.09,ease:'power3.out'},.6);" + count('#cnt', 0, so, .5, min(dur - .3, 2.6))
+    elif loai == 'ref_the_kenh':
+        body += '<div class="rchip" id="chip" style="left:470px;top:560px"><i>%s</i><span><b>%s</b><u>%s</u></span></div>' % ((ten or '★')[:1], ten or 'Kênh nổi bật', nhan or 'Đang được quan tâm')
+        body += '<div class="rcard" id="tk" style="left:500px;top:690px;width:420px;height:660px">%s<div class="rpill" id="cap" style="left:24px;bottom:28px;top:auto;font-size:26px">%s</div></div>' % (img, nhan or ten or 'Xem ngay')
+        body += ''.join('<div style="position:absolute;left:880px;top:%dpx;width:22px;height:22px;border-radius:50%%;background:rgba(255,255,255,.8)"></div>' % (900 + k * 70) for k in range(3))
+        js += pop('#chip', .1) + "tl.fromTo('#tk',{opacity:0,x:120,rotation:6},{opacity:1,x:0,rotation:0,duration:.55,ease:'power3.out'},.25);" + pop('#cap', .9)
+        js += "tl.fromTo('#tk img',{scale:1.15},{scale:1,duration:D,ease:'none'},0);"
+    elif loai == 'ref_lich':
+        body += '<div class="rcard" id="cal" style="left:150px;top:560px;width:780px;height:760px;background:#f7f0e1"><div style="height:96px;background:#0f1a30;color:#f3e6c4;font:800 34px/96px Arial;padding-left:30px">LỊCH %s<span class="gold" id="cnt" style="position:absolute;right:30px;font-size:46px">+0</span></div>' % (nhan.upper() if nhan else 'KẾT QUẢ')
+        cells = [(i % 7, i // 7) for i in range(35)]; order = list(range(35)); r.shuffle(order); ic = ['🏠', '💰', '📈', '🤝', '🏢', '⭐']
+        for i, (cx, cy) in enumerate(cells): body += '<div class="rcell" style="left:%dpx;top:%dpx;width:94px;height:110px">%d<div class="rico" id="ic%d">%s</div></div>' % (20 + cx * 108, 116 + cy * 126, i + 1, i, r.choice(ic))
+        body += '</div>'
+        js += pop('#cal', .1) + ''.join("tl.to('#ic%d',{opacity:1,scale:1,duration:.15,ease:'back.out(3)'},%.2f);" % (k, .5 + j * max(.03, (dur - 1.2) / 35)) for j, k in enumerate(order)) + count('#cnt', 0, so, .5, max(.8, dur - .6), '+')
+    elif loai == 'ref_danh_sach':
+        it = (muc or ['Ý thứ nhất', 'Ý thứ hai'])[:3]
+        body += '<div class="rcard" id="vl" style="left:120px;top:560px;width:400px;height:720px">%s</div>' % img
+        for k, t in enumerate(it):
+            body += '<div class="rbox rli" style="left:550px;top:%dpx;width:370px;height:%dpx;background:linear-gradient(180deg,#1a2643,#101830);color:#f3e6c4;box-shadow:0 0 0 2px rgba(233,191,98,.45);text-align:center;box-sizing:border-box"><div style="width:78px;height:78px;margin:0 auto 18px;border-radius:50%%;background:linear-gradient(180deg,#ffe39a,#c9962e);color:#1d1404;font:900 42px/78px Arial">%d</div>%s</div>' % (560 + k * (740 // len(it)), 740 // len(it) - 24, k + 1, _esc(t))
+        js += "tl.fromTo('#vl',{opacity:0,x:-120},{opacity:1,x:0,duration:.5,ease:'power3.out'},.1);" + "tl.fromTo('.rli',{opacity:0,x:120},{opacity:1,x:0,duration:.45,stagger:%.2f,ease:'power3.out'},.5);" % max(.4, (dur - 1.4) / max(1, len(it)))
+    elif loai == 'ref_so_sanh':
+        a_, b_ = (muc[:2] or ['Cách cũ']), (muc[2:4] or ['Cách đúng'])
+        body += '<div id="ic" style="position:absolute;left:440px;top:560px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,#1d2b4b,#0d1424);box-shadow:0 0 0 4px #e9bf62,0 0 40px rgba(233,191,98,.5);font:100px/200px Arial;text-align:center">' + (icon if icon != '✦' else '⚖') + '</div>'
+        body += '<div class="rbox" id="bad" style="left:120px;top:800px;width:380px;height:560px;background:linear-gradient(180deg,#5a1622,#2a0b12);color:#ffd9d9;box-shadow:0 0 0 2px #c0394f;box-sizing:border-box">' + ''.join('<div class="rb">✗ %s</div>' % _esc(t) for t in a_) + '<div style="position:absolute;right:30px;bottom:24px;font:900 80px/1 Arial;color:#ff5a6a">✗</div></div>'
+        body += '<div class="rbox" id="good" style="left:540px;top:800px;width:380px;height:560px;background:linear-gradient(180deg,#f7e2a6,#d8ad55);color:#2a1d05;box-sizing:border-box">' + ''.join('<div class="rg">✓ %s</div>' % _esc(t) for t in b_) + '<div style="position:absolute;right:30px;bottom:24px;font:900 80px/1 Arial;color:#2f9e5a">✓</div></div>'
+        body += '<div id="vs" style="position:absolute;left:505px;top:1040px;width:70px;height:70px;border-radius:50%;background:#0e1626;color:#f3e6c4;font:900 30px/70px Arial;text-align:center;box-shadow:0 0 0 3px #e9bf62">vs</div>'
+        h_ = max(1.0, dur / 2)
+        js += pop('#ic', .1) + "tl.fromTo('#bad',{opacity:0,y:80},{opacity:1,y:0,duration:.45,ease:'power3.out'},.35);tl.fromTo('#bad .rb',{opacity:0,x:-30},{opacity:1,x:0,duration:.3,stagger:.25},.7);"
+        js += pop('#vs', h_ - .2) + "tl.fromTo('#good',{opacity:0,y:80},{opacity:1,y:0,duration:.45,ease:'power3.out'},%.2f);tl.fromTo('#good .rg',{opacity:0,x:30},{opacity:1,x:0,duration:.3,stagger:.25},%.2f);" % (h_, h_ + .3)
+    else:   # ref_vong_tag
+        tg = (muc or ['Vị trí', 'Tiện ích', 'Pháp lý', 'Giá tốt'])[:6]
+        body += '<div id="ray" style="position:absolute;left:190px;top:600px;width:700px;height:700px;border-radius:50%;background:repeating-conic-gradient(rgba(255,214,140,.16) 0 4deg,transparent 4deg 12deg)"></div>'
+        body += '<div id="ring" style="position:absolute;left:290px;top:700px;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,#24324f,#0d1424 70%);box-shadow:0 0 0 6px #e9bf62,0 0 60px rgba(233,191,98,.55);font:170px/500px Arial;text-align:center">' + icon + '</div>'
+        pos = [(130, 640), (690, 660), (110, 1180), (720, 1200), (420, 600), (430, 1290)]
+        for k, t in enumerate(tg): body += '<div class="rtag rt" style="left:%dpx;top:%dpx">%s</div>' % (pos[k][0], pos[k][1], _esc(t))
+        row = ''.join('<div class="rtag" style="position:relative">%s</div>' % _esc(t) for t in (tg * 4))
+        body += '<div class="rmq" id="mq1" style="top:1400px">%s</div><div class="rmq" id="mq2" style="top:1480px">%s</div>' % (row, row)
+        js += "tl.fromTo('#ray',{opacity:0,rotation:0},{opacity:1,rotation:40,duration:D,ease:'none'},0);" + pop('#ring', .15) + "tl.fromTo('.rt',{opacity:0,scale:.4},{opacity:1,scale:1,duration:.35,stagger:%.2f,ease:'back.out(2)'},.6);" % max(.2, (dur - 1.2) / max(1, len(tg)))
+        js += "tl.fromTo('#mq1',{x:0},{x:-900,duration:D,ease:'none'},0);tl.fromTo('#mq2',{x:-900},{x:0,duration:D,ease:'none'},0);"
+    return body, js
+def render_ref(loai, out, dur, clip=None, data=None, work=None, log=print, seed=None, wm=''):
+    r = random.Random(int(hashlib.md5(('%s|%s|%s' % (seed or out, loai, dur)).encode()).hexdigest()[:8], 16))
+    work = work or out + '.d'; shutil.rmtree(work, ignore_errors=True); os.makedirs(os.path.join(work, 'public'))
+    if clip:
+        jp = os.path.join(work, 'public', 'clip.jpg')
+        if clip.lower().endswith('.jpg'): shutil.copy(clip, jp)
+        else: subprocess.run(['ffmpeg', '-y', '-v', 'error', '-ss', '0.4', '-i', clip, '-frames:v', '1', '-q:v', '2', jp], timeout=120)
+        clip = jp if os.path.exists(jp) else None
+    body, js = scene_ref(loai, round(dur, 2), clip, data, r, wm)
+    js += "tl.to('#root',{opacity:1,duration:.01},D-.01);"
+    props = os.path.join(work, 'props.json'); json.dump(dict(css=REF_CSS, body=body, js=js, dur=round(dur, 2), img=bool(clip)), open(props, 'w'))
+    rm_setup(log); rm_run('mg', props, os.path.join(work, 'public'), out, 900); shutil.rmtree(work, ignore_errors=True); return out

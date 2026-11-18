@@ -153,6 +153,14 @@ for k, p in enumerate(PL.get('pips') or []):
     vanim(sg, 'Fade Out', '6798320902548230669', 'out', min(.25, (p['t1'] - p['t0']) / 4))
     PIPS.append(sg)
 
+# chủ dặn 18/11 (video mẫu): trong cảnh motion graphic, người nói TÁCH NỀN to ở góc dưới trái, nằm trên khung nội dung
+MATS = []
+for m in PL.get('mattes') or []:
+    try:
+        sg = vseg(m['media'], m['src'], m['t0'], m['t1'], 0.0, [(m['t0'], 1.0, 0.0, 0.0)], label='Người nói tách nền (motion graphic)', matting=True)
+        sg['clip']['scale'] = {'x': round(MEDIA[m['media']]['S0'] * .64, 5), 'y': round(MEDIA[m['media']]['S0'] * .64, 5)}; sg['clip']['transform'] = {'x': -0.3, 'y': -0.34}
+        vanim(sg, 'Fade In', '6798320778182922760', 'in', .25); MATS.append(sg)
+    except Exception as e: print('bỏ người tách nền:', e)
 # transitions (team presets; non-overlap types need no handles)
 TRANS_PRESET = {'6952697917563998722': 'transition_glare_ii.json', '6724226861666144779': 'transition_pull_in.json',
                 '6724226338418332167': 'transition_pull_out.json', '6987208055511323137': 'transition_flash.json'}
@@ -337,6 +345,7 @@ TOTAL = PL['total']
 tr = [track('video', V1, name='A-roll (người nói, tiếng gốc)' if LAYER else 'V1 hình chính (phim dự án 4K + người dẫn)')]
 for k, lane in enumerate(nonover(BSEGS)): tr.append(track('video', lane, flag=2, name='B-roll %d' % (k + 1)))
 for lane in nonover(PIPS): tr.append(track('video', lane, flag=2, name='Khung nổi người nói'))
+for lane in nonover(MATS): tr.append(track('video', lane, flag=2, name='Người nói tách nền (motion graphic)'))
 for lane in nonover(ADJ): tr.append(track('adjust', lane, name='Màu từng cảnh'))
 for lane in nonover(BEH_SEGS): tr.append(track('text', lane, name='Chữ SAU người dẫn'))
 tr.append(track('video', MATTE_SEGS, flag=2, name='Người dẫn bản sao - Xóa nền'))
