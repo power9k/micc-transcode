@@ -1,5 +1,6 @@
 # Bot Zalo – bộ não Claude chạy trên GitHub (chủ dặn 18/11). Máy bật sẵn liên tục (--serve) hỏi máy chủ có câu hỏi mới không → trả lời ngay bằng Claude Code (gói Claude của chủ) + ghi bộ nhớ riêng của bot
-import os, sys, json, time, urllib.request
+import os, sys, json, time, urllib.request, functools
+print = functools.partial(print, flush=True)   # log hiện ngay trên GitHub
 API, S = os.environ['MICC_API'], os.environ['MICC_SECRET']
 def call(action, timeout=60, **kw):
     req = urllib.request.Request(API, data=json.dumps(dict(kw, action=action, s=S)).encode(), headers={'Content-Type': 'application/json'})
@@ -23,7 +24,8 @@ def main():
         while time.time() < end:
             try:
                 r = call('zbotNext', timeout=90)
-                if r.get('job'): answer(r['job'])
+                if r.get('job'): print('nhận câu hỏi', r['job'].get('id'), 'của', r['job'].get('name')); answer(r['job'])
+                elif r.get('error') or r.get('ok') is False: print('máy chủ báo:', str(r)[:200]); time.sleep(5)
             except Exception as e: print('hỏi máy chủ lỗi:', repr(e)[:160]); time.sleep(5)
         return
     jid = os.environ.get('ZBOT_ID', '')
