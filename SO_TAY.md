@@ -37,3 +37,4 @@ Mọi phiên Claude làm việc với hệ thống này dùng chung sổ này. C
 - 17/11 (phiên chính): bật lại máy dựng (`PAUSE = False`) để dựng source mới The Fullton (SOURCE/Kịch bản 7, 8). Academy + Sự kiện vẫn bỏ qua.
 - 17/11 (phiên chính): thư mục có file kịch bản đính kèm → dựng KHÔNG giới hạn thời lượng, đủ mọi ý theo kịch bản.
 - 18/11 (phiên chính): chủ dặn mỗi project phải KHÁC BIỆT (motion graphic, bảng màu, nhạc, bộ + trình tự âm thanh hiệu ứng không lặp project cũ) → 'sổ sáng tạo' sang_tao.json trong kho phân tích, cur_pick/sf trong dung.py; hook 3 giây đầu phải hấp dẫn hơn. Dựng lại The Fullton (one-shot dungRF1).
+- 18/11 (phiên chính): chủ gửi PDF 'Bộ hướng dẫn dựng video dọc' → huong_dan_dung.md (máy dựng đọc khi lên kịch bản, chọn motion, kiểm duyệt). Vùng an toàn THẬT: x 60–920, y 270–1640 (khung 1080×1920).

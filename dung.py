@@ -284,12 +284,13 @@ Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi C
 - broll "cau" = mã câu A-roll mà cảnh phụ bắt đầu che hình (tiếng vẫn là A-roll); "s","e" = giây trong video cảnh phụ, mỗi cảnh 1.5–3.5 giây.
 - titles "cau" = mã câu có từ khóa đó.
 - Không có kịch bản dựng được (source hỏng / chỉ thử máy) → {"scripts":[]}.'''
+GUIDE = (lambda p: open(p, encoding='utf-8').read() if os.path.exists(p) else '')(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'huong_dan_dung.md'))   # chủ gửi PDF 18/11: bộ hướng dẫn dựng video dọc
 _RX = []
 def rules_extra():   # quy tắc chủ dặn thêm (file "Quy tắc dựng AI.md" trong AI dựng CapCut – sửa file là AI làm theo, không cần sửa code)
     if not _RX:
         try:
             f = lq("'%s' in parents and name='Quy tắc dựng AI.md' and trashed=false" % cache_dir(), 'id')
-            _RX.append(('\n\nQUY TẮC CHỦ DẶN THÊM (bắt buộc):\n' + raw(f[0]['id']).decode('utf-8')[:9000]) if f else '')
+            _RX.append((('\n\nQUY TẮC CHỦ DẶN THÊM (bắt buộc):\n' + raw(f[0]['id']).decode('utf-8')[:9000]) if f else '') + ('\n\n' + GUIDE if GUIDE else ''))
         except Exception as e: log('  không đọc được Quy tắc dựng AI.md', e); _RX.append('')
     return _RX[0]
 def doc_text(jb):   # chủ dặn 17/11: đọc file kịch bản MỌI định dạng có chữ (Google Docs / Sheets, Word, Excel, PDF, TXT, RTF, ODT…), ghi rõ thuộc thư mục nào
@@ -784,7 +785,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             if PRO.get('notrans'): continue   # TVC sang trọng: cắt mềm, không hiệu ứng chuyển cảnh giật
             nm, eid = FX_TR[len(trans) % len(FX_TR)]
             trans.append(dict(name=nm, effect_id=eid, at=round(T, 3), dur_s=.4))
-            if PRO.get('sfx', True): sfx.append(sf('wh', T - .25, .3))
+            if PRO.get('sfx', True): sfx.append(sf('shut' if nm in ('Glare II', 'Flash') else 'wh', T - (.05 if nm in ('Glare II', 'Flash') else .25), .3))   # hướng dẫn chủ: lóe sáng → tiếng màn trập, chữ / cảnh bay → whoosh
             if nm == 'Glare II' and not fx: fx.append(dict(preset='effect_lens_flare.json', t0=round(T, 3), dur_s=.6))
     # ---- Claude kiểm duyệt yêu cầu PHỦ cảnh phụ lên đoạn đang có lời mà hình không có người / khung xấu (phu_canh_phu)
     poolC = [a for a in A.values() if a['vid'].get('broll') or not a.get('segs')]
@@ -926,12 +927,12 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         lead = small if small and len(small.split()) <= 6 else ''
         if lead and n % 2 == 0: lines = [[lead[:1].upper() + lead[1:], 'SCR', 3.6, '#FFFFFF'], [big, main, 7.6 if main == 'BEB' else 6.2, c1]]
         else: lines = [[big, main, 8.2 if main == 'BEB' else 6.6, c1]]
-        y = (19.0 + (n % 3) * 4) if on_b else (68.0 + (n % 2) * 3)   # cảnh người nói: chữ dưới ngực, không đè mặt; vùng an toàn TikTok ≤75 %
+        y = (19.0 + (n % 3) * 4) if on_b else (66.0 + (n % 2) * 3)   # 18/11 vùng an toàn thật của chủ: y 270–1640 px (14–85 %), x 60–920 – cảnh người nói: chữ dưới ngực, không đè mặt
         if PRO.get('font'):   # TVC sang trọng: chữ mềm mại, uyển chuyển (viết tay + nghiêng có chân), màu trắng / champagne, nhỏ gọn phía dưới
             f1_, f2_ = PRO['font'] if int(sc.get('_n') or 1) % 2 else PRO['font'][::-1]; c1_, c2_ = PRO['colors'] if int(sc.get('_n') or 1) % 3 else PRO['colors'][::-1]   # mỗi kịch bản 1 kiểu chữ khác
             big_ = tsafe(ti.get('big', ''), 40); lines = ([[lead[:1].upper() + lead[1:], f1_, 4.2, c2_]] if lead else []) + [[big_, f2_ if not lead else f1_, 5.6, c1_]]
             y = PRO.get('title_y', y)
-        if ti.get('y'): y = max(12.0, min(80.0, float(ti['y'])))   # vị trí Claude kiểm duyệt yêu cầu
+        if ti.get('y'): y = max(17.0, min(80.0, float(ti['y'])))   # 18/11: kẹp trong vùng an toàn thật (y 270–1640 px)   # vị trí Claude kiểm duyệt yêu cầu
         titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=False, anim=n, si=si, yfix=bool(ti.get('y')), onb=on_b))
         if num and PRO.get('sfx', True): sfx.append(sf('info', T - .02, .2))   # tiếng "tít" khi thông tin / số liệu hiện
         elif n % int(CUR.get('popk') or 3) == 0 and PRO.get('sfx', True): sfx.append(sf('pop', T - .02, .12))
@@ -1220,6 +1221,7 @@ def ai_music(jb, sc, host, proj):   # chủ dặn 12/11: nhạc nền AI (Eleven
              'Gu của chủ: nhạc LUÔN ngầu, hiện đại, kịch tính, có gu – trap, drill, bass house, cinematic hybrid, rock / blues nặng cho đoạn quy mô / sức mạnh / con số lớn; '
              'jazz, bossa nova, valse, bedroom pop, dream pop, lo-fi sang cho đoạn nhẹ / phong cách sống. KHÔNG nhạc quảng cáo sến, KHÔNG vui tươi trẻ con, KHÔNG da diết, KHÔNG ambient / thiền.\n' +
              (('NHẠC CÁC PROJECT GẦN ĐÂY – BẮT BUỘC KHÁC HẲN (khác thể loại, nhạc cụ chủ đạo, BPM, giọng điệu, cấu trúc; chủ dặn 18/11 nhạc không được giống nhau):\n' + '\n'.join('- ' + m for e in (CUR.get('hist') or [])[-12:] for m in (e.get('music') or [])[:2]) + '\n') if any(e.get('music') for e in (CUR.get('hist') or [])) else '') +
+             'HOOK (chủ dặn 18/11): đoạn đầu có nhạc nhịp mạnh – khoảng lặng rơi đúng câu hỏi / câu gây tò mò, cú drop rơi đúng lúc đáp án dội vào; sau hook chuyển sang nhạc nền nhẹ hơn. Có ~4 giây đoạn kết sau lời cuối: nhạc lên rồi fade ra.\n' +
              'Với MỖI đoạn viết "prompt" TIẾNG ANH CỰC KỲ CHI TIẾT, DÀI 3200–4000 KÝ TỰ (gần tối đa 4100) cho ElevenLabs Music, gồm: thể loại & tiểu thể loại, cảm xúc & năng lượng theo từng giây của đoạn, BPM chính xác, giọng điệu (key/scale), '
              'nhạc cụ cụ thể (drum kit, 808, hi-hat rolls, synth bass, strings, brass, piano, guitar… và cách chơi), cấu trúc theo thời gian (intro / build / drop / break / outro với mốc giây), '
              'chỗ dồn / điểm nhấn trùng các câu quan trọng, chuyển đoạn mượt sang đoạn sau, kỹ thuật mix (để trống dải tần giọng nói 1–4 kHz, nhạc làm NỀN dưới lời thoại, không lấn giọng), '
@@ -1377,7 +1379,7 @@ def review(jb, sc, pl, proj, adir, mu):
             ln_ = ('\n\n⚠ ĐỘ DÀI: video đang %.0f giây – nên trên 1 phút (nội dung đầy đủ là trên hết). ' % pl['total'] +
                    ('THIẾU → them_cau thêm câu cùng nhân vật, đúng mạch ý (vi_tri "cuoi" hoặc "dau"), đủ ≥ 60 s. Câu có thể thêm:\n' + '\n'.join(more_)))
         tvc_ = ('\n\nPHONG CÁCH RIÊNG CỦA BỘ NÀY (đúng chủ ý, KHÔNG báo lỗi): ' + PRO['plan'] + ' Khung 16:9; khoảng lặng không lời (chỉ cảnh đẹp + nhạc), chữ thưa (> 6 s không chữ), không giật zoom, không hiệu ứng chuyển cảnh là ĐÚNG phong cách.') if PRO.get('plan') else ''
-        r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat + ln_ + tvc_)
+        r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat + ln_ + tvc_ + (('\n\nSOI THEO BỘ HƯỚNG DẪN CỦA CHỦ (vùng an toàn, hook, chữ, chuyển động, lỗi đã bắt):\n' + GUIDE[:6000]) if GUIDE and not PRO.get('canvas') else ''))
         if r is not None and pl['total'] < 45: r['dat'] = False; r.setdefault('loi', []).append('[NẶNG] quá ngắn %.0fs – thêm câu cho đủ ý (nên ≥ 60 s)' % pl['total'])
         if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
         log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
@@ -1822,7 +1824,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
         if not (a['vid'].get('broll') or not a.get('segs')): continue
         for x in sorted(((a.get('vlog') or {}).get('doan') or []), key=lambda x: -float(x.get('diem') or 0))[:2]:
             if float(x.get('diem') or 0) >= 7: rows.append('#%d %.1f–%.1fs: %s' % (a['i'], float(x['s']), float(x['e']), str(x.get('noi_dung') or '')[:90]))
-    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log, avoid='\n'.join('- ' + ' → '.join(e.get('mg') or []) for e in (CUR.get('hist') or [])[-10:] if e.get('mg'))); CUR['mg'] = [str(p.get('loai')) for p in picks if isinstance(p, dict)]; mlog('Claude chọn motion:', json.dumps(picks, ensure_ascii=False)[:400])
+    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log, avoid='\n'.join('- ' + ' → '.join(e.get('mg') or []) for e in (CUR.get('hist') or [])[-10:] if e.get('mg')) + (('\n\nNGUYÊN TẮC MOTION CỦA CHỦ: ' + ' '.join(l for l in GUIDE.split('\n') if l.startswith(('MOTION GRAPHIC', 'GU:', 'VÙNG AN TOÀN')))) if GUIDE else '')); CUR['mg'] = [str(p.get('loai')) for p in picks if isinstance(p, dict)]; mlog('Claude chọn motion:', json.dumps(picks, ensure_ascii=False)[:400])
     except Exception as e: mlog('Claude chưa chọn được đoạn motion graphic:', repr(e)); return pl
     out, last = [], -9.0
     for p in sorted([p for p in picks if isinstance(p, dict)], key=lambda p: float(p.get('s') or 0)):
@@ -2196,18 +2198,19 @@ def st_add(e):
     try: ad_, ix_ = idx_now(); d_ = jget('sang_tao.json', ix_) or {}; L_ = (d_.get('L') or [])[-80:]; L_.append(e); jput('sang_tao.json', dict(L=L_), ad_, ix_)
     except Exception as x: log('  sổ sáng tạo lỗi', repr(x)[:120])
 SFXP = {   # (tên file, bỏ đầu giây, cỡ file) – kho "AI tải về" đủ bộ, máy tự chép sang Kho AI tải về / Âm thanh hiệu ứng
-    'open': [('SFX impact epic 01.wav', 1.25, 907596), ('SFX impact boom 01.wav', 0, 858396), ('SFX impact boom 02.wav', 0, 973846), ('SFX sub drop 01.wav', 0, 486834), ('SFX 808 hit 01.wav', 0, 269880), ('SFX reverse cymbal 01.wav', 0, 388124), ('SFX glitch 01.wav', 0, 220754), ('SFX sub bass 01.wav', 0, 530076)],
+    'open': [('SFX impact epic 01.wav', 1.25, 907596), ('SFX impact boom 01.wav', 0, 858396), ('SFX impact boom 02.wav', 0, 973846), ('SFX sub drop 01.wav', 0, 486834), ('SFX 808 hit 01.wav', 0, 269880)],   # hướng dẫn chủ: impact ở hook
+    'shut': [('SFX chup anh 01.wav', 0, 211522), ('SFX chup anh 02.wav', 0, 62562)],   # màn trập 'tách tách' khi chuyển cảnh rò sáng
     'wh': [('SFX whoosh mem.wav', 0, 111404), ('SFX whoosh mem 01.wav', 0, 1042904), ('SFX whoosh mem 02.wav', 0, 540656), ('SFX whoosh mem 03.wav', 0, 614126), ('SFX whoosh nhanh 01.wav', 0, 186474), ('SFX whoosh nhanh 02.wav', 0, 194084), ('SFX whoosh nhanh 03.wav', 0, 151978), ('SFX whoosh dien anh 01.wav', 0, 235384)],
-    'info': [('SFX tit thong tin.wav', 0, 65324), ('SFX ding nhan manh 01.wav', 0, 345970), ('SFX ding nhan manh 02.wav', 0, 368230), ('SFX ding nhan manh 03.wav', 0, 222404), ('SFX ping vi tri 01.wav', 0, 546078), ('SFX ping vi tri 02.wav', 0, 182654), ('SFX tien xu 02.wav', 0, 347756), ('SFX click chuot 02.wav', 0, 62786), ('SFX chup anh 02.wav', 0, 62562)],
+    'info': [('SFX tit thong tin.wav', 0, 65324), ('SFX ding nhan manh 01.wav', 0, 345970), ('SFX ding nhan manh 02.wav', 0, 368230), ('SFX ding nhan manh 03.wav', 0, 222404), ('SFX ping vi tri 01.wav', 0, 546078), ('SFX ping vi tri 02.wav', 0, 182654), ('SFX tien xu 02.wav', 0, 347756), ('SFX click chuot 02.wav', 0, 62786)],
     'pop': [('SFX pop chu 01.wav', 0, 208686), ('SFX pop chu 02.wav', 0, 173318), ('SFX pop chu 03.wav', 0, 134032), ('SFX pop chu 04.wav', 0, 195282), ('SFX click chuot 03.wav', 0, 146930), ('SFX sparkle 01.wav', 0, 620356)]}
-SFXCAP = {'open': 5.2, 'wh': .9, 'info': .6, 'pop': .35}
+SFXCAP = {'open': 5.2, 'wh': .9, 'info': .6, 'pop': .35, 'shut': .8}
 SFXLIB2 = '1T3MvisWB11btitmglx8vztTY5uosv1JU'   # thư viện âm thanh hiệu ứng đầy đủ
 def cur_pick(proj):   # chọn bộ âm thanh + bảng màu + nhịp KHÁC các project gần đây
     H = st_hist(); rd = random.Random('%s|%s' % (proj, time.time())); CUR.clear(); CUR.update(proj=proj, hist=H)
     rec = H[-6:]; S_ = {}
     for role, pool in SFXP.items():
         used = [((e.get('sfx') or {}).get(role) or []) for e in rec]; usedf = {x for u in used for x in (u if isinstance(u, list) else [u])}
-        c = [x for x in pool if x[0] not in usedf] or pool; rd.shuffle(c); S_[role] = c[:2] if role in ('wh', 'pop', 'info') else c[:1]
+        c = [x for x in pool if x[0] not in usedf] or pool; rd.shuffle(c); S_[role] = c[:2] if role in ('wh', 'pop', 'info', 'shut') else c[:1]
     CUR['sfx'] = S_; CUR['popk'] = rd.choice([k for k in (2, 3, 4, 5) if k != (rec[-1].get('popk') if rec else 0)] or [3]); CUR['whgap'] = rd.choice([1.6, 2.0, 2.6, 3.2])
     upal = [e.get('pal') for e in H[-8:] if e.get('pal') is not None]; pals = [i for i in range(12) if i not in upal] or list(range(12)); CUR['pal'] = rd.choice(pals)
     CUR['n'] = {}
@@ -2548,8 +2551,8 @@ def drop_projects():
 def pending():
     drop_projects()
     try:   # 18/11: chủ dặn DỰNG LẠI The Fullton – lên kịch bản lại (hook hấp dẫn hơn) + dựng mới khác biệt (nhạc / motion / âm thanh hiệu ứng), thay vào đúng project cũ (thêm v2)
-        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF1') != '1':
-            L.mark(LISTF, dungRF1='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF2') != '1':
+            L.mark(LISTF, dungRF2='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
             for nm_, id_ in list(ix_.items()):
                 if nm_.startswith(sid_ + '_kichban') or nm_.startswith(sid_ + '_kb'):
                     try: L.drive('files/' + id_, {'trashed': True}, method='PATCH'); k_ += 1

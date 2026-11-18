@@ -228,7 +228,7 @@ def tmat(text, key, size, fill, shadow):
 def line_seg(text, key, cap_pct, cx_pct, cy_pct, t0, t1, fill, shadow, k):
     f = FONTS[key]; em = cap_pct / 100 * H / f['cap']
     bb = f['pf'].getbbox(text); adv = (bb[2] - bb[0]) / 200 * em
-    if adv > 0.74 * W: em *= 0.74 * W / adv; adv = 0.74 * W   # safe zone: <= ~69% of width
+    if adv > 0.70 * W: em *= 0.70 * W / adv; adv = 0.70 * W   # 18/11 vùng an toàn thật của chủ: x 60–920 px → chữ giữa khung rộng ≤ 70 %
     size = 15.0
     while adv * (6.02 * size / f['typo']) / em > 0.70 * W and size > 4: size -= 0.5
     scale = round(0.93 * em * f['typo'] / (6.02 * size), 4)
@@ -242,7 +242,7 @@ def line_seg(text, key, cap_pct, cx_pct, cy_pct, t0, t1, fill, shadow, k):
 
 def glow(fill):     # owner: keyword glow visible but tasteful -> shadow colour = text colour, alpha 0.5, diffuse 0.3
     rgb, _ = hex2rgba(fill); return {'color': rgb, 'alpha': 0.5, 'diffuse': 0.3, 'distance': 0.0}
-SOFT = {'color': [0, 0, 0], 'alpha': 0.32, 'diffuse': 0.18, 'distance': 1.2}
+SOFT = {'color': [0.36, 0.22, 0.08], 'alpha': 0.34, 'diffuse': 0.22, 'distance': 1.0}   # 18/11 hướng dẫn chủ: không bóng đen xì – bóng mềm màu ấm
 TXs, TREC = [], []
 def place_group(lines, t0, t1, cy, k, bright=False):
     gap = 0.07
