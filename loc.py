@@ -845,6 +845,8 @@ def server_sync():
         log('Máy chủ đang %s, web có %s → máy GitHub tự cập nhật máy chủ' % (cur, meta['ver']))
         S = 'https://script.googleapis.com/v1/projects/' + SCRIPT_ID; H = lambda: {'Authorization': 'Bearer ' + tok()}
         old = http(S + '/content', headers=H())
+        _nv = lambda t: re.sub(r"const BOT_VER = '[^']*';", '', t or '')   # 18/11 (chủ dặn): chỉ đổi số bản / chỉ đổi web → KHÔNG tạo phiên bản máy chủ mới (Apps Script giới hạn 200 phiên bản)
+        if any(f.get('type') == 'SERVER_JS' and 'const BOT_VER = ' in (f.get('source') or '') and _nv(f.get('source')) == _nv(src) for f in old['files']): log('  code máy chủ không đổi (chỉ đổi web) → không cần phiên bản mới'); return
         files = [dict(f, source=src) if f.get('type') == 'SERVER_JS' and 'const BOT_VER = ' in (f.get('source') or '') else f for f in old['files']]
         for f in files:  # bật dịch vụ Drive v3 (đọc Drive không tốn hạn mức gọi mạng của máy chủ)
             if f.get('type') == 'JSON' and f.get('name') == 'appsscript':
@@ -854,7 +856,22 @@ def server_sync():
                 except Exception as e: log('  không sửa được cấu hình dự án:', e)
         if not any(f.get('source') == src for f in files): raise RuntimeError('không thấy tệp code chính')
         http(S + '/content', {'files': files}, H(), 'PUT')
-        v = http(S + '/versions', {'description': meta['ver'] + ' (máy GitHub cập nhật)'}, H(), 'POST')
+        try: v = http(S + '/versions', {'description': meta['ver'] + ' (máy GitHub cập nhật)'}, H(), 'POST')
+        except Exception as e0:   # đầy 200 phiên bản → tự xóa bớt bản cũ không dùng rồi thử lại
+            if '429' not in str(e0) and 'limit' not in str(e0).lower(): raise
+            used = {(d.get('deploymentConfig') or {}).get('versionNumber') for d in http(S + '/deployments', headers=H()).get('deployments', [])}
+            vs, tk = [], ''
+            while True:
+                pg = http(S + '/versions?pageSize=50' + ('&pageToken=' + tk if tk else ''), headers=H()); vs += pg.get('versions') or []; tk = pg.get('nextPageToken') or ''
+                if not tk: break
+            gone = 0
+            for x in sorted(vs, key=lambda x: x.get('versionNumber') or 0)[:120]:
+                if x.get('versionNumber') in used: continue
+                try: http(S + '/versions/%d' % x['versionNumber'], None, H(), 'DELETE'); gone += 1
+                except Exception as e1: log('  không tự xóa được phiên bản cũ:', str(e1)[:120]); break
+            log('  đã tự xóa %d phiên bản cũ' % gone)
+            if not gone: tsay('⚠️ Máy chủ Apps Script đã đầy 200 phiên bản nên chưa cập nhật được bản ' + meta['ver'] + '. Vào Apps Script → Nhật ký dự án → bấm biểu tượng thùng rác (xóa hàng loạt) → xóa các phiên bản cũ.', once='vfull_' + meta['ver']); raise
+            v = http(S + '/versions', {'description': meta['ver'] + ' (máy GitHub cập nhật)'}, H(), 'POST')
         wd = (re.search(r"const WEB_DEP = '([^']+)'", src) or [None, ''])[1]
         deps = [d for d in http(S + '/deployments', headers=H()).get('deployments', []) if any(e.get('entryPointType') == 'WEB_APP' for e in d.get('entryPoints', [])) and (d.get('deploymentConfig') or {}).get('versionNumber')]
         dep = next((d for d in deps if d['deploymentId'] == wd), None) or sorted(deps, key=lambda d: d.get('updateTime', ''))[-1]
