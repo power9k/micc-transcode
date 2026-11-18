@@ -2007,7 +2007,7 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
 RMVN = 'Remotion - video hoàn chỉnh.mp4'
 def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
     try:
-        if pl.get('rmv_local') and os.path.exists(pl['rmv_local']): put(RMVN, pf, open(pl['rmv_local'], 'rb').read(), 'video/mp4')   # chủ dặn 18/11: video Remotion hoàn chỉnh nằm trong thư mục project CapCut
+        if pl.get('rmv_local') and os.path.exists(pl['rmv_local']): put(proj + '.mp4', pf, open(pl['rmv_local'], 'rb').read(), 'video/mp4')   # chủ dặn 18/11: video Remotion hoàn chỉnh nằm trong thư mục project CapCut
     except Exception as e: mlog('không lưu được video Remotion:', repr(e))
     try:
         ai_ = [m for m in pl.get('ai_music') or [] if os.path.exists(m)]
@@ -2061,7 +2061,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         rmv_ = rm_full(jb, pl, mu, proj)
         if rmv_ and os.path.exists(rmv_):
             W_, H_ = pl.get('canvas') or (1080, 1920)
-            pl['media']['RMV'] = dict(path=DRV + '/' + path_of(host) + '/' + proj + '/' + RMVN, dur=round(pl['total'], 3), w=W_, h=H_, kind='video', has_audio=True, name=RMVN, S0=1.0, grade=None)
+            pl['media']['RMV'] = dict(path=DRV + '/' + path_of(host) + '/' + proj + '/' + proj + '.mp4', dur=round(pl['total'], 3), w=W_, h=H_, kind='video', has_audio=True, name=proj + '.mp4', S0=1.0, grade=None)   # chủ dặn: video Remotion đặt ĐÚNG TÊN project (đổi v2 thì tên trong file dựng đổi theo)
             pl['top'] = 'RMV'; pl['rmv_local'] = rmv_
     except ClaudeWait: raise
     except Exception as e: mlog('Remotion video hoàn chỉnh hỏng:', repr(e)[:300])
@@ -2096,7 +2096,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if tgt:
         try:
             for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # chỉ bỏ đúng các file sẽ thay (+ bản lưu tạm Timelines của CapCut để CapCut đọc bản mới)
-                if x['name'] in ('draft_content.json', 'draft_info.json', 'draft_content.json' + HID, 'draft_info.json' + HID, MGDIR, AIMDIR, 'draft_cover.jpg', 'Timelines', RMVN) or x['name'].startswith('Kịch bản - '):
+                if x['name'] in ('draft_content.json', 'draft_info.json', 'draft_content.json' + HID, 'draft_info.json' + HID, MGDIR, AIMDIR, 'draft_cover.jpg', 'Timelines', RMVN) or x['name'].startswith('Kịch bản - ') or (x['name'].lower().endswith('.mp4') and vbase(x['name'][:-4]) == vbase(proj0)):
                     try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
                     except Exception: pass
             L.drive('files/' + tgt['id'], {'appProperties': {'dungS': slot, 'dungL': LV, 'dungVol': '1'}}, method='PATCH')
