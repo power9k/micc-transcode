@@ -342,6 +342,8 @@ for lane in nonover(BEH_SEGS): tr.append(track('text', lane, name='Chữ SAU ng�
 tr.append(track('video', MATTE_SEGS, flag=2, name='Người dẫn bản sao - Xóa nền'))
 for k, lane in enumerate(nonover(TXs)): tr.append(track('text', lane, name='Chữ %d' % (k + 1)))
 tr.append(track('effect', FXs, name='Hiệu ứng video'))
+if PL.get('top') and PL['top'] in MEDIA:   # chủ dặn 18/11: video Remotion hoàn chỉnh nằm track TRÊN CÙNG (tắt tiếng – tiếng ở các track dưới, khớp từng giây)
+    _sg = vseg(PL['top'], 0.0, 0.0, TOTAL, 0.0, [(0.0, 1.0, 0.0, 0.0)]); tr.append(track('video', [_sg], flag=2, name='VIDEO HOÀN CHỈNH (Remotion)'))
 for lane in nonover(SPEECH): tr.append(track('audio', lane, name='Giọng (người dẫn + VO duyệt)'))
 for lane in nonover(MUs): tr.append(track('audio', lane, name='Nhạc nền'))
 for lane in nonover(SFs): tr.append(track('audio', lane, name='SFX'))

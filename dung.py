@@ -1315,7 +1315,7 @@ def engine():
     if os.path.exists(os.path.join(ENG, 'build.py')): return
     z = lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), ENG_NAME))[0]['id']
     os.makedirs(ENG, exist_ok=True); p = os.path.join(L.TMP, 'eng.zip'); open(p, 'wb').write(raw(z)); zipfile.ZipFile(p).extractall(ENG)
-    for fn in ('build.py', 'mg.py', 'hfvid.py', 'gsap.min.js'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
+    for fn in ('build.py', 'mg.py', 'hfvid.py', 'rmvid.py', 'gsap.min.js'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'eng', fn)
         if os.path.exists(src): open(os.path.join(ENG, fn), 'wb').write(open(src, 'rb').read())
     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'fonttools'], capture_output=True)
@@ -1521,6 +1521,7 @@ def hf_key(jb):
     p = L.norm1(path_of(jb['id']) + ' ' + (jb.get('name') or ''))
     return 'vuyen' if ('royal island' in p or 'vu yen' in p) else ('academy' if 'academy' in p else None)
 def hf_todo(k):
+    return False   # chủ dặn 18/11: KHÔNG dùng HyperFrames nữa (mọi video / motion dựng bằng Remotion)
     try: return bool(k) and (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungHF_' + k) != HFV
     except Exception: return False
 def hf_make(jb, pl, mu, proj, host):
@@ -1586,6 +1587,68 @@ def hf_make(jb, pl, mu, proj, host):
         import traceback as _tb; log('  ✗ HyperFrames lỗi:', e, _tb.format_exc().replace('\n', ' ¶ ')[-600:])
         try: L.mark(LISTF, **{'dungHFL_' + k: None})
         except Exception: pass
+def rm_full(jb, pl, mu, proj):   # chủ dặn 18/11: dựng TRƯỚC video hoàn chỉnh bằng Remotion từ đúng kế hoạch dựng → CapCut dựng từ cùng kế hoạch (khớp từng giây) + video này nằm track trên cùng
+    t0 = time.time()
+    try:
+        if ENG not in sys.path: sys.path.insert(0, ENG)
+        import rmvid
+        wd = os.path.join(L.TMP, 'rmv'); shutil.rmtree(wd, ignore_errors=True); os.makedirs(wd)
+        A = {'V%d' % a['i']: a for a in jb['A']}; mf = {}; W_, H_ = pl.get('canvas') or (1080, 1920)
+        mgl = {'M%d' % (i + 1): o for i, (o, nm) in enumerate(pl.get('mg') or [])}
+        lay = list(pl['shots']) + list(pl.get('bshots') or []); seen_ = set()
+        def cut(fid, ss, t, args, out):
+            err = None
+            for f in [fid, lite(fid)]:
+                if not f: continue
+                try: L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(f, max(0.0, ss), t) + args + [out], timeout=900); return out
+                except Exception as e: err = e
+            raise err or RuntimeError('không đọc được video')
+        for j, sh in enumerate(lay):
+            key = (sh['media'], round(sh['t0'], 3))
+            if key in seen_: continue
+            seen_.add(key)
+            if sh['media'] in mgl: mf[key] = mgl[sh['media']]; continue
+            a = A.get(sh['media'])
+            if not a: continue
+            spd = float(sh.get('spd') or 1.0); d = sh['t1'] - sh['t0']
+            vf = 'scale=%d:%d:force_original_aspect_ratio=increase%s,fps=30' % (W_, H_, (',setpts=PTS/%.4f' % spd) if abs(spd - 1) > .01 else '')
+            ca_ = ['-an', '-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '17', '-pix_fmt', 'yuv420p']; need = d * spd + .15
+            dur_ = float((pl['media'].get(sh['media']) or {}).get('dur') or 0)
+            for ss_ in [sh['src'], max(0.0, dur_ - need - .3) if dur_ else 0.0, 0.0]:   # đoạn lấy lố cuối file → lùi lại cho đủ
+                try: mf[key] = cut(a['vid']['id'], ss_, need, ca_, os.path.join(wd, 's%03d.mp4' % j)); break
+                except Exception as e: mlog('Remotion: không cắt được cảnh', sh['media'], '@%.1f' % ss_, str(e)[:120])
+        last_ = None   # cảnh không cắt được → dùng lại cảnh liền trước (không để màn hình đen)
+        for sh in sorted(lay, key=lambda x: x['t0']):
+            k_ = (sh['media'], round(sh['t0'], 3))
+            if mf.get(k_): last_ = mf[k_]
+            elif last_ and sh['media'] not in mgl: mf[k_] = last_; mlog('Remotion: thay cảnh hỏng', sh['media'], 'bằng cảnh trước')
+        for j, sp in enumerate(pl.get('speech') or []):
+            a = A.get(sp['media'])
+            if not a: continue
+            try: mf[('aud', sp['media'], round(sp['t0'], 3))] = cut(a['vid']['id'], sp['src_in'], sp['t1'] - sp['t0'], ['-vn', '-ac', '2', '-ar', '48000'], os.path.join(wd, 'a%03d.wav' % j))
+            except Exception as e: mlog('Remotion: không lấy được tiếng', str(e)[:120])
+        mus = []
+        for j, m in enumerate(pl.get('music') or []):
+            bn = os.path.basename(m['file']).lower()
+            p_ = next((p for p in (mu or []) if (p.get('orig') or '').lower() == bn or os.path.basename(p.get('nm') or '').lower() == bn), None)
+            if not p_: continue
+            f = p_.get('ai') if p_.get('ai') and os.path.exists(p_['ai']) else None
+            if not f and p_.get('id'):
+                f = os.path.join(wd, 'mu%d%s' % (j, os.path.splitext(bn)[1] or '.mp3')); open(f, 'wb').write(raw(p_['id']))
+            if f: mus.append((f, m['t0'], m['t1'], m.get('src_in') or 0.0, max(3.0 if j == 0 else 0, m.get('fi') or 0), max(3.0 if j == len(pl['music']) - 1 else 0, m.get('fo') or 0)))
+        sfxf = {}
+        try:
+            k_ = kho()
+            for nm_ in {os.path.basename(x.get('file') or '') for x in (pl.get('sfx') or [])}:
+                c_ = lq("'%s' in parents and name='%s' and trashed=false" % (k_['sfx'], nm_.replace("'", "\\'")), 'id') or lq("'%s' in parents and name='%s' and trashed=false" % (SFXLIB2, nm_.replace("'", "\\'")), 'id')
+                if c_: f_ = os.path.join(wd, 'sfx_' + nm_); open(f_, 'wb').write(raw(c_[0]['id'])); sfxf[nm_] = f_
+        except Exception as e: mlog('Remotion: không lấy được âm thanh hiệu ứng', str(e)[:120])
+        out = os.path.join(wd, 'Remotion - video hoàn chỉnh.mp4')
+        rmvid.render(pl, mf, mus, out, tvc=bool(PRO.get('punch_soft')), fontdir=os.path.join(ENG, 'fonts'), log=log, seed=proj, sfx_files=sfxf)
+        log('  ✓ Remotion video hoàn chỉnh xong (%.1f phút)' % ((time.time() - t0) / 60)); return out
+    except ClaudeWait: raise
+    except Exception as e:
+        import traceback as _tb; log('  ✗ Remotion video hoàn chỉnh lỗi:', e, _tb.format_exc().replace('\n', ' ¶ ')[-600:]); return None
 def hf_academy(k_='academy'):   # bản thử Academy / Vũ Yên: dựng lại kịch bản đầu của source Academy mới nhất, CHỈ xuất bản HyperFrames (không đụng project CapCut)
     if not hf_todo(k_): return
     try:
@@ -1941,7 +2004,11 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
     mlog('cover:', len(cand), 'ứng viên', 'chọn' if best else 'KHÔNG có', best[0] if best else '')
     return (best[1], '%016x' % best[2]) if best else (None, None)
 
+RMVN = 'Remotion - video hoàn chỉnh.mp4'
 def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
+    try:
+        if pl.get('rmv_local') and os.path.exists(pl['rmv_local']): put(RMVN, pf, open(pl['rmv_local'], 'rb').read(), 'video/mp4')   # chủ dặn 18/11: video Remotion hoàn chỉnh nằm trong thư mục project CapCut
+    except Exception as e: mlog('không lưu được video Remotion:', repr(e))
     try:
         ai_ = [m for m in pl.get('ai_music') or [] if os.path.exists(m)]
         if ai_:
@@ -1990,12 +2057,18 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if any(m.get('kind') == 'video' and not m.get('path') for m in pl['media'].values()): bad.append('thiếu file')
     if not [x for x in pl['shots'] if x.get('line') != 'A']: bad.append('không có cảnh phụ nào')   # kênh nói chuyện (Academy) ít cảnh phụ vẫn đạt
     if bad: log('  chưa đạt, không đẩy lên:', proj, '–', ', '.join(bad)); return None
+    try:   # chủ dặn 18/11: video Remotion hoàn chỉnh → nằm trong thư mục project + đặt track trên cùng CapCut (tắt tiếng, tiếng ở các track dưới)
+        rmv_ = rm_full(jb, pl, mu, proj)
+        if rmv_ and os.path.exists(rmv_):
+            W_, H_ = pl.get('canvas') or (1080, 1920)
+            pl['media']['RMV'] = dict(path=DRV + '/' + path_of(host) + '/' + proj + '/' + RMVN, dur=round(pl['total'], 3), w=W_, h=H_, kind='video', has_audio=True, name=RMVN, S0=1.0, grade=None)
+            pl['top'] = 'RMV'; pl['rmv_local'] = rmv_
+    except ClaudeWait: raise
+    except Exception as e: mlog('Remotion video hoàn chỉnh hỏng:', repr(e)[:300])
     pp = os.path.join(L.TMP, 'plan_%d.json' % n); json.dump(pl, open(pp, 'w'), ensure_ascii=False)
     r = subprocess.run([sys.executable, os.path.join(ENG, 'build.py'), pp], capture_output=True, text=True, timeout=600)
     od = os.path.join(pl['out_dir'], proj)
     if not os.path.exists(os.path.join(od, 'draft_content.json')): raise RuntimeError('dựng lỗi: ' + (r.stderr or r.stdout)[-300:])
-    hf_make(jb, pl, mu, proj, host)
-    if HF_ONLY[0]: return None
     inhost = [c for c in lq("'%s' in parents and appProperties has { key='dungP' and value='1' } and trashed=false" % host, 'id,name,appProperties,createdTime')]
     new_ = [c for c in inhost if (c.get('appProperties') or {}).get('dungL') == LV]
     old_ = [c for c in inhost if (c.get('appProperties') or {}).get('dungL') != LV]   # bản dựng kiểu cũ (1 track) → chủ dặn dựng lại rồi thay
@@ -2023,7 +2096,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if tgt:
         try:
             for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # chỉ bỏ đúng các file sẽ thay (+ bản lưu tạm Timelines của CapCut để CapCut đọc bản mới)
-                if x['name'] in ('draft_content.json', 'draft_info.json', 'draft_content.json' + HID, 'draft_info.json' + HID, MGDIR, AIMDIR, 'draft_cover.jpg', 'Timelines') or x['name'].startswith('Kịch bản - '):
+                if x['name'] in ('draft_content.json', 'draft_info.json', 'draft_content.json' + HID, 'draft_info.json' + HID, MGDIR, AIMDIR, 'draft_cover.jpg', 'Timelines', RMVN) or x['name'].startswith('Kịch bản - '):
                     try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
                     except Exception: pass
             L.drive('files/' + tgt['id'], {'appProperties': {'dungS': slot, 'dungL': LV, 'dungVol': '1'}}, method='PATCH')
@@ -2551,8 +2624,8 @@ def drop_projects():
 def pending():
     drop_projects()
     try:   # 18/11: chủ dặn DỰNG LẠI The Fullton – lên kịch bản lại (hook hấp dẫn hơn) + dựng mới khác biệt (nhạc / motion / âm thanh hiệu ứng), thay vào đúng project cũ (thêm v2)
-        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF2') != '1':
-            L.mark(LISTF, dungRF2='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF3') != '1':
+            L.mark(LISTF, dungRF3='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
             for nm_, id_ in list(ix_.items()):
                 if nm_.startswith(sid_ + '_kichban') or nm_.startswith(sid_ + '_kb'):
                     try: L.drive('files/' + id_, {'trashed': True}, method='PATCH'); k_ += 1

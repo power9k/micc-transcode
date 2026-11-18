@@ -4,7 +4,7 @@
 #  - giữ tông màu web MICC (nền xanh than, vàng kim) nhưng họa tiết / bố cục / chuyển động PHẢI KHÁC NHAU giữa các clip (mỗi clip
 #    phối ngẫu nhiên: nền × mặt nạ × bố cục × kiểu xuất hiện × chi tiết trang trí)
 #  - mỗi clip lưu trong CHÍNH thư mục project
-import json, os, shutil, subprocess, hashlib, random
+import json, os, re, shutil, subprocess, hashlib, random
 
 W, H = 1080, 1920
 K = ['#050914', '#090e1c', '#0d1426', '#131c32', '#1a2744']   # nền web --k0..k3 (+1 sáng hơn)
@@ -340,8 +340,12 @@ def _render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None, tz=
     if not clip and loai in ('dien_thoai', 'phieu_loc', 'the_anh', 'ban_do', 'so_sanh', 'khung_hinh'): loai = 'khu_3d' if loai in ('the_anh', 'ban_do', 'khung_hinh') else 'tang_truong'
     r = random.Random(int(hashlib.md5(('%s|%s|%s' % (seed or out, loai, dur)).encode()).hexdigest()[:8], 16))
     work = work or out + '.d'; shutil.rmtree(work, ignore_errors=True); os.makedirs(work)
-    shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gsap.min.js'), work)
-    if clip: shutil.copy(clip, os.path.join(work, 'clip.jpg' if clip.lower().endswith('.jpg') else 'clip.mp4'))
+    if clip:
+        os.makedirs(os.path.join(work, 'public'), exist_ok=True); jp = os.path.join(work, 'public', 'clip.jpg')
+        if clip.lower().endswith('.jpg'): shutil.copy(clip, jp)
+        else: subprocess.run(['ffmpeg', '-y', '-v', 'error', '-ss', '0.4', '-i', clip, '-frames:v', '1', '-q:v', '2', jp], timeout=120)   # Remotion: cảnh trong mặt nạ là ảnh (vẫn trôi / zoom theo GSAP)
+        if not os.path.exists(jp): clip = None
+        else: clip = jp
     bgfill, pat, patop, patmove = _bg(r)
     body, js = scene(loai, round(dur, 2), clip, n, r)
     if tz:   # có chữ CapCut → khối chính thu gọn xuống dưới, chừa vùng chữ phía trên (y 0–30 %) + dải nền tối mềm cho chữ nổi
@@ -353,15 +357,93 @@ def _render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None, tz=
     fb, fj = _fx(r); body += fb; js += fj
     d = dict(dur=round(dur, 2), body=body, js=js, enter='', bgfill=bgfill, pat=pat, patop=patop, patmove=patmove,
              k0=K[0], k1=K[1], k2=K[2], k3=K[3], k4=K[4], **G)
-    open(os.path.join(work, 'index.html'), 'w').write(HTML % d)
-    tf = os.path.expanduser('~/.hyperframes-tele-off')
-    if not os.path.exists(tf):   # tắt gửi số liệu sử dụng của HyperFrames
-        subprocess.run(['npx', '--yes', 'hyperframes@0.9.34', 'telemetry', 'disable'], capture_output=True, timeout=300); open(tf, 'w').close()
-    r_ = subprocess.run(['npx', '--yes', 'hyperframes@0.9.34', 'render', '-q', 'looks', '-o', os.path.abspath(out)], cwd=work, capture_output=True, text=True, timeout=900)
-    if not os.path.exists(out) or os.path.getsize(out) < 10000: raise RuntimeError('dựng motion lỗi: ' + (r_.stderr or r_.stdout)[-300:])
+    html = HTML % d
+    rm_render(html, work, out, dur, clip, log)   # chủ dặn 18/11: motion graphic dựng bằng REMOTION (không dùng HyperFrames nữa)
     shutil.rmtree(work, ignore_errors=True)
     return out
 
 if __name__ == '__main__':   # thử nhanh: python3 mg.py loai clip.mp4|- out.mp4 [seed]
     import sys
     render(sys.argv[1], sys.argv[3], 4.0, sys.argv[2] if sys.argv[2] != '-' else None, seed=sys.argv[4] if len(sys.argv) > 4 else None)
+
+# ---------------------------------------------------------------- REMOTION (chủ dặn 18/11: mọi motion graphic phải làm bằng Remotion, bỏ HyperFrames)
+RMV = {'remotion': '4.0.242', '@remotion/cli': '4.0.242', 'react': '18.3.1', 'react-dom': '18.3.1', 'gsap': '3.12.5'}
+RM_DIR = os.path.expanduser('~/.micc_remotion')
+RM_ROOT = """import React from 'react';
+import {registerRoot, Composition} from 'remotion';
+import {Mg} from './Mg';
+import {Full} from './Full';
+const Root = () => <>
+  <Composition id="mg" component={Mg} width={1080} height={1920} fps={30} durationInFrames={120}
+    defaultProps={{css: '', body: '', js: '', dur: 4, img: false}}
+    calculateMetadata={({props}) => ({durationInFrames: Math.max(2, Math.round(Number(props.dur) * 30))})} />
+  <Composition id="full" component={Full} width={1080} height={1920} fps={30} durationInFrames={300}
+    defaultProps={{css: '', overlay: '', js: '', dur: 10, w: 1080, h: 1920, clips: []}}
+    calculateMetadata={({props}) => ({durationInFrames: Math.max(2, Math.round(Number(props.dur) * 30)), width: Number(props.w) || 1080, height: Number(props.h) || 1920})} />
+</>;
+registerRoot(Root);
+"""
+RM_FULL = """import React, {useLayoutEffect, useRef, useState} from 'react';
+import {useCurrentFrame, useVideoConfig, AbsoluteFill, delayRender, continueRender, staticFile, Sequence, OffthreadVideo} from 'remotion';
+import gsap from 'gsap';
+export const Full = ({css, overlay, js, dur, w, h, clips}) => {
+  const ov = useRef(null), tl = useRef(null), frame = useCurrentFrame(), {fps} = useVideoConfig();
+  const [hd] = useState(() => delayRender('video hoàn chỉnh')); const pre = staticFile('x.ttf').slice(0, -5);
+  useLayoutEffect(() => {
+    ov.current.innerHTML = overlay;
+    const t = gsap.timeline({paused: true}); new Function('gsap', 'tl', 'D', js)(gsap, t, Number(dur)); tl.current = t;
+    document.fonts.ready.then(() => { t.seek(frame / fps, false); continueRender(hd); });
+  }, []);
+  useLayoutEffect(() => { if (tl.current) tl.current.seek(frame / fps, false); }, [frame]);
+  return <AbsoluteFill style={{background: '#000'}}>
+    <style>{css.split("url('f_").join("url('" + pre + "f_")}</style>
+    <div id="root" style={{position: 'relative', width: w, height: h, overflow: 'hidden', background: '#000'}}>
+      {clips.map(c => <div key={c.cid} id={c.cid} className="cl" style={{zIndex: c.z}}>
+        <div id={'v' + c.cid} style={{position: 'absolute', left: 0, top: 0, width: c.iw, height: c.ih, transformOrigin: '0 0', filter: c.filt}}>
+          <Sequence from={Math.round(c.t0 * fps)} durationInFrames={Math.max(1, Math.round(c.d * fps) + 2)} layout="none">
+            <OffthreadVideo src={staticFile(c.nm)} muted style={{width: '100%', height: '100%', display: 'block'}} />
+          </Sequence></div></div>)}
+      <div id="ov" ref={ov} />
+    </div></AbsoluteFill>;
+};
+"""
+RM_MG = """import React, {useLayoutEffect, useRef, useState} from 'react';
+import {useCurrentFrame, useVideoConfig, AbsoluteFill, delayRender, continueRender, staticFile} from 'remotion';
+import gsap from 'gsap';
+export const Mg = ({css, body, js, dur, img}) => {
+  const ref = useRef(null), tl = useRef(null), frame = useCurrentFrame(), {fps} = useVideoConfig();
+  const [h] = useState(() => delayRender('motion graphic'));
+  useLayoutEffect(() => {
+    const R = ref.current; R.innerHTML = img ? body.split('src="clip.jpg"').join('src="' + staticFile('clip.jpg') + '"') : body;
+    const t = gsap.timeline({paused: true}); new Function('gsap', 'tl', 'D', 'R', js)(gsap, t, Number(dur), R); tl.current = t;
+    const ims = Array.from(R.querySelectorAll('img'));
+    Promise.all(ims.map(i => i.complete ? 1 : new Promise(r => { i.onload = r; i.onerror = r; }))).then(() => { t.seek(frame / fps, false); continueRender(h); });
+  }, []);
+  useLayoutEffect(() => { if (tl.current) tl.current.seek(frame / fps, false); }, [frame]);
+  return <AbsoluteFill style={{background: '#000'}}><style>{css}</style><div id="root" ref={ref} style={{position: 'relative', width: 1080, height: 1920, overflow: 'hidden'}} /></AbsoluteFill>;
+};
+"""
+def rm_setup(log=print):
+    pk = os.path.join(RM_DIR, 'package.json')
+    want = json.dumps({'name': 'micc-mg', 'private': True, 'dependencies': RMV}, indent=1)
+    os.makedirs(os.path.join(RM_DIR, 'src'), exist_ok=True)
+    open(os.path.join(RM_DIR, 'src', 'index.jsx'), 'w').write(RM_ROOT); open(os.path.join(RM_DIR, 'src', 'Mg.jsx'), 'w').write(RM_MG); open(os.path.join(RM_DIR, 'src', 'Full.jsx'), 'w').write(RM_FULL)
+    if os.path.exists(pk) and open(pk).read() == want and os.path.isdir(os.path.join(RM_DIR, 'node_modules', '@remotion', 'cli')): return
+    open(pk, 'w').write(want)
+    r = subprocess.run(['npm', 'install', '--no-audit', '--no-fund', '--loglevel=error'], cwd=RM_DIR, capture_output=True, text=True, timeout=900)
+    if r.returncode: raise RuntimeError('cài Remotion lỗi: ' + (r.stderr or r.stdout)[-300:])
+    log('  Remotion sẵn sàng (%s)' % RMV['remotion'])
+def rm_render(html, work, out, dur, clip, log=print):
+    rm_setup(log)
+    css = re.search(r'<style>(.*?)</style>', html, re.S).group(1)
+    body = re.search(r'<div id="root"[^>]*>\n?(.*)\n</div>\n<script>', html, re.S).group(1)
+    js = html[html.rindex('<script>') + 8: html.rindex('</script>')]
+    js = re.sub(r'^\s*const D=[^\n]*\n', '', js, count=1).replace("window.__timelines=window.__timelines||{};window.__timelines['root']=tl;", '')
+    props = os.path.join(work, 'props.json'); json.dump(dict(css=css, body=body, js=js, dur=round(dur, 2), img=bool(clip)), open(props, 'w'))
+    pub = os.path.join(work, 'public'); os.makedirs(pub, exist_ok=True)
+    return rm_run('mg', props, pub, out, 900)
+def rm_run(comp, props, pub, out, timeout):
+    r = subprocess.run(['npx', 'remotion', 'render', 'src/index.jsx', comp, os.path.abspath(out), '--props=' + os.path.abspath(props), '--public-dir=' + os.path.abspath(pub), '--log=error', '--codec=h264', '--crf=16'] + (['--browser-executable=' + os.environ['MG_BROWSER']] if os.environ.get('MG_BROWSER') else []),
+                       cwd=RM_DIR, capture_output=True, text=True, timeout=timeout)
+    if not os.path.exists(out) or os.path.getsize(out) < 10000: raise RuntimeError('Remotion dựng lỗi: ' + (r.stderr or r.stdout)[-400:])
+    return out
