@@ -25,7 +25,15 @@ def main():
         import nao as N
         os.makedirs(getattr(N.L, 'TMP', '/tmp'), exist_ok=True)   # thiếu thư mục làm việc → Claude báo FileNotFoundError (lỗi 18/11)
         import shutil; print('Claude sẵn sàng:', N.ready(), shutil.which('claude') or 'KHÔNG THẤY lệnh claude')
+        seen = set(); nt = 0
         while time.time() < end:
+            if time.time() > nt:   # nhật ký từng bước phía máy chủ (Claude → Gemini → bộ não tự động) – soát lỗi
+                nt = time.time() + 60
+                try:
+                    t = call('zbotTrace', timeout=60)
+                    for x in (t.get('tr') or []) + ['LỖI ' + e for e in (t.get('err') or [])]:
+                        if x not in seen: seen.add(x); print('  [máy chủ]', x)
+                except Exception as e: print('đọc nhật ký máy chủ lỗi:', repr(e)[:120])
             try:
                 r = call('zbotNext', timeout=150)
                 if r.get('job'): print('nhận câu hỏi', r['job'].get('id'), 'của', r['job'].get('name')); answer(r['job'])
