@@ -11,16 +11,19 @@ RULE = ('\n\nCÁCH TRẢ LỜI (chủ dặn): hiểu đúng người hỏi đang
         'Trả về DUY NHẤT 1 khối JSON: {"tra_loi":"câu trả lời gửi vào nhóm Zalo","nho":[{"ai":"tên người","chu_de":"vd Quỹ nhóm","noi_dung":"chi tiết","so_tien":số hoặc null}]}')
 def answer(j):
     import nao as N
+    os.makedirs(getattr(N.L, 'TMP', '/tmp'), exist_ok=True)
     txt = mem = None
     try:
-        r = N.ask_json(j.get('user') or '', model='opus', sys_p=(j.get('sys') or '') + RULE, timeout=240)
+        r = N.ask_json(j.get('user') or '', model='opus', sys_p=(j.get('sys') or '') + RULE, timeout=150)
         if isinstance(r, dict): txt, mem = r.get('tra_loi'), r.get('nho')
     except Exception as e: print('Claude lỗi:', repr(e)[:200])
     print('trả lời', j['id'], 'xong' if txt else 'LỖI', call('zbotDone', id=j['id'], text=txt or '', mem=mem or [], fail=0 if txt else 1))
 def main():
     if '--serve' in sys.argv:   # bật sẵn tối đa ~5 giờ 40 phút (GitHub cho 6 giờ / lượt), lịch tự bật lại
         end = time.time() + 5.6 * 3600
-        import nao as N; N.ready()
+        import nao as N
+        os.makedirs(getattr(N.L, 'TMP', '/tmp'), exist_ok=True)   # thiếu thư mục làm việc → Claude báo FileNotFoundError (lỗi 18/11)
+        import shutil; print('Claude sẵn sàng:', N.ready(), shutil.which('claude') or 'KHÔNG THẤY lệnh claude')
         while time.time() < end:
             try:
                 r = call('zbotNext', timeout=90)
