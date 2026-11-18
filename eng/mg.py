@@ -304,6 +304,12 @@ PALS = [   # chủ dặn 12/11: không bó theo tông web nữa – mỗi clip m
     (['#0c0a1a', '#141028', '#1c1636', '#251d46', '#2f2659'], ['#c9a7f0', '#ddc4fa', '#efe2ff', '#7d5fb0', '#a283d6', '#f8f2ff']),   # tím đêm – oải hương
     (['#140d06', '#1e140a', '#281b0e', '#342313', '#432e19'], ['#e3a35a', '#f2c17f', '#f9dcb0', '#9a6328', '#c0803c', '#fff0d9']),   # nâu cà phê – cam đồng
     (['#06101f', '#0a182e', '#0e203d', '#132a4f', '#1a3866'], ['#7fb2ff', '#a9cbff', '#d6e6ff', '#3f6fc0', '#5b8ee0', '#f0f6ff']),   # xanh navy – xanh trời
+    (['#06140c', '#0a1e12', '#0e2818', '#13341f', '#1a4229'], ['#d9c27a', '#ecd99a', '#f6ecc6', '#8f7a3a', '#b39a4e', '#fbf5df']),   # lục bảo – vàng rơm (18/11)
+    (['#0e0e10', '#161618', '#1e1e21', '#28282c', '#34343a'], ['#ff5a4e', '#ff8a7f', '#ffd0ca', '#a8302a', '#d4443b', '#fff0ee']),   # than chì – đỏ son
+    (['#0b1012', '#11181b', '#172024', '#1e2a2f', '#27363c'], ['#c6f36b', '#daf89c', '#effcd2', '#7aa33a', '#9dcc4e', '#f8ffe9']),   # đá phiến – xanh chanh
+    (['#0a0d1a', '#101527', '#161d35', '#1d2644', '#263156'], ['#ff8f6b', '#ffb093', '#ffd9cb', '#b8553a', '#e0704f', '#fff1eb']),   # mực đêm – san hô
+    (['#12110a', '#1b1a10', '#252316', '#302e1d', '#3d3a26'], ['#e8d6a8', '#f2e5c2', '#faf2de', '#a39066', '#c4b081', '#fffaf0']),   # ô liu – cát
+    (['#10061a', '#180a26', '#210f33', '#2b1442', '#371a55'], ['#ff6ad5', '#ff9be3', '#ffd2f3', '#a83a8c', '#d64fb3', '#fff0fb']),   # nửa đêm – hồng tím neon
 ]
 PAL_TVC = [   # TVC nữ tính, sáng trong: nền ngà / hồng phấn, nhấn champagne – rose gold
     (['#f6efe8', '#efe4da', '#e8d9cc', '#dccab9', '#cdb7a2'], ['#b98a5e', '#d4a978', '#8a6142', '#a0744f', '#c39466', '#fff8f0']),
@@ -312,7 +318,7 @@ PAL_TVC = [   # TVC nữ tính, sáng trong: nền ngà / hồng phấn, nhấn 
 def render(loai, out, dur, clip=None, n=0, work=None, log=print, seed=None, tz=False, pal=None):
     global K, G
     r0 = random.Random(str(seed or out) + '|pal')
-    k_, g_ = r0.choice(PAL_TVC if pal == 'tvc' else PALS)
+    k_, g_ = PALS[pal % len(PALS)] if isinstance(pal, int) else r0.choice(PAL_TVC if pal == 'tvc' else PALS)   # 18/11: bảng màu do sổ sáng tạo chọn (khác các project gần đây)
     K = list(k_); G = dict(zip(['g1', 'g2', 'g3', 'g4', 'g5', 'g6'], g_))
     return _render(loai, out, dur, clip, n, work, log, seed, tz)
 def _fx(r):   # lóe sáng, vệt sáng phim, bụi bokeh, rung nhẹ – chuyển động chậm, mượt (chủ dặn 12/11)

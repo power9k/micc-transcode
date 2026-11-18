@@ -273,6 +273,8 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 - Các kịch bản KHÔNG được trùng chủ đề / trùng ý chính với nhau. ĐƯỢC mượn lại cảnh (kể cả câu kết) đã dùng ở kịch bản khác, nhưng phải hợp nội dung kịch bản, đúng nhân vật đang nói, và cùng buổi quay (cùng trang phục) – không ghép cảnh người nói mặc đồ khác buổi.
 - Đã có NHẬT KÝ HÌNH (Claude xem mọi khung hình chính) + nhãn âm thanh cho từng video: A-roll tránh đoạn ghi "ngập ngừng / quay đi / ra hiệu cắt / mờ / rung"; cảnh phụ chọn đoạn điểm ≥ 7, máy chạy mượt, nội dung KHỚP lời; tránh đoạn có gió/ù, ồn nếu lấy tiếng.
 - Câu đầu = câu hút (hook) mạnh nhất; câu cuối = kết trọn ý / kêu gọi.
+- HOOK 3 GIÂY ĐẦU (chủ dặn 18/11 – phải hấp dẫn hơn nữa): câu mở phải khiến người xem DỪNG LƯỚT ngay – con số bất ngờ, nghịch lý, câu hỏi gây tò mò / tranh cãi, đánh trúng nỗi đau hoặc lợi ích lớn nhất, lời hứa cụ thể. Lấy câu "đắt" nhất ở giữa / cuối buổi quay đưa lên đầu. CẤM mở bằng chào hỏi, giới thiệu tên, "hôm nay mình sẽ…", câu dẫn dắt chung chung. Kể cả khi có file kịch bản: được chèn 1 câu teaser 2–4 giây (câu mạnh nhất) lên trước rồi mới theo đúng thứ tự file. Chữ nhấn của hook ngắn, cực mạnh (≤ 7 chữ).
+- MỖI VIDEO PHẢI KHÁC BIỆT (chủ dặn 18/11): không lặp lại công thức / nhịp / cách mở của các video khác – càng mới, càng lạ càng tốt.
 - Chữ: KHÔNG chạy phụ đề theo lời. Cứ 1–3 giây phải có 1 cụm chữ nhấn (video 60 s ≈ 25–35 cụm), hiện đúng lúc người nói nói chữ đó ("tu"); chọn chữ ĐẮT (số liệu, tên riêng, tính từ mạnh, lợi ích), không chép cả câu: "big" = TỪ KHÓA viết hoa ≤ 3 từ (số liệu, tên dự án, lợi ích), "small" = 1 dòng phụ ≤ 6 từ. Đúng chính tả tiếng Việt, trọn nghĩa.'''
 SYS = '''Bạn là editor video ngắn (TikTok/Reels dọc 9:16) chuyên nghiệp của team truyền thông MICC (bất động sản + đào tạo).
 Bạn nhận toàn bộ source của 1 buổi quay: lời thoại có mốc thời gian, chất lượng hình, ảnh khung hình. Hãy lên kế hoạch DỰNG các video ngắn.
@@ -782,7 +784,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             if PRO.get('notrans'): continue   # TVC sang trọng: cắt mềm, không hiệu ứng chuyển cảnh giật
             nm, eid = FX_TR[len(trans) % len(FX_TR)]
             trans.append(dict(name=nm, effect_id=eid, at=round(T, 3), dur_s=.4))
-            if PRO.get('sfx', True): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(T - .25, 3)), vol=.3, dur=0.58))
+            if PRO.get('sfx', True): sfx.append(sf('wh', T - .25, .3))
             if nm == 'Glare II' and not fx: fx.append(dict(preset='effect_lens_flare.json', t0=round(T, 3), dur_s=.6))
     # ---- Claude kiểm duyệt yêu cầu PHỦ cảnh phụ lên đoạn đang có lời mà hình không có người / khung xấu (phu_canh_phu)
     poolC = [a for a in A.values() if a['vid'].get('broll') or not a.get('segs')]
@@ -931,8 +933,8 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             y = PRO.get('title_y', y)
         if ti.get('y'): y = max(12.0, min(80.0, float(ti['y'])))   # vị trí Claude kiểm duyệt yêu cầu
         titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=False, anim=n, si=si, yfix=bool(ti.get('y')), onb=on_b))
-        if num and PRO.get('sfx', True): sfx.append(dict(file='SFX tit thong tin.wav', t=round(max(0, T - .02), 3), vol=.2, dur=0.34))   # tiếng "tít" khi thông tin / số liệu hiện
-        elif n % 3 == 0 and PRO.get('sfx', True): sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
+        if num and PRO.get('sfx', True): sfx.append(sf('info', T - .02, .2))   # tiếng "tít" khi thông tin / số liệu hiện
+        elif n % int(CUR.get('popk') or 3) == 0 and PRO.get('sfx', True): sfx.append(sf('pop', T - .02, .12))
         if (num or n % 3 == 0) and T - lastp >= 4.0:   # giật zoom có chủ đích: số liệu / từ khóa mạnh, cách nhau ≥ 4 s
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh.get('face') and sh['t0'] + .2 < T < sh['t1'] - .35:
@@ -1005,7 +1007,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             sh = next((x for x in shots if x['t0'] + .2 < dp < x['t1'] - .3 and x['line'] == 'A'), None)
             if sh and sh.get('face') and not sh.get('nz') and PRO.get('punch', True): sh['keys'] = punch(sh['keys'], dp, 1.15, 1.16, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
     for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
-    sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
+    sfx.insert(0, sf('open', 0.0, .2))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
     if parts:   # nhạc mix: mỗi bài 1 đoạn, đổi bài đúng chỗ ngắt câu, chồng 0,8 s cho chuyển mượt; nhịp cắt cảnh theo bài đang phát
         cutsA = sorted({round(p[3], 3) for p in pieces} | {total})
@@ -1061,11 +1063,11 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for a_, b_ in zip(ashots, ashots[1:]):   # khít liền, không hở
         if abs(a_['t1'] - b_['t0']) < .02: a_['t1'] = b_['t0']; a_['keys'][-1][0] = b_['t0']
     # SFX sinh động: whoosh khi cảnh phụ vào (cách nhau ≥ 2 s), "tách" nhẹ khi đổi cảnh phụ liền nhau
-    wt = [x['t'] for x in sfx if 'whoosh' in x['file']]
+    wt = [x['t'] for x in sfx if 'whoosh' in x['file']]; whg = float(CUR.get('whgap') or 2.0)
     for k_, b in enumerate(bshots):
         prev = bshots[k_ - 1] if k_ else None
         if prev is not None and abs(prev['t1'] - b['t0']) < .01: continue
-        if PRO.get('sfx', True) and all(abs(b['t0'] - w) >= 2.0 for w in wt): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(b['t0'] - .22, 3)), vol=.22, dur=0.58)); wt.append(b['t0'])
+        if PRO.get('sfx', True) and all(abs(b['t0'] - w) >= whg for w in wt): sfx.append(sf('wh', b['t0'] - .22, .22)); wt.append(b['t0'])
     for x in sfx:
         if '/' not in x['file']: x['file'] = KSUB['sfx'] + '/' + x['file']
     for x in mus:
@@ -1142,7 +1144,7 @@ def kho():   # KHO DÙNG CHUNG (chủ dặn 11/11): SETUP/Kho AI tải về/{Fon
             if not lq("'%s' in parents" % d['id'], 'id'): L.drive('files/' + d['id'], {'trashed': True}, method='PATCH')
         except Exception: pass
     have = {key: {x['name'] for x in lq("'%s' in parents" % _KHO[key], 'id,name')} for key in ('font', 'sfx', 'music')}
-    for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):   # chép 1 lần từ thư viện mẫu cũ
+    for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType') + lq("'%s' in parents and trashed=false and name contains 'SFX'" % SFXLIB2, 'id,name,mimeType'):   # chép 1 lần từ thư viện mẫu cũ (+ thư viện âm thanh hiệu ứng đầy đủ – chủ dặn 18/11)
         if f.get('mimeType') == L.FOLDER or f['name'].startswith(LIB_SKIP): continue
         key = 'font' if f['name'].lower().endswith(('.ttf', '.otf')) else ('sfx' if re.match(r'(?i)sfx', f['name']) else ('music' if 'audio' in (f.get('mimeType') or '') or f['name'].lower().endswith(('.mp3', '.wav', '.m4a')) else None))
         if not key or f['name'] in have[key]: continue
@@ -1216,13 +1218,15 @@ def ai_music(jb, sc, host, proj):   # chủ dặn 12/11: nhạc nền AI (Eleven
              'Chia video thành 1–4 ĐOẠN NHẠC theo các đổi ý / đổi cảm xúc của kịch bản (mỗi đoạn ≥ 12 giây; các đoạn nối liền phủ 0→100%). Mỗi đoạn là 1 bài nhạc riêng sẽ được ghép lại.\n' +
              (('PHONG CÁCH NHẠC BẮT BUỘC CỦA KỊCH BẢN NÀY (thay gu mặc định; các đoạn có thể biến tấu nhưng giữ đúng dòng này): ' + PRO['music'][(int(sc.get('_n') or 1) - 1) % len(PRO['music'])] + '\n') if PRO.get('music') else '') +
              'Gu của chủ: nhạc LUÔN ngầu, hiện đại, kịch tính, có gu – trap, drill, bass house, cinematic hybrid, rock / blues nặng cho đoạn quy mô / sức mạnh / con số lớn; '
-             'jazz, bossa nova, valse, bedroom pop, dream pop, lo-fi sang cho đoạn nhẹ / phong cách sống. KHÔNG nhạc quảng cáo sến, KHÔNG vui tươi trẻ con, KHÔNG da diết, KHÔNG ambient / thiền.\n'
+             'jazz, bossa nova, valse, bedroom pop, dream pop, lo-fi sang cho đoạn nhẹ / phong cách sống. KHÔNG nhạc quảng cáo sến, KHÔNG vui tươi trẻ con, KHÔNG da diết, KHÔNG ambient / thiền.\n' +
+             (('NHẠC CÁC PROJECT GẦN ĐÂY – BẮT BUỘC KHÁC HẲN (khác thể loại, nhạc cụ chủ đạo, BPM, giọng điệu, cấu trúc; chủ dặn 18/11 nhạc không được giống nhau):\n' + '\n'.join('- ' + m for e in (CUR.get('hist') or [])[-12:] for m in (e.get('music') or [])[:2]) + '\n') if any(e.get('music') for e in (CUR.get('hist') or [])) else '') +
              'Với MỖI đoạn viết "prompt" TIẾNG ANH CỰC KỲ CHI TIẾT, DÀI 3200–4000 KÝ TỰ (gần tối đa 4100) cho ElevenLabs Music, gồm: thể loại & tiểu thể loại, cảm xúc & năng lượng theo từng giây của đoạn, BPM chính xác, giọng điệu (key/scale), '
              'nhạc cụ cụ thể (drum kit, 808, hi-hat rolls, synth bass, strings, brass, piano, guitar… và cách chơi), cấu trúc theo thời gian (intro / build / drop / break / outro với mốc giây), '
              'chỗ dồn / điểm nhấn trùng các câu quan trọng, chuyển đoạn mượt sang đoạn sau, kỹ thuật mix (để trống dải tần giọng nói 1–4 kHz, nhạc làm NỀN dưới lời thoại, không lấn giọng), '
              'và nhấn mạnh: "instrumental only, no vocals, no singing, no humming, no spoken words, no choir". Không nhắc tên nghệ sĩ / bài hát có bản quyền.\n'
              'Trả JSON {"doan":[{"tu": % bắt đầu, "den": % kết thúc, "cam_xuc":"ngắn", "prompt":"..."}]}')
         j = N.ask_json(q, model='opus', key='doan', log=log) or {}
+        CUR['music'] = [('%s: %s' % (d.get('cam_xuc') or '', str(d.get('prompt') or '')[:160])) for d in (j.get('doan') or [])]
         parts = []; os.makedirs(MGW, exist_ok=True)
         for k, d in enumerate(j.get('doan') or []):
             f0, f1 = max(0, min(1, float(d['tu']) / 100)), max(0, min(1, float(d['den']) / 100))
@@ -1818,7 +1822,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
         if not (a['vid'].get('broll') or not a.get('segs')): continue
         for x in sorted(((a.get('vlog') or {}).get('doan') or []), key=lambda x: -float(x.get('diem') or 0))[:2]:
             if float(x.get('diem') or 0) >= 7: rows.append('#%d %.1f–%.1fs: %s' % (a['i'], float(x['s']), float(x['e']), str(x.get('noi_dung') or '')[:90]))
-    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log); mlog('Claude chọn motion:', json.dumps(picks, ensure_ascii=False)[:400])
+    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log, avoid='\n'.join('- ' + ' → '.join(e.get('mg') or []) for e in (CUR.get('hist') or [])[-10:] if e.get('mg'))); CUR['mg'] = [str(p.get('loai')) for p in picks if isinstance(p, dict)]; mlog('Claude chọn motion:', json.dumps(picks, ensure_ascii=False)[:400])
     except Exception as e: mlog('Claude chưa chọn được đoạn motion graphic:', repr(e)); return pl
     out, last = [], -9.0
     for p in sorted([p for p in picks if isinstance(p, dict)], key=lambda p: float(p.get('s') or 0)):
@@ -1837,7 +1841,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
             os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
             tz_ = any(min(e_, z['t1']) - max(s_, z['t0']) > .15 for z in pl.get('titles') or [])   # có chữ CapCut trong đoạn này → motion graphic chừa vùng chữ phía trên
-            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_, pal=PRO.get('mgpal'))
+            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_, pal=PRO.get('mgpal') or CUR.get('pal'))
             out.append((s_, e_, o, nm)); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
         except Exception as e: mlog('bỏ 1 motion graphic:', repr(e)[:500])
@@ -1958,7 +1962,7 @@ def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover 
     return ids
 def _publish(jb, sc, n, host, proj, rel, adir):
     global CW, CH
-    PRO.clear(); PRO.update(profile(jb)); CW, CH = PRO.get('canvas') or (1080, 1920)   # phong cách riêng của bộ source (vd Royal Island: TVC 16:9)
+    PRO.clear(); PRO.update(profile(jb)); CW, CH = PRO.get('canvas') or (1080, 1920); cur_pick(proj)   # phong cách riêng của bộ source (vd Royal Island: TVC 16:9)
     a0 = jb['A'][0]
     mu = ai_music(jb, sc, host, proj) or pick_mix(jb, sc); claude_grades(jb, sc)
     pl = build_plan(jb, sc, proj, adir, mu, None)
@@ -1975,6 +1979,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         cf, ch_ = pick_cover(jb, pl, adir)
         if cf: pl['cover'], pl['coverh'] = cf, ch_
     except Exception as e: mlog('pick_cover hỏng:', repr(e)[:400])
+    cur_save(pl)
     try: ad_, ix_ = idx_now(); jput('mglog_%s.json' % re.sub(r'[^A-Za-z0-9]+', '_', L.norm1(proj))[:80], dict(t=time.time(), proj=proj, log=MGLOG), ad_, ix_)
     except Exception: pass
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
@@ -1998,7 +2003,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if any((c.get('appProperties') or {}).get('dungS') == slot or vbase(c['name']) == vbase(proj) for c in new_):
         log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)
     bare = bare_nm
-    old_ = [c for c in old_ if (c.get('appProperties') or {}).get('dungS') == slot or vbase(c['name']) == vbase(proj)]   # chỉ bản cũ của ĐÚNG kịch bản này (không đụng project khác cùng thư mục)
+    old_ = [c for c in old_ if (c.get('appProperties') or {}).get('dungS') == slot or vbase(c['name']) == vbase(proj) or host in set((jb.get('kbtop') or {}).values())]   # 18/11: thư mục Kịch bản N chỉ 1 project → bản dựng lại thay đúng project trong thư mục đó   # chỉ bản cũ của ĐÚNG kịch bản này (không đụng project khác cùng thư mục)
     keep_ = [c for c in old_ if user_edited(c)]
     old_ = [c for c in old_ if c not in keep_]
     proj0 = proj
@@ -2182,6 +2187,40 @@ def jput(name, obj, ad, idx):
     data = json.dumps(obj, ensure_ascii=False).encode('utf-8')
     if name in idx: update(idx[name], data, 'application/json')
     else: idx[name] = put(name, ad, data, 'application/json')['id']
+# ---------------------------------------------------------------- SỔ SÁNG TẠO (chủ dặn 18/11): mỗi project phải KHÁC các project trước – nhạc, motion graphic, bảng màu, bộ âm thanh hiệu ứng, trình tự hiệu ứng
+CUR = {}
+def st_hist():
+    try: ad_, ix_ = idx_now(); return ((jget('sang_tao.json', ix_) or {}).get('L') or [])[-40:]
+    except Exception: return []
+def st_add(e):
+    try: ad_, ix_ = idx_now(); d_ = jget('sang_tao.json', ix_) or {}; L_ = (d_.get('L') or [])[-80:]; L_.append(e); jput('sang_tao.json', dict(L=L_), ad_, ix_)
+    except Exception as x: log('  sổ sáng tạo lỗi', repr(x)[:120])
+SFXP = {   # (tên file, bỏ đầu giây, cỡ file) – kho "AI tải về" đủ bộ, máy tự chép sang Kho AI tải về / Âm thanh hiệu ứng
+    'open': [('SFX impact epic 01.wav', 1.25, 907596), ('SFX impact boom 01.wav', 0, 858396), ('SFX impact boom 02.wav', 0, 973846), ('SFX sub drop 01.wav', 0, 486834), ('SFX 808 hit 01.wav', 0, 269880), ('SFX reverse cymbal 01.wav', 0, 388124), ('SFX glitch 01.wav', 0, 220754), ('SFX sub bass 01.wav', 0, 530076)],
+    'wh': [('SFX whoosh mem.wav', 0, 111404), ('SFX whoosh mem 01.wav', 0, 1042904), ('SFX whoosh mem 02.wav', 0, 540656), ('SFX whoosh mem 03.wav', 0, 614126), ('SFX whoosh nhanh 01.wav', 0, 186474), ('SFX whoosh nhanh 02.wav', 0, 194084), ('SFX whoosh nhanh 03.wav', 0, 151978), ('SFX whoosh dien anh 01.wav', 0, 235384)],
+    'info': [('SFX tit thong tin.wav', 0, 65324), ('SFX ding nhan manh 01.wav', 0, 345970), ('SFX ding nhan manh 02.wav', 0, 368230), ('SFX ding nhan manh 03.wav', 0, 222404), ('SFX ping vi tri 01.wav', 0, 546078), ('SFX ping vi tri 02.wav', 0, 182654), ('SFX tien xu 02.wav', 0, 347756), ('SFX click chuot 02.wav', 0, 62786), ('SFX chup anh 02.wav', 0, 62562)],
+    'pop': [('SFX pop chu 01.wav', 0, 208686), ('SFX pop chu 02.wav', 0, 173318), ('SFX pop chu 03.wav', 0, 134032), ('SFX pop chu 04.wav', 0, 195282), ('SFX click chuot 03.wav', 0, 146930), ('SFX sparkle 01.wav', 0, 620356)]}
+SFXCAP = {'open': 5.2, 'wh': .9, 'info': .6, 'pop': .35}
+SFXLIB2 = '1T3MvisWB11btitmglx8vztTY5uosv1JU'   # thư viện âm thanh hiệu ứng đầy đủ
+def cur_pick(proj):   # chọn bộ âm thanh + bảng màu + nhịp KHÁC các project gần đây
+    H = st_hist(); rd = random.Random('%s|%s' % (proj, time.time())); CUR.clear(); CUR.update(proj=proj, hist=H)
+    rec = H[-6:]; S_ = {}
+    for role, pool in SFXP.items():
+        used = [((e.get('sfx') or {}).get(role) or []) for e in rec]; usedf = {x for u in used for x in (u if isinstance(u, list) else [u])}
+        c = [x for x in pool if x[0] not in usedf] or pool; rd.shuffle(c); S_[role] = c[:2] if role in ('wh', 'pop', 'info') else c[:1]
+    CUR['sfx'] = S_; CUR['popk'] = rd.choice([k for k in (2, 3, 4, 5) if k != (rec[-1].get('popk') if rec else 0)] or [3]); CUR['whgap'] = rd.choice([1.6, 2.0, 2.6, 3.2])
+    upal = [e.get('pal') for e in H[-8:] if e.get('pal') is not None]; pals = [i for i in range(12) if i not in upal] or list(range(12)); CUR['pal'] = rd.choice(pals)
+    CUR['n'] = {}
+def sf(role, t, vol):   # 1 tiếng hiệu ứng theo bộ đã chọn cho project này (xoay vòng trong bộ)
+    S_ = (CUR.get('sfx') or {}).get(role) or [SFXP[role][0]]; k = CUR.setdefault('n', {}).get(role, 0); CUR['n'][role] = k + 1; f, si, sz = S_[k % len(S_)]
+    est = max(.1, (sz - 44) / 176400.0); d = round(est if role == 'open' else min(SFXCAP[role], est * .9), 3)
+    x = dict(file=f, t=round(max(0, t), 3), vol=vol, dur=d)
+    if si: x['src_in'] = si
+    return x
+def cur_save(pl):
+    try: st_add(dict(t=int(time.time()), proj=CUR.get('proj'), sfx={r: [x[0] for x in v] for r, v in (CUR.get('sfx') or {}).items()}, popk=CUR.get('popk'), whgap=CUR.get('whgap'), pal=CUR.get('pal'),
+                     mg=CUR.get('mg') or [], music=CUR.get('music') or [], hook=CUR.get('hook') or ''))
+    except Exception: pass
 def st_name(jb, n): return '%s_kb%d_L%s.json' % (jb['id'], n, LV)   # trạng thái từng kịch bản theo kiểu dựng (đổi kiểu → dựng lại, bản cũ được thay)
 
 def tasks(jobs=None):
@@ -2508,6 +2547,19 @@ def drop_projects():
     except Exception as e: log('  không xóa được project Academy / Sự kiện:', e)
 def pending():
     drop_projects()
+    try:   # 18/11: chủ dặn DỰNG LẠI The Fullton – lên kịch bản lại (hook hấp dẫn hơn) + dựng mới khác biệt (nhạc / motion / âm thanh hiệu ứng), thay vào đúng project cũ (thêm v2)
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF1') != '1':
+            L.mark(LISTF, dungRF1='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
+            for nm_, id_ in list(ix_.items()):
+                if nm_.startswith(sid_ + '_kichban') or nm_.startswith(sid_ + '_kb'):
+                    try: L.drive('files/' + id_, {'trashed': True}, method='PATCH'); k_ += 1
+                    except Exception: pass
+            for h_ in ('1XKLN8IqUZUazW1ntWZCdaAdUeIBmQuEw', '1lOtfRWCj9be3EYPiqkY4IfLBFQbLD6Ko', sid_):
+                for c_ in lq("'%s' in parents and appProperties has { key='dungP' and value='1' } and trashed=false" % h_, 'id,name'):
+                    try: L.drive('files/' + c_['id'], {'appProperties': {'dungL': 'redo'}}, method='PATCH'); log('  The Fullton: đánh dấu dựng lại', c_['name'])
+                    except Exception: pass
+            L.mark(sid_, dungV=None, dungPV=None, dungFail=None, dungFailV=None, dungLock=None); log('  The Fullton: bỏ %d file kịch bản cũ → lên kịch bản + dựng lại' % k_)
+    except Exception as e: log('  dựng lại The Fullton lỗi', repr(e)[:200])
     try:   # 15/11: 26 kịch bản Academy bị bỏ vì lỗi tạm (luật cũ bỏ luôn) → đặt lại để dựng tiếp
         if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRA3') != '1':
             L.mark(LISTF, dungRA3='1'); sid_ = '141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'; ad_, ix_ = idx_now(); bk_ = jget('%s_kichban.json' % sid_, ix_) or {}; k_ = 0

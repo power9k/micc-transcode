@@ -36,3 +36,4 @@ Mọi phiên Claude làm việc với hệ thống này dùng chung sổ này. C
 - 17/11 (phiên chính): quy tắc đánh số phiên bản web (mục trên). Web đang ở 263.55; yêu cầu mới tiếp theo → 264.1.
 - 17/11 (phiên chính): bật lại máy dựng (`PAUSE = False`) để dựng source mới The Fullton (SOURCE/Kịch bản 7, 8). Academy + Sự kiện vẫn bỏ qua.
 - 17/11 (phiên chính): thư mục có file kịch bản đính kèm → dựng KHÔNG giới hạn thời lượng, đủ mọi ý theo kịch bản.
+- 18/11 (phiên chính): chủ dặn mỗi project phải KHÁC BIỆT (motion graphic, bảng màu, nhạc, bộ + trình tự âm thanh hiệu ứng không lặp project cũ) → 'sổ sáng tạo' sang_tao.json trong kho phân tích, cur_pick/sf trong dung.py; hook 3 giây đầu phải hấp dẫn hơn. Dựng lại The Fullton (one-shot dungRF1).
