@@ -14,7 +14,8 @@ def answer(j):
     os.makedirs(getattr(N.L, 'TMP', '/tmp'), exist_ok=True)
     txt = mem = None
     try:
-        r = N.ask_json(j.get('user') or '', model='opus', sys_p=(j.get('sys') or '') + RULE, timeout=150)
+        fx = lambda t: str(t or '').encode('utf-16', 'surrogatepass').decode('utf-16', 'replace')   # emoji bị cắt đôi (nửa ký tự) → Claude báo UnicodeEncodeError (lỗi 18/11)
+        r = N.ask_json(fx(j.get('user')), model='opus', sys_p=fx(j.get('sys')) + RULE, timeout=150)
         if isinstance(r, dict): txt, mem = r.get('tra_loi'), r.get('nho')
     except Exception as e: print('Claude lỗi:', repr(e)[:200])
     print('trả lời', j['id'], 'xong' if txt else 'LỖI', call('zbotDone', id=j['id'], text=txt or '', mem=mem or [], fail=0 if txt else 1))
