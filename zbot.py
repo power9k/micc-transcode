@@ -26,7 +26,7 @@ def main():
         import shutil; print('Claude sẵn sàng:', N.ready(), shutil.which('claude') or 'KHÔNG THẤY lệnh claude')
         while time.time() < end:
             try:
-                r = call('zbotNext', timeout=90)
+                r = call('zbotNext', timeout=150)
                 if r.get('job'): print('nhận câu hỏi', r['job'].get('id'), 'của', r['job'].get('name')); answer(r['job'])
                 elif r.get('error') or r.get('ok') is False: print('máy chủ báo:', str(r)[:200]); time.sleep(5)
             except Exception as e: print('hỏi máy chủ lỗi:', repr(e)[:160]); time.sleep(5)
