@@ -10,7 +10,7 @@ import os, sys, json, time, re, subprocess, base64, glob, shutil, hashlib, urlli
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 API, SEC = os.environ['MICC_API'], os.environ['MICC_SECRET']
-SITE = os.environ.get('MICC_SITE', 'https://miccmedia.edgeone.dev').rstrip('/')
+SITE = os.environ.get('MICC_SITE', 'https://miccmedia.pages.dev').rstrip('/')   # bản 304.1: web chuyển sang Cloudflare
 ROOT = os.environ.get('MICC_ROOT', '1-26OvV9W2MuApRRgK43URqgiC-b07MfV')
 T0, MAXMIN = time.time(), float(os.environ.get('MAX_MIN', '330'))
 TMP = os.environ.get('LOC_TMP', '/tmp/loc')
@@ -920,20 +920,32 @@ def tc_img(fid, mime):
             b = open(out, 'rb').read(); os.remove(out); return b if len(b) > 800 else None
         except Exception: return None
     return None
-def tc_put(b, fid, parent, old=''):
-    if old:  # file đổi → thay nội dung ảnh nhỏ cũ (giữ nguyên id)
-        try: http(G + '/upload/drive/v3/files/' + old + '?uploadType=media&supportsAllDrives=true&fields=id', bytes(b), {'Authorization': 'Bearer ' + tok(), 'Content-Type': 'image/jpeg'}, 'PATCH'); return old
+CFW = os.environ.get('MICC_CF', 'https://miccmedia.pages.dev')
+def cf_tc(qs, body=None):   # bản 304.1 (chủ dặn): thumbnail lưu ở Cloudflare (D1) thay cho Drive
+    req = urllib.request.Request(CFW + '/__tcput?' + qs, data=body if body is not None else b'', method='POST', headers={'x-px': SEC, 'Content-Type': 'image/jpeg', 'User-Agent': 'micc-github'})
+    with urllib.request.urlopen(req, timeout=60) as r: return json.loads(r.read() or b'{}')
+def tc_put(b, fid, parent, old='', size=''):
+    cf_tc(urllib.parse.urlencode({'id': fid, 'v': size}), bytes(b))
+    if old and old != 'cf':   # ảnh nhỏ cũ trên Drive → bỏ (đã chuyển sang Cloudflare)
+        try: drive('files/' + old, None, 'DELETE')
         except Exception: pass
-    bd = 'tc' + hashlib.md5(fid.encode()).hexdigest()[:12]
-    body = ('--%s\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' % bd).encode() + json.dumps({'name': fid + '.jpg', 'parents': [parent], 'appProperties': {'tcOf': fid}}).encode() + ('\r\n--%s\r\nContent-Type: image/jpeg\r\n\r\n' % bd).encode() + bytes(b) + ('\r\n--%s--' % bd).encode()
-    return http(G + '/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id', body, {'Authorization': 'Bearer ' + tok(), 'Content-Type': 'multipart/related; boundary=' + bd})['id']
+    return 'cf'
+def tc_old(old):   # tải lại ảnh nhỏ cũ trên Drive (nhanh hơn tạo lại) để chuyển sang Cloudflare
+    try:
+        req = urllib.request.Request(G + '/drive/v3/files/' + old + '?alt=media&supportsAllDrives=true', headers={'Authorization': 'Bearer ' + tok()})
+        with urllib.request.urlopen(req, timeout=60) as r: b = r.read()
+        return b if len(b) > 800 else None
+    except Exception: return None
 def tcache(budget=240):
     t0 = time.time()
     try: r = api('tcNeed', limit=400)
     except Exception as e: log('  ảnh nhỏ: máy chủ chưa sẵn sàng –', str(e)[:160]); return
     ok = []
     for fid, tid in (r.get('gone') or []):  # file gốc đã xóa → xóa ảnh nhỏ theo
-        try: drive('files/' + tid, None, 'DELETE'); ok.append(fid)
+        try:
+            if tid == 'cf': cf_tc('del=' + fid)
+            else: drive('files/' + tid, None, 'DELETE')
+            ok.append(fid)
         except Exception as e:
             if '404' in str(e): ok.append(fid)
             else: log('  không xóa được ảnh nhỏ', tid, str(e)[:120])
@@ -941,9 +953,9 @@ def tcache(budget=240):
     need, done, n = r.get('need') or [], [], 0
     def one(it):
         if time.time() - t0 > budget: return None
-        fid, name, mime, size, old = it
-        b = tc_img(fid, mime)
-        return [fid, tc_put(b, fid, r['folder'], old), str(size)] if b else None
+        fid, name, mime, size, old = it[:5]
+        b = (tc_old(old) if old and old != 'cf' and it[5:6] == ['mv'] else None) or tc_img(fid, mime)
+        return [fid, tc_put(b, fid, r['folder'], old, str(size)), str(size)] if b else None
     with ThreadPoolExecutor(8) as ex:
         for f in as_completed([ex.submit(one, it) for it in need]):
             try: x = f.result()
