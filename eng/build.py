@@ -153,6 +153,14 @@ for k, p in enumerate(PL.get('pips') or []):
     vanim(sg, 'Fade Out', '6798320902548230669', 'out', min(.25, (p['t1'] - p['t0']) / 4))
     PIPS.append(sg)
 
+# chủ dặn 18/11 (video mẫu): trong cảnh motion graphic, người nói TÁCH NỀN to ở góc dưới trái, nằm trên khung nội dung
+MATS = []
+for m in PL.get('mattes') or []:
+    try:
+        sg = vseg(m['media'], m['src'], m['t0'], m['t1'], 0.0, [(m['t0'], 1.0, 0.0, 0.0)], label='Người nói tách nền (motion graphic)', matting=True)
+        sg['clip']['scale'] = {'x': round(MEDIA[m['media']]['S0'] * .64, 5), 'y': round(MEDIA[m['media']]['S0'] * .64, 5)}; sg['clip']['transform'] = {'x': -0.3, 'y': -0.34}
+        vanim(sg, 'Fade In', '6798320778182922760', 'in', .25); MATS.append(sg)
+    except Exception as e: print('bỏ người tách nền:', e)
 # transitions (team presets; non-overlap types need no handles)
 TRANS_PRESET = {'6952697917563998722': 'transition_glare_ii.json', '6724226861666144779': 'transition_pull_in.json',
                 '6724226338418332167': 'transition_pull_out.json', '6987208055511323137': 'transition_flash.json'}
@@ -228,7 +236,7 @@ def tmat(text, key, size, fill, shadow):
 def line_seg(text, key, cap_pct, cx_pct, cy_pct, t0, t1, fill, shadow, k):
     f = FONTS[key]; em = cap_pct / 100 * H / f['cap']
     bb = f['pf'].getbbox(text); adv = (bb[2] - bb[0]) / 200 * em
-    if adv > 0.74 * W: em *= 0.74 * W / adv; adv = 0.74 * W   # safe zone: <= ~69% of width
+    if adv > 0.70 * W: em *= 0.70 * W / adv; adv = 0.70 * W   # 18/11 vùng an toàn thật của chủ: x 60–920 px → chữ giữa khung rộng ≤ 70 %
     size = 15.0
     while adv * (6.02 * size / f['typo']) / em > 0.70 * W and size > 4: size -= 0.5
     scale = round(0.93 * em * f['typo'] / (6.02 * size), 4)
@@ -242,7 +250,7 @@ def line_seg(text, key, cap_pct, cx_pct, cy_pct, t0, t1, fill, shadow, k):
 
 def glow(fill):     # owner: keyword glow visible but tasteful -> shadow colour = text colour, alpha 0.5, diffuse 0.3
     rgb, _ = hex2rgba(fill); return {'color': rgb, 'alpha': 0.5, 'diffuse': 0.3, 'distance': 0.0}
-SOFT = {'color': [0, 0, 0], 'alpha': 0.32, 'diffuse': 0.18, 'distance': 1.2}
+SOFT = {'color': [0.36, 0.22, 0.08], 'alpha': 0.34, 'diffuse': 0.22, 'distance': 1.0}   # 18/11 hướng dẫn chủ: không bóng đen xì – bóng mềm màu ấm
 TXs, TREC = [], []
 def place_group(lines, t0, t1, cy, k, bright=False):
     gap = 0.07
@@ -337,11 +345,14 @@ TOTAL = PL['total']
 tr = [track('video', V1, name='A-roll (người nói, tiếng gốc)' if LAYER else 'V1 hình chính (phim dự án 4K + người dẫn)')]
 for k, lane in enumerate(nonover(BSEGS)): tr.append(track('video', lane, flag=2, name='B-roll %d' % (k + 1)))
 for lane in nonover(PIPS): tr.append(track('video', lane, flag=2, name='Khung nổi người nói'))
+for lane in nonover(MATS): tr.append(track('video', lane, flag=2, name='Người nói tách nền (motion graphic)'))
 for lane in nonover(ADJ): tr.append(track('adjust', lane, name='Màu từng cảnh'))
 for lane in nonover(BEH_SEGS): tr.append(track('text', lane, name='Chữ SAU người dẫn'))
 tr.append(track('video', MATTE_SEGS, flag=2, name='Người dẫn bản sao - Xóa nền'))
 for k, lane in enumerate(nonover(TXs)): tr.append(track('text', lane, name='Chữ %d' % (k + 1)))
 tr.append(track('effect', FXs, name='Hiệu ứng video'))
+if PL.get('top') and PL['top'] in MEDIA:   # chủ dặn 18/11: video Remotion hoàn chỉnh nằm track TRÊN CÙNG (tắt tiếng – tiếng ở các track dưới, khớp từng giây)
+    _sg = vseg(PL['top'], 0.0, 0.0, TOTAL, 0.0, [(0.0, 1.0, 0.0, 0.0)]); tr.append(track('video', [_sg], flag=2, name='VIDEO HOÀN CHỈNH (Remotion)'))
 for lane in nonover(SPEECH): tr.append(track('audio', lane, name='Giọng (người dẫn + VO duyệt)'))
 for lane in nonover(MUs): tr.append(track('audio', lane, name='Nhạc nền'))
 for lane in nonover(SFs): tr.append(track('audio', lane, name='SFX'))

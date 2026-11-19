@@ -1,0 +1,30 @@
+name: MICC media - bot Zalo trả lời bằng Claude (máy bật sẵn)
+on:
+  repository_dispatch:
+    types: [zbot]
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: zbot-serve
+  cancel-in-progress: false
+jobs:
+  tra-loi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Cài Claude Code
+        run: npm install -g @anthropic-ai/claude-code >/dev/null 2>&1
+      - name: Bật sẵn chờ câu hỏi, trả lời bằng Claude rồi gửi về bot
+        env:
+          MICC_API: ${{ secrets.MICC_API }}
+          MICC_SECRET: ${{ secrets.MICC_SECRET }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+        run: python3 zbot.py --serve

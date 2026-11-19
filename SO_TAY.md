@@ -18,6 +18,11 @@ Mọi phiên Claude làm việc với hệ thống này dùng chung sổ này. C
 - Báo Zalo: mỗi project AI dựng → nhóm thông báo (+ nhóm test). Mẫu: "🤖 Tên (N giây | X phút Y giây)\n⏱ Dựng mất…\n🔗 link" + ảnh cover 9:16.
 - Royal Island Vũ Yên = TVC điện ảnh 16:9, sáng, nữ tính, sang trọng.
 
+## Đánh số phiên bản web (chủ dặn 17/11)
+- Chủ yêu cầu mới SAU KHI Claude đã cập nhật xong hết → nhảy bản lớn mới, bản nhỏ đầu tiên là .1 (vd đang 263.55 → 264.1).
+- Chủ nhắn thêm yêu cầu TRONG LÚC Claude đang xử lý → mỗi yêu cầu +1 bản nhỏ (264.1 → 264.2 → …).
+- Nhật ký Ctrl + U (`changes.js`) ghi theo bản lớn.
+
 ## Academy (Micc Academy – source `141sOBTH8vLX7SpredUrXE9-EHY5E2JKj`)
 - KHUNG DỌC 9:16, hiệu ứng chữ NHƯ CŨ (không dùng kiểu chữ tự chọn màu của TVC), nhạc AI, motion graphic khi cần.
 - 22 file quay gốc, 261 GB, ~18,3 giờ (buổi 2, 3 có 2 máy quay cùng lúc → nội dung thật ~11 giờ).
@@ -27,9 +32,17 @@ Mọi phiên Claude làm việc với hệ thống này dùng chung sổ này. C
 
 ## Nhật ký
 - 16/11 (phiên chính): chủ bảo DỪNG HẾT → đã hủy mọi lượt chạy, `PAUSE = True`. Sửa lỗi Nexme báo Zalo lặp khi lên kịch bản dở dang. Chủ tách phiên riêng chỉ bàn về video Academy.
+- 16/11 (phiên chính): chủ dặn XÓA HẾT project Academy và project các Sự kiện (vào thùng rác Drive), từ nay KHÔNG tạo project cho Academy và Sự kiện nữa (`DROP` trong dung.py). Máy dựng vẫn đang tạm dừng (`PAUSE = True`).
+- 17/11 (phiên chính): quy tắc đánh số phiên bản web (mục trên). Web đang ở 263.55; yêu cầu mới tiếp theo → 264.1.
+- 17/11 (phiên chính): bật lại máy dựng (`PAUSE = False`) để dựng source mới The Fullton (SOURCE/Kịch bản 7, 8). Academy + Sự kiện vẫn bỏ qua.
+- 17/11 (phiên chính): thư mục có file kịch bản đính kèm → dựng KHÔNG giới hạn thời lượng, đủ mọi ý theo kịch bản.
 - 17/11 (phiên Academy, Remotion): chủ chốt quy trình video Academy mới:
   - Mỗi video 1:30–2:00, lời diễn giải chi tiết, có ví dụ cụ thể; vẫn lên nhiều kịch bản nhất có thể (đã có 54 kịch bản từ 5 file buổi 13/10).
   - Cắt kỹ khoảng nghỉ, hơi thở, ậm ừ; câu nói lặp hay nói hỏng thì cắt còn một lần cho mượt.
   - Không làm nét: dùng thẳng file MP4 gốc chất lượng tốt nhất trên Drive (không dùng .LRF/720p/480p). Âm thanh chỉ lọc tạp âm.
   - Motion graphic phải vui mắt, nhiều hiệu ứng, tràn ngập vùng an toàn. Ví dụ nào được nhắc tới (kênh, người, dự án) phải có hình thật: avatar + tên kênh, ảnh chụp TikTok, video đang chạy, chỉ số like…, không chỉ có chữ.
   - Dựng bằng Remotion. Mốc thời gian từng chữ lấy bằng Whisper chạy trên máy GitHub (workflow riêng `asr-words.yml` trên nhánh claude/…, không đụng main).
+- 18/11 (phiên chính): chủ dặn mỗi project phải KHÁC BIỆT (motion graphic, bảng màu, nhạc, bộ + trình tự âm thanh hiệu ứng không lặp project cũ) → 'sổ sáng tạo' sang_tao.json trong kho phân tích, cur_pick/sf trong dung.py; hook 3 giây đầu phải hấp dẫn hơn. Dựng lại The Fullton (one-shot dungRF1).
+- 18/11 (phiên chính): chủ gửi PDF 'Bộ hướng dẫn dựng video dọc' → huong_dan_dung.md (máy dựng đọc khi lên kịch bản, chọn motion, kiểm duyệt). Vùng an toàn THẬT: x 60–920, y 270–1640 (khung 1080×1920).
+- 18/11 (phiên chính): chủ dặn KHÔNG dùng HyperFrames nữa → mọi motion graphic + video hoàn chỉnh dựng bằng REMOTION (eng/mg.py rm_*, eng/rmvid.py). Mỗi project: dựng trước video Remotion hoàn chỉnh từ đúng kế hoạch dựng, lưu trong thư mục project với ĐÚNG TÊN project (<tên project>.mp4), đặt track TRÊN CÙNG CapCut (tắt tiếng; các track dưới cùng kế hoạch nên khớp từng giây).
+- 18/11 (phiên chính): chủ gửi video Remotion mẫu (v01-80-video-lam-dau-v20.mp4) → bắt chước ~80%: 6 mẫu motion ref_* trong eng/mg.py (render_ref), người nói tách nền góc dưới trái (CapCut matting) trong cảnh motion, mô tả phong cách trong huong_dan_dung.md. Chủ dặn DỪNG mọi project khác: ONLY = 'the fullton' (dựng lại 2 project The Fullton). Muốn chạy lại tất cả: ONLY = ''.

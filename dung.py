@@ -148,12 +148,13 @@ def scan(all_=False):
             if p in sids or (p in by and d < 40 and has_src_anc(by[p], d + 1)): return True
         return False
     srcs = [f for f in srcs if not has_src_anc(f)]   # thư mục source lồng trong source khác → thuộc source cha
-    KB = re.compile(r'^(kịch bản|kich ban|kb)\s*\d', re.I)
+    KB = re.compile(r'^((kịch bản|kich ban|kb)\s*\d|\d+\s*$)', re.I)   # chủ dặn 17/11: thư mục “Kịch bản 1”, “KB1” hoặc chỉ số “1”, “14”… = 1 video
     ok = lambda c: not SKIPDIR.match(nf(c['name'])) and (c.get('appProperties') or {}).get('dungP') != '1' and c['id'] not in EXCL
     jobs, now = [], time.time()
     for s in srcs:   # 1 thư mục SOURCE = 1 lượt: đọc HẾT mọi thư mục con, Claude nhìn tổng thể rồi chia các kịch bản (mỗi cái < 2 phút)
         ap = s.get('appProperties') or {}
-        if ONLY and ONLY not in L.norm1(path_of(s['id'])): continue   # chạy thử bản nâng cấp trên 1 dự án trước
+        if ONLY and ONLY not in L.norm1(path_of(s['id'])): continue
+        if dropped(s['id']): continue   # chủ dặn 16/11: bỏ Academy + Sự kiện   # chạy thử bản nâng cấp trên 1 dự án trước
         if not all_ and not (ap.get('dungPV') != PV) and (ap.get('dungV') == DV or (ap.get('dungFailV') == DV and int(ap.get('dungFail') or 0) >= 3)): continue
         dirs, kbtop, dn, st, hitx = [], {}, {}, [(s, None)], False
         while st:
@@ -166,7 +167,7 @@ def scan(all_=False):
         for d in dirs:
             for c in kids(d):
                 if L.is_video(c) and not c['name'].lower().endswith('.lrf'): vids.append(dict(c, dir=d, broll=bool(kbtop) and d not in kbtop))
-                elif c['mimeType'] in ('application/vnd.google-apps.document', 'text/plain') or c['name'].lower().endswith(('.docx', '.txt')): docs.append(c)
+                elif c['mimeType'] in ('application/vnd.google-apps.document', 'application/vnd.google-apps.spreadsheet', 'text/plain', 'application/pdf') or c['name'].lower().endswith(('.docx', '.doc', '.txt', '.md', '.rtf', '.odt', '.pdf', '.xlsx', '.xls', '.csv')): docs.append(dict(c, dir=d))   # file kịch bản mọi định dạng có chữ
         if hitx and not kbtop: continue   # source có kịch bản chủ tự làm (Center Avenue KB1/KB2) mà không còn kịch bản nào khác
         if not [v for v in vids if not v['broll']]: continue
         last = max(L.ts(v['createdTime']) for v in vids)
@@ -272,6 +273,8 @@ RULES = '''QUY TẮC DỰNG CỦA CHỦ (bắt buộc):
 - Các kịch bản KHÔNG được trùng chủ đề / trùng ý chính với nhau. ĐƯỢC mượn lại cảnh (kể cả câu kết) đã dùng ở kịch bản khác, nhưng phải hợp nội dung kịch bản, đúng nhân vật đang nói, và cùng buổi quay (cùng trang phục) – không ghép cảnh người nói mặc đồ khác buổi.
 - Đã có NHẬT KÝ HÌNH (Claude xem mọi khung hình chính) + nhãn âm thanh cho từng video: A-roll tránh đoạn ghi "ngập ngừng / quay đi / ra hiệu cắt / mờ / rung"; cảnh phụ chọn đoạn điểm ≥ 7, máy chạy mượt, nội dung KHỚP lời; tránh đoạn có gió/ù, ồn nếu lấy tiếng.
 - Câu đầu = câu hút (hook) mạnh nhất; câu cuối = kết trọn ý / kêu gọi.
+- HOOK 3 GIÂY ĐẦU (chủ dặn 18/11 – phải hấp dẫn hơn nữa): câu mở phải khiến người xem DỪNG LƯỚT ngay – con số bất ngờ, nghịch lý, câu hỏi gây tò mò / tranh cãi, đánh trúng nỗi đau hoặc lợi ích lớn nhất, lời hứa cụ thể. Lấy câu "đắt" nhất ở giữa / cuối buổi quay đưa lên đầu. CẤM mở bằng chào hỏi, giới thiệu tên, "hôm nay mình sẽ…", câu dẫn dắt chung chung. Kể cả khi có file kịch bản: được chèn 1 câu teaser 2–4 giây (câu mạnh nhất) lên trước rồi mới theo đúng thứ tự file. Chữ nhấn của hook ngắn, cực mạnh (≤ 7 chữ).
+- MỖI VIDEO PHẢI KHÁC BIỆT (chủ dặn 18/11): không lặp lại công thức / nhịp / cách mở của các video khác – càng mới, càng lạ càng tốt.
 - Chữ: KHÔNG chạy phụ đề theo lời. Cứ 1–3 giây phải có 1 cụm chữ nhấn (video 60 s ≈ 25–35 cụm), hiện đúng lúc người nói nói chữ đó ("tu"); chọn chữ ĐẮT (số liệu, tên riêng, tính từ mạnh, lợi ích), không chép cả câu: "big" = TỪ KHÓA viết hoa ≤ 3 từ (số liệu, tên dự án, lợi ích), "small" = 1 dòng phụ ≤ 6 từ. Đúng chính tả tiếng Việt, trọn nghĩa.'''
 SYS = '''Bạn là editor video ngắn (TikTok/Reels dọc 9:16) chuyên nghiệp của team truyền thông MICC (bất động sản + đào tạo).
 Bạn nhận toàn bộ source của 1 buổi quay: lời thoại có mốc thời gian, chất lượng hình, ảnh khung hình. Hãy lên kế hoạch DỰNG các video ngắn.
@@ -281,24 +284,38 @@ Trả về JSON: {"scripts":[{"ten":"nội dung video, 3–7 chữ, không ghi C
 - broll "cau" = mã câu A-roll mà cảnh phụ bắt đầu che hình (tiếng vẫn là A-roll); "s","e" = giây trong video cảnh phụ, mỗi cảnh 1.5–3.5 giây.
 - titles "cau" = mã câu có từ khóa đó.
 - Không có kịch bản dựng được (source hỏng / chỉ thử máy) → {"scripts":[]}.'''
+GUIDE = (lambda p: open(p, encoding='utf-8').read() if os.path.exists(p) else '')(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'huong_dan_dung.md'))   # chủ gửi PDF 18/11: bộ hướng dẫn dựng video dọc
 _RX = []
 def rules_extra():   # quy tắc chủ dặn thêm (file "Quy tắc dựng AI.md" trong AI dựng CapCut – sửa file là AI làm theo, không cần sửa code)
     if not _RX:
         try:
             f = lq("'%s' in parents and name='Quy tắc dựng AI.md' and trashed=false" % cache_dir(), 'id')
-            _RX.append(('\n\nQUY TẮC CHỦ DẶN THÊM (bắt buộc):\n' + raw(f[0]['id']).decode('utf-8')[:9000]) if f else '')
+            _RX.append((('\n\nQUY TẮC CHỦ DẶN THÊM (bắt buộc):\n' + raw(f[0]['id']).decode('utf-8')[:9000]) if f else '') + ('\n\n' + GUIDE if GUIDE else ''))
         except Exception as e: log('  không đọc được Quy tắc dựng AI.md', e); _RX.append('')
     return _RX[0]
-def doc_text(jb):
+def doc_text(jb):   # chủ dặn 17/11: đọc file kịch bản MỌI định dạng có chữ (Google Docs / Sheets, Word, Excel, PDF, TXT, RTF, ODT…), ghi rõ thuộc thư mục nào
     out = []
-    for d in jb['docs'][:3]:
+    def exp(fid, mime):
+        req = urllib.request.Request(L.G + '/drive/v3/files/%s/export?mimeType=%s' % (fid, mime), headers={'Authorization': 'Bearer ' + L.tok()})   # tài khoản 1 (file tạm thuộc tài khoản 1)
+        with urllib.request.urlopen(req, timeout=120) as r: return r.read().decode('utf-8', 'replace')
+    for d in jb['docs'][:24]:
         try:
-            if d['mimeType'] == 'application/vnd.google-apps.document':
-                req = urllib.request.Request(L.G + '/drive/v3/files/%s/export?mimeType=text/plain' % d['id'], headers={'Authorization': 'Bearer ' + L.rtok()})
-                with urllib.request.urlopen(req, timeout=120) as r: out.append('FILE KỊCH BẢN "%s":\n%s' % (d['name'], r.read().decode('utf-8', 'replace')[:12000]))
-            elif d['name'].lower().endswith('.txt'): out.append('FILE KỊCH BẢN "%s":\n%s' % (d['name'], raw(d['id']).decode('utf-8', 'replace')[:12000]))
-        except Exception as e: log('  không đọc được file kịch bản', d['name'], e)
+            m, n = d['mimeType'], d['name'].lower()
+            if m == 'application/vnd.google-apps.document': t = exp(d['id'], 'text/plain')
+            elif m == 'application/vnd.google-apps.spreadsheet': t = exp(d['id'], 'text/csv')
+            elif n.endswith(('.txt', '.md', '.csv')): t = raw(d['id']).decode('utf-8', 'replace')
+            else:   # Word / Excel / PDF / RTF / ODT → chép tạm thành Google rồi xuất chữ
+                sheet = n.endswith(('.xlsx', '.xls'))
+                tmp = L.drive('files/%s/copy' % d['id'], {'name': 'tmp-kb-' + d['name'], 'mimeType': 'application/vnd.google-apps.' + ('spreadsheet' if sheet else 'document')}, params={'supportsAllDrives': 'true', 'fields': 'id'})
+                try: t = exp(tmp['id'], 'text/csv' if sheet else 'text/plain')
+                finally:
+                    try: L.drive('files/' + tmp['id'], method='DELETE', params={'supportsAllDrives': 'true'})
+                    except Exception: pass
+            t = (t or '').strip()
+            if t: out.append('FILE KỊCH BẢN "%s" (thư mục: %s):\n%s' % (d['name'], (jb.get('dn') or {}).get(d.get('dir'), ''), t[:12000]))
+        except Exception as e: log('  không đọc được file kịch bản', d['name'], repr(e)[:150])
     return '\n\n'.join(out)
+
 # ---------------------------------------------------------------- Gemini Pro qua Gemini CLI (đăng nhập tài khoản có gói Pro/Ultra, chìa khóa khóa hóa trên Drive)
 _CLI = []
 def cli_ready():
@@ -412,7 +429,7 @@ def codes(jb):   # mã câu C1, C2… (cùng thứ tự với lúc lên kế ho�
     return C
 
 def plan(jb, key, models, extra=''):
-    parts = [{'text': '⚠ TÊN RIÊNG: lời thoại do máy nghe nên hay sai tên riêng (vd "Kinh Bắc" thực ra là "King Park"). Tên dự án / địa danh CHUẨN lấy theo tên thư mục: %s. Chữ trên hình, tên video, dòng phụ phải viết ĐÚNG tên chuẩn, đúng chính tả – không chép nguyên lỗi của máy nghe; "tu" vẫn chép đúng như lời thoại (để bắt đúng lúc nói).\n\n' % path_of(jb['id']) + extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), doc_text(jb) or '(không có file kịch bản – tự phân tích)') + ('\nSource có các thư mục con "Kịch bản N": MỖI thư mục Kịch bản = đúng 1 video (1 script), A-roll lấy từ chính thư mục đó; thư mục khác = kho cảnh phụ dùng chung.' if jb.get('kbtop') else '\nTự phân tích toàn bộ source để chia các kịch bản, mỗi kịch bản 1 video dưới 2 phút.')}]
+    parts = [{'text': '⚠ TÊN RIÊNG: lời thoại do máy nghe nên hay sai tên riêng (vd "Kinh Bắc" thực ra là "King Park"). Tên dự án / địa danh CHUẨN lấy theo tên thư mục: %s. Chữ trên hình, tên video, dòng phụ phải viết ĐÚNG tên chuẩn, đúng chính tả – không chép nguyên lỗi của máy nghe; "tu" vẫn chép đúng như lời thoại (để bắt đúng lúc nói).\n\n' % path_of(jb['id']) + extra + 'Kênh / dự án: %s\nBuổi quay: %s\nCó %d video.\n%s' % (path_of(jb['id']), jb['name'], len(jb['A']), ((lambda dt_: (dt_ + '\n\n⚠ CÓ FILE KỊCH BẢN (chủ dặn 17/11): video theo file kịch bản dựng KHÔNG GIỚI HẠN thời lượng – bỏ qua mức 45–110 giây; phải truyền tải ĐỦ mọi ý / mọi phân cảnh / mọi câu thoại trong file kịch bản, đúng thứ tự. Thư mục nào có file kịch bản thì video của thư mục đó theo đúng file đó.') if dt_ else '(không có file kịch bản – tự phân tích)')(doc_text(jb)))) + ('\nSource có các thư mục con "Kịch bản N": MỖI thư mục Kịch bản = đúng 1 video (1 script), A-roll lấy từ chính thư mục đó; thư mục khác = kho cảnh phụ dùng chung.' if jb.get('kbtop') else '\nTự phân tích toàn bộ source để chia các kịch bản, mỗi kịch bản 1 video dưới 2 phút.')}]
     C = jb['C'] = {}
     for a in jb['A']:
         head = '[thư mục: %s] ' % (jb.get('dn') or {}).get(a['vid'].get('dir'), '') + L.summary(a).split('\nLời thoại:')[0]
@@ -768,7 +785,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             if PRO.get('notrans'): continue   # TVC sang trọng: cắt mềm, không hiệu ứng chuyển cảnh giật
             nm, eid = FX_TR[len(trans) % len(FX_TR)]
             trans.append(dict(name=nm, effect_id=eid, at=round(T, 3), dur_s=.4))
-            if PRO.get('sfx', True): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(T - .25, 3)), vol=.3, dur=0.58))
+            if PRO.get('sfx', True): sfx.append(sf('shut' if nm in ('Glare II', 'Flash') else 'wh', T - (.05 if nm in ('Glare II', 'Flash') else .25), .3))   # hướng dẫn chủ: lóe sáng → tiếng màn trập, chữ / cảnh bay → whoosh
             if nm == 'Glare II' and not fx: fx.append(dict(preset='effect_lens_flare.json', t0=round(T, 3), dur_s=.6))
     # ---- Claude kiểm duyệt yêu cầu PHỦ cảnh phụ lên đoạn đang có lời mà hình không có người / khung xấu (phu_canh_phu)
     poolC = [a for a in A.values() if a['vid'].get('broll') or not a.get('segs')]
@@ -910,15 +927,15 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
         lead = small if small and len(small.split()) <= 6 else ''
         if lead and n % 2 == 0: lines = [[lead[:1].upper() + lead[1:], 'SCR', 3.6, '#FFFFFF'], [big, main, 7.6 if main == 'BEB' else 6.2, c1]]
         else: lines = [[big, main, 8.2 if main == 'BEB' else 6.6, c1]]
-        y = (19.0 + (n % 3) * 4) if on_b else (68.0 + (n % 2) * 3)   # cảnh người nói: chữ dưới ngực, không đè mặt; vùng an toàn TikTok ≤75 %
+        y = (19.0 + (n % 3) * 4) if on_b else (66.0 + (n % 2) * 3)   # 18/11 vùng an toàn thật của chủ: y 270–1640 px (14–85 %), x 60–920 – cảnh người nói: chữ dưới ngực, không đè mặt
         if PRO.get('font'):   # TVC sang trọng: chữ mềm mại, uyển chuyển (viết tay + nghiêng có chân), màu trắng / champagne, nhỏ gọn phía dưới
             f1_, f2_ = PRO['font'] if int(sc.get('_n') or 1) % 2 else PRO['font'][::-1]; c1_, c2_ = PRO['colors'] if int(sc.get('_n') or 1) % 3 else PRO['colors'][::-1]   # mỗi kịch bản 1 kiểu chữ khác
             big_ = tsafe(ti.get('big', ''), 40); lines = ([[lead[:1].upper() + lead[1:], f1_, 4.2, c2_]] if lead else []) + [[big_, f2_ if not lead else f1_, 5.6, c1_]]
             y = PRO.get('title_y', y)
-        if ti.get('y'): y = max(12.0, min(80.0, float(ti['y'])))   # vị trí Claude kiểm duyệt yêu cầu
+        if ti.get('y'): y = max(17.0, min(80.0, float(ti['y'])))   # 18/11: kẹp trong vùng an toàn thật (y 270–1640 px)   # vị trí Claude kiểm duyệt yêu cầu
         titles.append(dict(t0=round(max(0, T - .04), 3), t1=round(min(total - .05, T + 2.2), 3), line='A', lines=lines, y_pct=y, bright=False, anim=n, si=si, yfix=bool(ti.get('y')), onb=on_b))
-        if num and PRO.get('sfx', True): sfx.append(dict(file='SFX tit thong tin.wav', t=round(max(0, T - .02), 3), vol=.2, dur=0.34))   # tiếng "tít" khi thông tin / số liệu hiện
-        elif n % 3 == 0 and PRO.get('sfx', True): sfx.append(dict(file='SFX pop chu 02.wav', t=round(max(0, T - .02), 3), vol=.12, dur=0.180091))
+        if num and PRO.get('sfx', True): sfx.append(sf('info', T - .02, .2))   # tiếng "tít" khi thông tin / số liệu hiện
+        elif n % int(CUR.get('popk') or 3) == 0 and PRO.get('sfx', True): sfx.append(sf('pop', T - .02, .12))
         if (num or n % 3 == 0) and T - lastp >= 4.0:   # giật zoom có chủ đích: số liệu / từ khóa mạnh, cách nhau ≥ 4 s
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh.get('face') and sh['t0'] + .2 < T < sh['t1'] - .35:
@@ -991,7 +1008,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             sh = next((x for x in shots if x['t0'] + .2 < dp < x['t1'] - .3 and x['line'] == 'A'), None)
             if sh and sh.get('face') and not sh.get('nz') and PRO.get('punch', True): sh['keys'] = punch(sh['keys'], dp, 1.15, 1.16, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
     for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
-    sfx.insert(0, dict(file='SFX impact epic 01.wav', t=0.0, src_in=1.25, vol=.2, dur=5.144853))
+    sfx.insert(0, sf('open', 0.0, .2))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
     if parts:   # nhạc mix: mỗi bài 1 đoạn, đổi bài đúng chỗ ngắt câu, chồng 0,8 s cho chuyển mượt; nhịp cắt cảnh theo bài đang phát
         cutsA = sorted({round(p[3], 3) for p in pieces} | {total})
@@ -1047,11 +1064,11 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for a_, b_ in zip(ashots, ashots[1:]):   # khít liền, không hở
         if abs(a_['t1'] - b_['t0']) < .02: a_['t1'] = b_['t0']; a_['keys'][-1][0] = b_['t0']
     # SFX sinh động: whoosh khi cảnh phụ vào (cách nhau ≥ 2 s), "tách" nhẹ khi đổi cảnh phụ liền nhau
-    wt = [x['t'] for x in sfx if 'whoosh' in x['file']]
+    wt = [x['t'] for x in sfx if 'whoosh' in x['file']]; whg = float(CUR.get('whgap') or 2.0)
     for k_, b in enumerate(bshots):
         prev = bshots[k_ - 1] if k_ else None
         if prev is not None and abs(prev['t1'] - b['t0']) < .01: continue
-        if PRO.get('sfx', True) and all(abs(b['t0'] - w) >= 2.0 for w in wt): sfx.append(dict(file='SFX whoosh mem.wav', t=max(0, round(b['t0'] - .22, 3)), vol=.22, dur=0.58)); wt.append(b['t0'])
+        if PRO.get('sfx', True) and all(abs(b['t0'] - w) >= whg for w in wt): sfx.append(sf('wh', b['t0'] - .22, .22)); wt.append(b['t0'])
     for x in sfx:
         if '/' not in x['file']: x['file'] = KSUB['sfx'] + '/' + x['file']
     for x in mus:
@@ -1128,7 +1145,7 @@ def kho():   # KHO DÙNG CHUNG (chủ dặn 11/11): SETUP/Kho AI tải về/{Fon
             if not lq("'%s' in parents" % d['id'], 'id'): L.drive('files/' + d['id'], {'trashed': True}, method='PATCH')
         except Exception: pass
     have = {key: {x['name'] for x in lq("'%s' in parents" % _KHO[key], 'id,name')} for key in ('font', 'sfx', 'music')}
-    for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType'):   # chép 1 lần từ thư viện mẫu cũ
+    for f in lq("'%s' in parents and trashed=false" % LIB, 'id,name,mimeType') + lq("'%s' in parents and trashed=false and name contains 'SFX'" % SFXLIB2, 'id,name,mimeType'):   # chép 1 lần từ thư viện mẫu cũ (+ thư viện âm thanh hiệu ứng đầy đủ – chủ dặn 18/11)
         if f.get('mimeType') == L.FOLDER or f['name'].startswith(LIB_SKIP): continue
         key = 'font' if f['name'].lower().endswith(('.ttf', '.otf')) else ('sfx' if re.match(r'(?i)sfx', f['name']) else ('music' if 'audio' in (f.get('mimeType') or '') or f['name'].lower().endswith(('.mp3', '.wav', '.m4a')) else None))
         if not key or f['name'] in have[key]: continue
@@ -1202,13 +1219,16 @@ def ai_music(jb, sc, host, proj):   # chủ dặn 12/11: nhạc nền AI (Eleven
              'Chia video thành 1–4 ĐOẠN NHẠC theo các đổi ý / đổi cảm xúc của kịch bản (mỗi đoạn ≥ 12 giây; các đoạn nối liền phủ 0→100%). Mỗi đoạn là 1 bài nhạc riêng sẽ được ghép lại.\n' +
              (('PHONG CÁCH NHẠC BẮT BUỘC CỦA KỊCH BẢN NÀY (thay gu mặc định; các đoạn có thể biến tấu nhưng giữ đúng dòng này): ' + PRO['music'][(int(sc.get('_n') or 1) - 1) % len(PRO['music'])] + '\n') if PRO.get('music') else '') +
              'Gu của chủ: nhạc LUÔN ngầu, hiện đại, kịch tính, có gu – trap, drill, bass house, cinematic hybrid, rock / blues nặng cho đoạn quy mô / sức mạnh / con số lớn; '
-             'jazz, bossa nova, valse, bedroom pop, dream pop, lo-fi sang cho đoạn nhẹ / phong cách sống. KHÔNG nhạc quảng cáo sến, KHÔNG vui tươi trẻ con, KHÔNG da diết, KHÔNG ambient / thiền.\n'
+             'jazz, bossa nova, valse, bedroom pop, dream pop, lo-fi sang cho đoạn nhẹ / phong cách sống. KHÔNG nhạc quảng cáo sến, KHÔNG vui tươi trẻ con, KHÔNG da diết, KHÔNG ambient / thiền.\n' +
+             (('NHẠC CÁC PROJECT GẦN ĐÂY – BẮT BUỘC KHÁC HẲN (khác thể loại, nhạc cụ chủ đạo, BPM, giọng điệu, cấu trúc; chủ dặn 18/11 nhạc không được giống nhau):\n' + '\n'.join('- ' + m for e in (CUR.get('hist') or [])[-12:] for m in (e.get('music') or [])[:2]) + '\n') if any(e.get('music') for e in (CUR.get('hist') or [])) else '') +
+             'HOOK (chủ dặn 18/11): đoạn đầu có nhạc nhịp mạnh – khoảng lặng rơi đúng câu hỏi / câu gây tò mò, cú drop rơi đúng lúc đáp án dội vào; sau hook chuyển sang nhạc nền nhẹ hơn. Có ~4 giây đoạn kết sau lời cuối: nhạc lên rồi fade ra.\n' +
              'Với MỖI đoạn viết "prompt" TIẾNG ANH CỰC KỲ CHI TIẾT, DÀI 3200–4000 KÝ TỰ (gần tối đa 4100) cho ElevenLabs Music, gồm: thể loại & tiểu thể loại, cảm xúc & năng lượng theo từng giây của đoạn, BPM chính xác, giọng điệu (key/scale), '
              'nhạc cụ cụ thể (drum kit, 808, hi-hat rolls, synth bass, strings, brass, piano, guitar… và cách chơi), cấu trúc theo thời gian (intro / build / drop / break / outro với mốc giây), '
              'chỗ dồn / điểm nhấn trùng các câu quan trọng, chuyển đoạn mượt sang đoạn sau, kỹ thuật mix (để trống dải tần giọng nói 1–4 kHz, nhạc làm NỀN dưới lời thoại, không lấn giọng), '
              'và nhấn mạnh: "instrumental only, no vocals, no singing, no humming, no spoken words, no choir". Không nhắc tên nghệ sĩ / bài hát có bản quyền.\n'
              'Trả JSON {"doan":[{"tu": % bắt đầu, "den": % kết thúc, "cam_xuc":"ngắn", "prompt":"..."}]}')
         j = N.ask_json(q, model='opus', key='doan', log=log) or {}
+        CUR['music'] = [('%s: %s' % (d.get('cam_xuc') or '', str(d.get('prompt') or '')[:160])) for d in (j.get('doan') or [])]
         parts = []; os.makedirs(MGW, exist_ok=True)
         for k, d in enumerate(j.get('doan') or []):
             f0, f1 = max(0, min(1, float(d['tu']) / 100)), max(0, min(1, float(d['den']) / 100))
@@ -1295,7 +1315,7 @@ def engine():
     if os.path.exists(os.path.join(ENG, 'build.py')): return
     z = lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), ENG_NAME))[0]['id']
     os.makedirs(ENG, exist_ok=True); p = os.path.join(L.TMP, 'eng.zip'); open(p, 'wb').write(raw(z)); zipfile.ZipFile(p).extractall(ENG)
-    for fn in ('build.py', 'mg.py', 'hfvid.py', 'gsap.min.js'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
+    for fn in ('build.py', 'mg.py', 'hfvid.py', 'rmvid.py', 'gsap.min.js'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'eng', fn)
         if os.path.exists(src): open(os.path.join(ENG, fn), 'wb').write(open(src, 'rb').read())
     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'fonttools'], capture_output=True)
@@ -1359,7 +1379,7 @@ def review(jb, sc, pl, proj, adir, mu):
             ln_ = ('\n\n⚠ ĐỘ DÀI: video đang %.0f giây – nên trên 1 phút (nội dung đầy đủ là trên hết). ' % pl['total'] +
                    ('THIẾU → them_cau thêm câu cùng nhân vật, đúng mạch ý (vi_tri "cuoi" hoặc "dau"), đủ ≥ 60 s. Câu có thể thêm:\n' + '\n'.join(more_)))
         tvc_ = ('\n\nPHONG CÁCH RIÊNG CỦA BỘ NÀY (đúng chủ ý, KHÔNG báo lỗi): ' + PRO['plan'] + ' Khung 16:9; khoảng lặng không lời (chỉ cảnh đẹp + nhạc), chữ thưa (> 6 s không chữ), không giật zoom, không hiệu ứng chuyển cảnh là ĐÚNG phong cách.') if PRO.get('plan') else ''
-        r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat + ln_ + tvc_)
+        r = N.qa(pl, timeline(jb, sc, pl), pv, log=log, extra=bcat + ln_ + tvc_ + (('\n\nSOI THEO BỘ HƯỚNG DẪN CỦA CHỦ (vùng an toàn, hook, chữ, chuyển động, lỗi đã bắt):\n' + GUIDE[:6000]) if GUIDE and not PRO.get('canvas') else ''))
         if r is not None and pl['total'] < 45: r['dat'] = False; r.setdefault('loi', []).append('[NẶNG] quá ngắn %.0fs – thêm câu cho đủ ý (nên ≥ 60 s)' % pl['total'])
         if r is None: raise ClaudeWait('Claude chưa kiểm tra được bản dựng')
         log('  kiểm tra vòng %d: %s%s' % (rnd + 1, 'ĐẠT' if r.get('dat') else 'chưa đạt', '' if r.get('dat') else ' – ' + '; '.join(map(str, r.get('loi') or []))[:400]))
@@ -1501,6 +1521,7 @@ def hf_key(jb):
     p = L.norm1(path_of(jb['id']) + ' ' + (jb.get('name') or ''))
     return 'vuyen' if ('royal island' in p or 'vu yen' in p) else ('academy' if 'academy' in p else None)
 def hf_todo(k):
+    return False   # chủ dặn 18/11: KHÔNG dùng HyperFrames nữa (mọi video / motion dựng bằng Remotion)
     try: return bool(k) and (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungHF_' + k) != HFV
     except Exception: return False
 def hf_make(jb, pl, mu, proj, host):
@@ -1566,6 +1587,68 @@ def hf_make(jb, pl, mu, proj, host):
         import traceback as _tb; log('  ✗ HyperFrames lỗi:', e, _tb.format_exc().replace('\n', ' ¶ ')[-600:])
         try: L.mark(LISTF, **{'dungHFL_' + k: None})
         except Exception: pass
+def rm_full(jb, pl, mu, proj):   # chủ dặn 18/11: dựng TRƯỚC video hoàn chỉnh bằng Remotion từ đúng kế hoạch dựng → CapCut dựng từ cùng kế hoạch (khớp từng giây) + video này nằm track trên cùng
+    t0 = time.time()
+    try:
+        if ENG not in sys.path: sys.path.insert(0, ENG)
+        import rmvid
+        wd = os.path.join(L.TMP, 'rmv'); shutil.rmtree(wd, ignore_errors=True); os.makedirs(wd)
+        A = {'V%d' % a['i']: a for a in jb['A']}; mf = {}; W_, H_ = pl.get('canvas') or (1080, 1920)
+        mgl = {'M%d' % (i + 1): o for i, (o, nm) in enumerate(pl.get('mg') or [])}
+        lay = list(pl['shots']) + list(pl.get('bshots') or []); seen_ = set()
+        def cut(fid, ss, t, args, out):
+            err = None
+            for f in [fid, lite(fid)]:
+                if not f: continue
+                try: L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(f, max(0.0, ss), t) + args + [out], timeout=900); return out
+                except Exception as e: err = e
+            raise err or RuntimeError('không đọc được video')
+        for j, sh in enumerate(lay):
+            key = (sh['media'], round(sh['t0'], 3))
+            if key in seen_: continue
+            seen_.add(key)
+            if sh['media'] in mgl: mf[key] = mgl[sh['media']]; continue
+            a = A.get(sh['media'])
+            if not a: continue
+            spd = float(sh.get('spd') or 1.0); d = sh['t1'] - sh['t0']
+            vf = 'scale=%d:%d:force_original_aspect_ratio=increase%s,fps=30' % (W_, H_, (',setpts=PTS/%.4f' % spd) if abs(spd - 1) > .01 else '')
+            ca_ = ['-an', '-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '17', '-pix_fmt', 'yuv420p']; need = d * spd + .15
+            dur_ = float((pl['media'].get(sh['media']) or {}).get('dur') or 0)
+            for ss_ in [sh['src'], max(0.0, dur_ - need - .3) if dur_ else 0.0, 0.0]:   # đoạn lấy lố cuối file → lùi lại cho đủ
+                try: mf[key] = cut(a['vid']['id'], ss_, need, ca_, os.path.join(wd, 's%03d.mp4' % j)); break
+                except Exception as e: mlog('Remotion: không cắt được cảnh', sh['media'], '@%.1f' % ss_, str(e)[:120])
+        last_ = None   # cảnh không cắt được → dùng lại cảnh liền trước (không để màn hình đen)
+        for sh in sorted(lay, key=lambda x: x['t0']):
+            k_ = (sh['media'], round(sh['t0'], 3))
+            if mf.get(k_): last_ = mf[k_]
+            elif last_ and sh['media'] not in mgl: mf[k_] = last_; mlog('Remotion: thay cảnh hỏng', sh['media'], 'bằng cảnh trước')
+        for j, sp in enumerate(pl.get('speech') or []):
+            a = A.get(sp['media'])
+            if not a: continue
+            try: mf[('aud', sp['media'], round(sp['t0'], 3))] = cut(a['vid']['id'], sp['src_in'], sp['t1'] - sp['t0'], ['-vn', '-ac', '2', '-ar', '48000'], os.path.join(wd, 'a%03d.wav' % j))
+            except Exception as e: mlog('Remotion: không lấy được tiếng', str(e)[:120])
+        mus = []
+        for j, m in enumerate(pl.get('music') or []):
+            bn = os.path.basename(m['file']).lower()
+            p_ = next((p for p in (mu or []) if (p.get('orig') or '').lower() == bn or os.path.basename(p.get('nm') or '').lower() == bn), None)
+            if not p_: continue
+            f = p_.get('ai') if p_.get('ai') and os.path.exists(p_['ai']) else None
+            if not f and p_.get('id'):
+                f = os.path.join(wd, 'mu%d%s' % (j, os.path.splitext(bn)[1] or '.mp3')); open(f, 'wb').write(raw(p_['id']))
+            if f: mus.append((f, m['t0'], m['t1'], m.get('src_in') or 0.0, max(3.0 if j == 0 else 0, m.get('fi') or 0), max(3.0 if j == len(pl['music']) - 1 else 0, m.get('fo') or 0)))
+        sfxf = {}
+        try:
+            k_ = kho()
+            for nm_ in {os.path.basename(x.get('file') or '') for x in (pl.get('sfx') or [])}:
+                c_ = lq("'%s' in parents and name='%s' and trashed=false" % (k_['sfx'], nm_.replace("'", "\\'")), 'id') or lq("'%s' in parents and name='%s' and trashed=false" % (SFXLIB2, nm_.replace("'", "\\'")), 'id')
+                if c_: f_ = os.path.join(wd, 'sfx_' + nm_); open(f_, 'wb').write(raw(c_[0]['id'])); sfxf[nm_] = f_
+        except Exception as e: mlog('Remotion: không lấy được âm thanh hiệu ứng', str(e)[:120])
+        out = os.path.join(wd, 'Remotion - video hoàn chỉnh.mp4')
+        rmvid.render(pl, mf, mus, out, tvc=bool(PRO.get('punch_soft')), fontdir=os.path.join(ENG, 'fonts'), log=log, seed=proj, sfx_files=sfxf)
+        log('  ✓ Remotion video hoàn chỉnh xong (%.1f phút)' % ((time.time() - t0) / 60)); return out
+    except ClaudeWait: raise
+    except Exception as e:
+        import traceback as _tb; log('  ✗ Remotion video hoàn chỉnh lỗi:', e, _tb.format_exc().replace('\n', ' ¶ ')[-600:]); return None
 def hf_academy(k_='academy'):   # bản thử Academy / Vũ Yên: dựng lại kịch bản đầu của source Academy mới nhất, CHỈ xuất bản HyperFrames (không đụng project CapCut)
     if not hf_todo(k_): return
     try:
@@ -1804,7 +1887,7 @@ def add_mg(jb, sc, pl, proj, host, adir):
         if not (a['vid'].get('broll') or not a.get('segs')): continue
         for x in sorted(((a.get('vlog') or {}).get('doan') or []), key=lambda x: -float(x.get('diem') or 0))[:2]:
             if float(x.get('diem') or 0) >= 7: rows.append('#%d %.1f–%.1fs: %s' % (a['i'], float(x['s']), float(x['e']), str(x.get('noi_dung') or '')[:90]))
-    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log); mlog('Claude chọn motion:', json.dumps(picks, ensure_ascii=False)[:400])
+    try: picks = N.mg_pick(timeline(jb, sc, pl), MG.LOAI, '\n'.join(rows[:50]), log=log, avoid='\n'.join('- ' + ' → '.join(e.get('mg') or []) for e in (CUR.get('hist') or [])[-10:] if e.get('mg')) + '\n\nPHONG CÁCH MẪU CỦA CHỦ (video Remotion mẫu 18/11 – bắt chước ~80%%): ưu tiên các loại ref_… (khoảng 4/5 số đoạn), mỗi đoạn kèm dữ liệu THẬT lấy từ lời nói: "muc" (danh sách ý / nhãn ngắn ≤ 4 chữ), "so" (con số), "nhan" (nhãn ngắn), "ten" (tên dự án / kênh / người được nhắc), "icon" (1 emoji hợp ý). Không bịa số.' + (('\n\nNGUYÊN TẮC MOTION CỦA CHỦ: ' + ' '.join(l for l in GUIDE.split('\n') if l.startswith(('MOTION GRAPHIC', 'GU:', 'VÙNG AN TOÀN')))) if GUIDE else '')); CUR['mg'] = [str(p.get('loai')) for p in picks if isinstance(p, dict)]; mlog('Claude chọn motion:', json.dumps(picks, ensure_ascii=False)[:400])
     except Exception as e: mlog('Claude chưa chọn được đoạn motion graphic:', repr(e)); return pl
     out, last = [], -9.0
     for p in sorted([p for p in picks if isinstance(p, dict)], key=lambda p: float(p.get('s') or 0)):
@@ -1823,8 +1906,21 @@ def add_mg(jb, sc, pl, proj, host, adir):
             nm = 'mg %02d - %s.mp4' % (len(out) + 1, p.get('loai') or 'the_anh')
             os.makedirs(MGW, exist_ok=True); o = os.path.join(MGW, nm)
             tz_ = any(min(e_, z['t1']) - max(s_, z['t0']) > .15 for z in pl.get('titles') or [])   # có chữ CapCut trong đoạn này → motion graphic chừa vùng chữ phía trên
-            MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_, pal=PRO.get('mgpal'))
-            out.append((s_, e_, o, nm)); last = e_
+            if str(p.get('loai') or '').startswith('ref_') and hasattr(MG, 'render_ref'):   # kiểu video mẫu của chủ – nền = chính người nói (khung hình đúng lúc đó) làm mờ + phủ tối vừa phải
+                bgf = None
+                try:
+                    a0_ = next((sh for sh in pl['shots'] if sh.get('line') == 'A' and sh['t0'] <= s_ + .05 and sh['t1'] >= s_ + .3), None); A0 = {'V%d' % a['i']: a for a in jb['A']}.get(a0_['media']) if a0_ else None
+                    if A0:
+                        bgf = os.path.join(MGW, 'mgbg%d.jpg' % len(out)); ss_ = a0_['src'] + (s_ - a0_['t0']) * a0_.get('spd', 1.0) + .3
+                        for f_ in [A0['vid']['id'], lite(A0['vid']['id'])]:
+                            if not f_: continue
+                            try: L.run(['ffmpeg', '-y', '-v', 'error'] + L.fin(f_, max(0.0, ss_), .5) + ['-frames:v', '1', '-q:v', '3', bgf], timeout=300); break
+                            except Exception: pass
+                        if not os.path.exists(bgf): bgf = thumb(A0['vid']['id'], bgf)
+                except Exception as e_bg: mlog('motion: chưa lấy được khung người nói làm nền:', repr(e_bg)[:120]); bgf = None
+                MG.render_ref(p['loai'], o, e_ - s_, clip, p, seed='%s|%d|%.1f' % (proj, len(out), s_), wm=(path_of(jb['id']).split('/')[-2] if '/' in path_of(jb['id']) else ''), bg=bgf)
+            else: MG.render(p.get('loai'), o, e_ - s_, clip, int(p.get('so') or p.get('chieu') or 1), seed='%s|%d|%.1f' % (proj, len(out), s_), tz=tz_, pal=PRO.get('mgpal') or CUR.get('pal'))
+            out.append((s_, e_, o, nm, str(p.get('loai') or ''))); last = e_
             log('  motion graphic %s %.1f–%.1fs (%s)' % (p.get('loai'), s_, e_, str(p.get('vi_sao') or '')[:60]))
         except Exception as e: mlog('bỏ 1 motion graphic:', repr(e)[:500])
     def cut_(lst, s_, e_):   # cắt bỏ phần chồng [s_, e_] khỏi danh sách cảnh (giữ phần trước / sau)
@@ -1835,8 +1931,12 @@ def add_mg(jb, sc, pl, proj, host, adir):
             if sh['t1'] > e_ + .05: res.append(dict(sh, src=round(sh['src'] + (e_ - sh['t0']) * sh.get('spd', 1.0), 3), t0=round(e_, 3), keys=[[round(e_, 3)] + sh['keys'][0][1:], [sh['t1']] + sh['keys'][-1][1:]]))
         return sorted(res, key=lambda x: x['t0'])
     shots = pl['shots']; bsh = list(pl.get('bshots') or [])
-    for i, (s_, e_, o, nm) in enumerate(out):
+    shots0 = list(pl['shots']); pl['mattes'] = []
+    for i, (s_, e_, o, nm, lo_) in enumerate(out):
         k = 'M%d' % (i + 1)
+        if lo_.startswith('ref_') and not PRO.get('canvas'):   # mẫu của chủ: người nói tách nền TO ở góc dưới trái, nằm TRÊN khung nội dung (CapCut Xóa nền)
+            a0 = next((sh for sh in shots0 if sh.get('line') == 'A' and sh['t0'] <= s_ + .05 and sh['t1'] >= s_ + .3 and str(sh['media']).startswith('V')), None)
+            if a0: pl['mattes'].append(dict(media=a0['media'], src=round(a0['src'] + (s_ - a0['t0']) * a0.get('spd', 1.0), 3), t0=round(s_, 3), t1=round(min(e_, a0['t1']), 3)))
         pl['media'][k] = dict(path=DRV + '/' + path_of(host) + '/' + proj + '/' + MGDIR + '/' + nm, dur=round(e_ - s_ + .05, 3), w=1080, h=1920,
                               kind='video', has_audio=False, name=nm, S0=1.0, grade=None)
         mg_sh = dict(media=k, src=0.0, t0=round(s_, 3), t1=round(e_, 3), line='B', bi=-1, mg=1, keys=[[round(s_, 3), 1.0, .5, .5, 0.0], [round(e_, 3), 1.0, .5, .5, 0.0]], punch_abs=[])
@@ -1844,14 +1944,14 @@ def add_mg(jb, sc, pl, proj, host, adir):
         bsh = sorted(cut_(bsh, s_, e_) + [dict(mg_sh)], key=lambda x: x['t0'])   # bộ dựng CapCut đọc lớp cảnh phụ (bshots) – motion graphic nằm lớp trên người nói
         pl['pips'] = [p_ for p_ in pl.get('pips') or [] if p_['t1'] <= s_ or p_['t0'] >= e_]   # không đặt khung người nói nhỏ đè lên motion graphic
     if out and 'bshots' in pl: pl['bshots'] = bsh
-    for s_, e_, o_, nm_ in out:   # chủ dặn 12/11: chữ và motion graphic PHỐI HỢP – chữ nằm đúng vùng trống motion graphic chừa sẵn (trên cùng), màu hợp nền xanh than
+    for s_, e_, o_, nm_, lo_ in out:   # chủ dặn 12/11: chữ và motion graphic PHỐI HỢP – chữ nằm đúng vùng trống motion graphic chừa sẵn (trên cùng), màu hợp nền xanh than
         for z in pl.get('titles') or []:
             if min(e_, z['t1']) - max(s_, z['t0']) > .15:
-                z['y_pct'] = 11.5; z['bright'] = False; z['mg'] = 1
-    pl['shots'] = shots; pl['mg'] = [(o, nm) for _, _, o, nm in out]
+                z['y_pct'] = 17.0; z['bright'] = False; z['mg'] = 1   # 18/11: vẫn trong vùng an toàn (y ≥ 270 px)
+    pl['shots'] = shots; pl['mg'] = [(o, nm) for _, _, o, nm, _l in out]
     if len(out) > 1:   # chủ dặn 12/11: bản gửi kèm tin Zalo = GỘP các motion graphic lại thành 1 clip
         try:
-            lst = os.path.join(MGW, 'gop.txt'); open(lst, 'w').write(''.join("file '%s'\n" % o for _, _, o, _ in out))
+            lst = os.path.join(MGW, 'gop.txt'); open(lst, 'w').write(''.join("file '%s'\n" % o for _, _, o, _, _l in out))
             g_ = os.path.join(MGW, 'mg - tổng hợp.mp4')
             L.run(['ffmpeg', '-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', lst, '-c:v', 'libx264', '-crf', '23', '-pix_fmt', 'yuv420p', '-an', g_], timeout=300)
             pl['mg_all'] = g_
@@ -1921,7 +2021,11 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
     mlog('cover:', len(cand), 'ứng viên', 'chọn' if best else 'KHÔNG có', best[0] if best else '')
     return (best[1], '%016x' % best[2]) if best else (None, None)
 
+RMVN = 'Remotion - video hoàn chỉnh.mp4'
 def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
+    try:
+        if pl.get('rmv_local') and os.path.exists(pl['rmv_local']): put(proj + '.mp4', pf, open(pl['rmv_local'], 'rb').read(), 'video/mp4')   # chủ dặn 18/11: video Remotion hoàn chỉnh nằm trong thư mục project CapCut
+    except Exception as e: mlog('không lưu được video Remotion:', repr(e))
     try:
         ai_ = [m for m in pl.get('ai_music') or [] if os.path.exists(m)]
         if ai_:
@@ -1944,7 +2048,7 @@ def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover 
     return ids
 def _publish(jb, sc, n, host, proj, rel, adir):
     global CW, CH
-    PRO.clear(); PRO.update(profile(jb)); CW, CH = PRO.get('canvas') or (1080, 1920)   # phong cách riêng của bộ source (vd Royal Island: TVC 16:9)
+    PRO.clear(); PRO.update(profile(jb)); CW, CH = PRO.get('canvas') or (1080, 1920); cur_pick(proj)   # phong cách riêng của bộ source (vd Royal Island: TVC 16:9)
     a0 = jb['A'][0]
     mu = ai_music(jb, sc, host, proj) or pick_mix(jb, sc); claude_grades(jb, sc)
     pl = build_plan(jb, sc, proj, adir, mu, None)
@@ -1961,6 +2065,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
         cf, ch_ = pick_cover(jb, pl, adir)
         if cf: pl['cover'], pl['coverh'] = cf, ch_
     except Exception as e: mlog('pick_cover hỏng:', repr(e)[:400])
+    cur_save(pl)
     try: ad_, ix_ = idx_now(); jput('mglog_%s.json' % re.sub(r'[^A-Za-z0-9]+', '_', L.norm1(proj))[:80], dict(t=time.time(), proj=proj, log=MGLOG), ad_, ix_)
     except Exception: pass
     bad = []   # tự kiểm tra trước khi đẩy lên Drive – đã đẩy là không rút lại
@@ -1969,12 +2074,18 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if any(m.get('kind') == 'video' and not m.get('path') for m in pl['media'].values()): bad.append('thiếu file')
     if not [x for x in pl['shots'] if x.get('line') != 'A']: bad.append('không có cảnh phụ nào')   # kênh nói chuyện (Academy) ít cảnh phụ vẫn đạt
     if bad: log('  chưa đạt, không đẩy lên:', proj, '–', ', '.join(bad)); return None
+    try:   # chủ dặn 18/11: video Remotion hoàn chỉnh → nằm trong thư mục project + đặt track trên cùng CapCut (tắt tiếng, tiếng ở các track dưới)
+        rmv_ = rm_full(jb, pl, mu, proj)
+        if rmv_ and os.path.exists(rmv_):
+            W_, H_ = pl.get('canvas') or (1080, 1920)
+            pl['media']['RMV'] = dict(path=DRV + '/' + path_of(host) + '/' + proj + '/' + proj + '.mp4', dur=round(pl['total'], 3), w=W_, h=H_, kind='video', has_audio=True, name=proj + '.mp4', S0=1.0, grade=None)   # chủ dặn: video Remotion đặt ĐÚNG TÊN project (đổi v2 thì tên trong file dựng đổi theo)
+            pl['top'] = 'RMV'; pl['rmv_local'] = rmv_
+    except ClaudeWait: raise
+    except Exception as e: mlog('Remotion video hoàn chỉnh hỏng:', repr(e)[:300])
     pp = os.path.join(L.TMP, 'plan_%d.json' % n); json.dump(pl, open(pp, 'w'), ensure_ascii=False)
     r = subprocess.run([sys.executable, os.path.join(ENG, 'build.py'), pp], capture_output=True, text=True, timeout=600)
     od = os.path.join(pl['out_dir'], proj)
     if not os.path.exists(os.path.join(od, 'draft_content.json')): raise RuntimeError('dựng lỗi: ' + (r.stderr or r.stdout)[-300:])
-    hf_make(jb, pl, mu, proj, host)
-    if HF_ONLY[0]: return None
     inhost = [c for c in lq("'%s' in parents and appProperties has { key='dungP' and value='1' } and trashed=false" % host, 'id,name,appProperties,createdTime')]
     new_ = [c for c in inhost if (c.get('appProperties') or {}).get('dungL') == LV]
     old_ = [c for c in inhost if (c.get('appProperties') or {}).get('dungL') != LV]   # bản dựng kiểu cũ (1 track) → chủ dặn dựng lại rồi thay
@@ -1984,7 +2095,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if any((c.get('appProperties') or {}).get('dungS') == slot or vbase(c['name']) == vbase(proj) for c in new_):
         log('  đã có project này trên Drive – giữ nguyên, không ghi đè:', proj); return dict(proj=proj, dur=0, exists=True)
     bare = bare_nm
-    old_ = [c for c in old_ if (c.get('appProperties') or {}).get('dungS') == slot or vbase(c['name']) == vbase(proj)]   # chỉ bản cũ của ĐÚNG kịch bản này (không đụng project khác cùng thư mục)
+    old_ = [c for c in old_ if (c.get('appProperties') or {}).get('dungS') == slot or vbase(c['name']) == vbase(proj) or host in set((jb.get('kbtop') or {}).values())]   # 18/11: thư mục Kịch bản N chỉ 1 project → bản dựng lại thay đúng project trong thư mục đó   # chỉ bản cũ của ĐÚNG kịch bản này (không đụng project khác cùng thư mục)
     keep_ = [c for c in old_ if user_edited(c)]
     old_ = [c for c in old_ if c not in keep_]
     proj0 = proj
@@ -2002,7 +2113,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if tgt:
         try:
             for x in lq("'%s' in parents" % tgt['id'], 'id,name,mimeType'):   # chỉ bỏ đúng các file sẽ thay (+ bản lưu tạm Timelines của CapCut để CapCut đọc bản mới)
-                if x['name'] in ('draft_content.json', 'draft_info.json', 'draft_content.json' + HID, 'draft_info.json' + HID, MGDIR, AIMDIR, 'draft_cover.jpg', 'Timelines') or x['name'].startswith('Kịch bản - '):
+                if x['name'] in ('draft_content.json', 'draft_info.json', 'draft_content.json' + HID, 'draft_info.json' + HID, MGDIR, AIMDIR, 'draft_cover.jpg', 'Timelines', RMVN) or x['name'].startswith('Kịch bản - ') or (x['name'].lower().endswith('.mp4') and vbase(x['name'][:-4]) == vbase(proj0)):
                     try: L.drive('files/' + x['id'], {'trashed': True}, method='PATCH')
                     except Exception: pass
             L.drive('files/' + tgt['id'], {'appProperties': {'dungS': slot, 'dungL': LV, 'dungVol': '1'}}, method='PATCH')
@@ -2139,8 +2250,8 @@ def edit(jb, key, models):
     return done
 
 # ---------------------------------------------------------------- vòng chạy: đọc trước 1 buổi trong lúc dựng buổi hiện tại
-ONLY = ''   # bỏ trống ('') = chạy mọi thư mục source
-PAUSE = True   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
+ONLY = 'the fullton'   # bỏ trống ('') = chạy mọi thư mục source
+PAUSE = False   # chủ dặn: tạm dừng giao project cho tới khi bản nâng cấp lớn (Claude xem dày khung hình, âm thanh, nhịp nhạc, tracking, tự kiểm tra) xong
 # ================================================================ HÀNG VIỆC CHUNG cho mọi máy GitHub (chủ dặn 11/11)
 # mọi máy = 1 cỗ máy: việc chia nhỏ (ĐỌC 1 video · LÊN KỊCH BẢN 1 source · DỰNG 1 kịch bản); máy rảnh nhận việc gần xong nhất trước
 # (dựng → lên kịch bản → đọc) → project ra lần lượt, các máy còn lại vẫn đọc song song các source khác. Khóa từng việc trên Drive.
@@ -2168,6 +2279,41 @@ def jput(name, obj, ad, idx):
     data = json.dumps(obj, ensure_ascii=False).encode('utf-8')
     if name in idx: update(idx[name], data, 'application/json')
     else: idx[name] = put(name, ad, data, 'application/json')['id']
+# ---------------------------------------------------------------- SỔ SÁNG TẠO (chủ dặn 18/11): mỗi project phải KHÁC các project trước – nhạc, motion graphic, bảng màu, bộ âm thanh hiệu ứng, trình tự hiệu ứng
+CUR = {}
+def st_hist():
+    try: ad_, ix_ = idx_now(); return ((jget('sang_tao.json', ix_) or {}).get('L') or [])[-40:]
+    except Exception: return []
+def st_add(e):
+    try: ad_, ix_ = idx_now(); d_ = jget('sang_tao.json', ix_) or {}; L_ = (d_.get('L') or [])[-80:]; L_.append(e); jput('sang_tao.json', dict(L=L_), ad_, ix_)
+    except Exception as x: log('  sổ sáng tạo lỗi', repr(x)[:120])
+SFXP = {   # (tên file, bỏ đầu giây, cỡ file) – kho "AI tải về" đủ bộ, máy tự chép sang Kho AI tải về / Âm thanh hiệu ứng
+    'open': [('SFX impact epic 01.wav', 1.25, 907596), ('SFX impact boom 01.wav', 0, 858396), ('SFX impact boom 02.wav', 0, 973846), ('SFX sub drop 01.wav', 0, 486834), ('SFX 808 hit 01.wav', 0, 269880)],   # hướng dẫn chủ: impact ở hook
+    'shut': [('SFX chup anh 01.wav', 0, 211522), ('SFX chup anh 02.wav', 0, 62562)],   # màn trập 'tách tách' khi chuyển cảnh rò sáng
+    'wh': [('SFX whoosh mem.wav', 0, 111404), ('SFX whoosh mem 01.wav', 0, 1042904), ('SFX whoosh mem 02.wav', 0, 540656), ('SFX whoosh mem 03.wav', 0, 614126), ('SFX whoosh nhanh 01.wav', 0, 186474), ('SFX whoosh nhanh 02.wav', 0, 194084), ('SFX whoosh nhanh 03.wav', 0, 151978), ('SFX whoosh dien anh 01.wav', 0, 235384)],
+    'info': [('SFX tit thong tin.wav', 0, 65324), ('SFX ding nhan manh 01.wav', 0, 345970), ('SFX ding nhan manh 02.wav', 0, 368230), ('SFX ding nhan manh 03.wav', 0, 222404), ('SFX ping vi tri 01.wav', 0, 546078), ('SFX ping vi tri 02.wav', 0, 182654), ('SFX tien xu 02.wav', 0, 347756), ('SFX click chuot 02.wav', 0, 62786)],
+    'pop': [('SFX pop chu 01.wav', 0, 208686), ('SFX pop chu 02.wav', 0, 173318), ('SFX pop chu 03.wav', 0, 134032), ('SFX pop chu 04.wav', 0, 195282), ('SFX click chuot 03.wav', 0, 146930), ('SFX sparkle 01.wav', 0, 620356)]}
+SFXCAP = {'open': 5.2, 'wh': .9, 'info': .6, 'pop': .35, 'shut': .8}
+SFXLIB2 = '1T3MvisWB11btitmglx8vztTY5uosv1JU'   # thư viện âm thanh hiệu ứng đầy đủ
+def cur_pick(proj):   # chọn bộ âm thanh + bảng màu + nhịp KHÁC các project gần đây
+    H = st_hist(); rd = random.Random('%s|%s' % (proj, time.time())); CUR.clear(); CUR.update(proj=proj, hist=H)
+    rec = H[-6:]; S_ = {}
+    for role, pool in SFXP.items():
+        used = [((e.get('sfx') or {}).get(role) or []) for e in rec]; usedf = {x for u in used for x in (u if isinstance(u, list) else [u])}
+        c = [x for x in pool if x[0] not in usedf] or pool; rd.shuffle(c); S_[role] = c[:2] if role in ('wh', 'pop', 'info', 'shut') else c[:1]
+    CUR['sfx'] = S_; CUR['popk'] = rd.choice([k for k in (2, 3, 4, 5) if k != (rec[-1].get('popk') if rec else 0)] or [3]); CUR['whgap'] = rd.choice([1.6, 2.0, 2.6, 3.2])
+    upal = [e.get('pal') for e in H[-8:] if e.get('pal') is not None]; pals = [i for i in range(12) if i not in upal] or list(range(12)); CUR['pal'] = rd.choice(pals)
+    CUR['n'] = {}
+def sf(role, t, vol):   # 1 tiếng hiệu ứng theo bộ đã chọn cho project này (xoay vòng trong bộ)
+    S_ = (CUR.get('sfx') or {}).get(role) or [SFXP[role][0]]; k = CUR.setdefault('n', {}).get(role, 0); CUR['n'][role] = k + 1; f, si, sz = S_[k % len(S_)]
+    est = max(.1, (sz - 44) / 176400.0); d = round(est if role == 'open' else min(SFXCAP[role], est * .9), 3)
+    x = dict(file=f, t=round(max(0, t), 3), vol=vol, dur=d)
+    if si: x['src_in'] = si
+    return x
+def cur_save(pl):
+    try: st_add(dict(t=int(time.time()), proj=CUR.get('proj'), sfx={r: [x[0] for x in v] for r, v in (CUR.get('sfx') or {}).items()}, popk=CUR.get('popk'), whgap=CUR.get('whgap'), pal=CUR.get('pal'),
+                     mg=CUR.get('mg') or [], music=CUR.get('music') or [], hook=CUR.get('hook') or ''))
+    except Exception: pass
 def st_name(jb, n): return '%s_kb%d_L%s.json' % (jb['id'], n, LV)   # trạng thái từng kịch bản theo kiểu dựng (đổi kiểu → dựng lại, bản cũ được thay)
 
 def tasks(jobs=None):
@@ -2473,7 +2619,40 @@ def vid_report(root='141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'):   # thống kê video 
                 tot += sz; dur += ms
                 log('  [VR] %.2f GB | %.1f phút | %s/%s' % (sz / 1e9, ms / 6e4, pth, c['name']))
     log('  [VR] TONG %.2f GB | %.1f phút | bản xem trước LRF: %d file %.2f GB' % (tot / 1e9, dur / 6e4, nlrf, slrf / 1e9))
+DROP = ('micc academy', 'su kien')   # chủ dặn 16/11: KHÔNG tạo project cho Academy và các Sự kiện nữa, xóa hết project đã có
+def dropped(fid):
+    try: p_ = L.norm1(path_of(fid))
+    except Exception: return False
+    return any(k in p_ for k in DROP)
+def drop_projects():
+    try:
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungDROP') == '1' or not lock(LISTF, 'dungDROPL'): return
+        n_ = 0
+        for c in lq("appProperties has { key='dungP' and value='1' } and mimeType='%s' and trashed=false" % L.FOLDER, 'id,name,parents,appProperties'):
+            sid_ = str((c.get('appProperties') or {}).get('dungS') or '').split(':')[0]
+            if (sid_ and dropped(sid_)) or any(L.norm1(c['name']).lstrip('🤖✏️ ').startswith(k) for k in ('micc academy -', 'khai pha tu duy -')):
+                try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH'); n_ += 1
+                except Exception: pass
+        for c in lq("name contains 'HyperFrames - ' and name contains 'Micc Academy' and trashed=false", 'id,name'):   # bản thử HyperFrames Academy
+            try: L.drive('files/' + c['id'], {'trashed': True}, method='PATCH')
+            except Exception: pass
+        list_edit(); L.mark(LISTF, dungDROP='1', dungDROPL=None); log('  đã xóa %d project Academy + Sự kiện (thùng rác Drive, khôi phục được 30 ngày)' % n_)
+    except Exception as e: log('  không xóa được project Academy / Sự kiện:', e)
 def pending():
+    drop_projects()
+    try:   # 18/11: chủ dặn DỰNG LẠI The Fullton – lên kịch bản lại (hook hấp dẫn hơn) + dựng mới khác biệt (nhạc / motion / âm thanh hiệu ứng), thay vào đúng project cũ (thêm v2)
+        if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRF5') != '1':
+            L.mark(LISTF, dungRF5='1'); sid_ = '1-p6u2lS7SgywnwAxSz9rg20-xaIOuUGW'; ad_, ix_ = idx_now(); k_ = 0
+            for nm_, id_ in list(ix_.items()):
+                if nm_.startswith(sid_ + '_kichban') or nm_.startswith(sid_ + '_kb'):
+                    try: L.drive('files/' + id_, {'trashed': True}, method='PATCH'); k_ += 1
+                    except Exception: pass
+            for h_ in ('1XKLN8IqUZUazW1ntWZCdaAdUeIBmQuEw', '1lOtfRWCj9be3EYPiqkY4IfLBFQbLD6Ko', sid_):
+                for c_ in lq("'%s' in parents and appProperties has { key='dungP' and value='1' } and trashed=false" % h_, 'id,name'):
+                    try: L.drive('files/' + c_['id'], {'trashed': True}, method='PATCH'); log('  The Fullton: bỏ project cũ (chưa đúng phong cách mẫu) vào thùng rác', c_['name'])
+                    except Exception: pass
+            L.mark(sid_, dungV=None, dungPV=None, dungFail=None, dungFailV=None, dungLock=None); log('  The Fullton: bỏ %d file kịch bản cũ → lên kịch bản + dựng lại' % k_)
+    except Exception as e: log('  dựng lại The Fullton lỗi', repr(e)[:200])
     try:   # 15/11: 26 kịch bản Academy bị bỏ vì lỗi tạm (luật cũ bỏ luôn) → đặt lại để dựng tiếp
         if (L.drive('files/' + LISTF, params={'fields': 'appProperties'}).get('appProperties') or {}).get('dungRA3') != '1':
             L.mark(LISTF, dungRA3='1'); sid_ = '141sOBTH8vLX7SpredUrXE9-EHY5E2JKj'; ad_, ix_ = idx_now(); bk_ = jget('%s_kichban.json' % sid_, ix_) or {}; k_ = 0

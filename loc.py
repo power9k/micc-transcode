@@ -10,7 +10,7 @@ import os, sys, json, time, re, subprocess, base64, glob, shutil, hashlib, urlli
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 API, SEC = os.environ['MICC_API'], os.environ['MICC_SECRET']
-SITE = os.environ.get('MICC_SITE', 'https://miccmedia.edgeone.dev').rstrip('/')
+SITE = os.environ.get('MICC_SITE', 'https://miccmedia.pages.dev').rstrip('/')   # bản 304.1: web chuyển sang Cloudflare
 ROOT = os.environ.get('MICC_ROOT', '1-26OvV9W2MuApRRgK43URqgiC-b07MfV')
 T0, MAXMIN = time.time(), float(os.environ.get('MAX_MIN', '330'))
 TMP = os.environ.get('LOC_TMP', '/tmp/loc')
@@ -396,7 +396,7 @@ def upload(path, name, parent, extra=None):
 CFG = {}
 def cfg():
     if CFG: return CFG
-    enc = urllib.request.urlopen(SITE + '/cg.bin?t=%d' % time.time(), timeout=120).read()
+    enc = urllib.request.urlopen(urllib.request.Request(SITE + '/cg.bin?t=%d' % time.time(), headers={'User-Agent': 'micc-github/1.0'}), timeout=120).read()
     k = hashlib.sha256(('micc-cg|' + SEC).encode()).digest(); out = bytearray(len(enc))
     for b in range((len(enc) + 31) // 32):
         ks = hashlib.sha256(k + b.to_bytes(4, 'big')).digest()
@@ -836,7 +836,7 @@ def server_ver():
     except Exception as e: log('  không hỏi được bản máy chủ:', str(e)[:100]); return ''
 def server_sync():
     try:
-        meta = json.loads(urllib.request.urlopen(SITE + '/cg.txt?t=%d' % time.time(), timeout=60).read())
+        meta = json.loads(urllib.request.urlopen(urllib.request.Request(SITE + '/cg.txt?t=%d' % time.time(), headers={'User-Agent': 'micc-github/1.0'}), timeout=60).read())   # Cloudflare chặn tên mặc định Python-urllib
         cur = server_ver()
         if '--sync' in sys.argv: log('Máy chủ:', cur or '?', '· web:', meta.get('ver'))
         if not cur or verno(meta.get('ver')) <= verno(cur): return
@@ -845,6 +845,8 @@ def server_sync():
         log('Máy chủ đang %s, web có %s → máy GitHub tự cập nhật máy chủ' % (cur, meta['ver']))
         S = 'https://script.googleapis.com/v1/projects/' + SCRIPT_ID; H = lambda: {'Authorization': 'Bearer ' + tok()}
         old = http(S + '/content', headers=H())
+        _nv = lambda t: re.sub(r"const BOT_VER = '[^']*';", '', t or '')   # 18/11 (chủ dặn): chỉ đổi số bản / chỉ đổi web → KHÔNG tạo phiên bản máy chủ mới (Apps Script giới hạn 200 phiên bản)
+        if any(f.get('type') == 'SERVER_JS' and 'const BOT_VER = ' in (f.get('source') or '') and _nv(f.get('source')) == _nv(src) for f in old['files']): log('  code máy chủ không đổi (chỉ đổi web) → không cần phiên bản mới'); return
         files = [dict(f, source=src) if f.get('type') == 'SERVER_JS' and 'const BOT_VER = ' in (f.get('source') or '') else f for f in old['files']]
         for f in files:  # bật dịch vụ Drive v3 (đọc Drive không tốn hạn mức gọi mạng của máy chủ)
             if f.get('type') == 'JSON' and f.get('name') == 'appsscript':
@@ -854,7 +856,22 @@ def server_sync():
                 except Exception as e: log('  không sửa được cấu hình dự án:', e)
         if not any(f.get('source') == src for f in files): raise RuntimeError('không thấy tệp code chính')
         http(S + '/content', {'files': files}, H(), 'PUT')
-        v = http(S + '/versions', {'description': meta['ver'] + ' (máy GitHub cập nhật)'}, H(), 'POST')
+        try: v = http(S + '/versions', {'description': meta['ver'] + ' (máy GitHub cập nhật)'}, H(), 'POST')
+        except Exception as e0:   # đầy 200 phiên bản → tự xóa bớt bản cũ không dùng rồi thử lại
+            if '429' not in str(e0) and 'limit' not in str(e0).lower(): raise
+            used = {(d.get('deploymentConfig') or {}).get('versionNumber') for d in http(S + '/deployments', headers=H()).get('deployments', [])}
+            vs, tk = [], ''
+            while True:
+                pg = http(S + '/versions?pageSize=50' + ('&pageToken=' + tk if tk else ''), headers=H()); vs += pg.get('versions') or []; tk = pg.get('nextPageToken') or ''
+                if not tk: break
+            gone = 0
+            for x in sorted(vs, key=lambda x: x.get('versionNumber') or 0)[:120]:
+                if x.get('versionNumber') in used: continue
+                try: http(S + '/versions/%d' % x['versionNumber'], None, H(), 'DELETE'); gone += 1
+                except Exception as e1: log('  không tự xóa được phiên bản cũ:', str(e1)[:120]); break
+            log('  đã tự xóa %d phiên bản cũ' % gone)
+            if not gone: tsay('⚠️ Máy chủ Apps Script đã đầy 200 phiên bản nên chưa cập nhật được bản ' + meta['ver'] + '. Vào Apps Script → Nhật ký dự án → bấm biểu tượng thùng rác (xóa hàng loạt) → xóa các phiên bản cũ.', once='vfull_' + meta['ver']); raise
+            v = http(S + '/versions', {'description': meta['ver'] + ' (máy GitHub cập nhật)'}, H(), 'POST')
         wd = (re.search(r"const WEB_DEP = '([^']+)'", src) or [None, ''])[1]
         deps = [d for d in http(S + '/deployments', headers=H()).get('deployments', []) if any(e.get('entryPointType') == 'WEB_APP' for e in d.get('entryPoints', [])) and (d.get('deploymentConfig') or {}).get('versionNumber')]
         dep = next((d for d in deps if d['deploymentId'] == wd), None) or sorted(deps, key=lambda d: d.get('updateTime', ''))[-1]
@@ -903,20 +920,70 @@ def tc_img(fid, mime):
             b = open(out, 'rb').read(); os.remove(out); return b if len(b) > 800 else None
         except Exception: return None
     return None
-def tc_put(b, fid, parent, old=''):
-    if old:  # file đổi → thay nội dung ảnh nhỏ cũ (giữ nguyên id)
-        try: http(G + '/upload/drive/v3/files/' + old + '?uploadType=media&supportsAllDrives=true&fields=id', bytes(b), {'Authorization': 'Bearer ' + tok(), 'Content-Type': 'image/jpeg'}, 'PATCH'); return old
+CFW = os.environ.get('MICC_CF', 'https://miccmedia.pages.dev')
+def cf_tc(qs, body=None):   # bản 304.1 (chủ dặn): thumbnail lưu ở Cloudflare (D1) thay cho Drive
+    req = urllib.request.Request(CFW + '/__tcput?' + qs, data=body if body is not None else b'', method='POST', headers={'x-px': SEC, 'Content-Type': 'image/jpeg', 'User-Agent': 'micc-github'})
+    with urllib.request.urlopen(req, timeout=60) as r: return json.loads(r.read() or b'{}')
+def tc_put(b, fid, parent, old='', size=''):
+    cf_tc(urllib.parse.urlencode({'id': fid, 'v': size}), bytes(b))
+    if old and old != 'cf':   # ảnh nhỏ cũ trên Drive → bỏ (đã chuyển sang Cloudflare)
+        try: drive('files/' + old, None, 'DELETE')
         except Exception: pass
-    bd = 'tc' + hashlib.md5(fid.encode()).hexdigest()[:12]
-    body = ('--%s\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' % bd).encode() + json.dumps({'name': fid + '.jpg', 'parents': [parent], 'appProperties': {'tcOf': fid}}).encode() + ('\r\n--%s\r\nContent-Type: image/jpeg\r\n\r\n' % bd).encode() + bytes(b) + ('\r\n--%s--' % bd).encode()
-    return http(G + '/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id', body, {'Authorization': 'Bearer ' + tok(), 'Content-Type': 'multipart/related; boundary=' + bd})['id']
+    return 'cf'
+def tc_old(old):   # tải lại ảnh nhỏ cũ trên Drive (nhanh hơn tạo lại) để chuyển sang Cloudflare
+    try:
+        req = urllib.request.Request(G + '/drive/v3/files/' + old + '?alt=media&supportsAllDrives=true', headers={'Authorization': 'Bearer ' + tok()})
+        with urllib.request.urlopen(req, timeout=60) as r: b = r.read()
+        return b if len(b) > 800 else None
+    except Exception: return None
+def cf_skv(qs, body=None):   # bản 311.1: kho KV của MICC Studio (qua web miccmedia, khóa PX)
+    req = urllib.request.Request(CFW + '/__skv?' + qs, data=body if body is not None else b'', method='POST', headers={'x-px': SEC, 'User-Agent': 'micc-github/1.0', 'Content-Type': 'application/octet-stream'})
+    with urllib.request.urlopen(req, timeout=120) as r: return json.loads(r.read() or b'{}')
+def ffbin():
+    f = shutil.which('ffmpeg')
+    if f: return f
+    if not os.path.exists('/tmp/ffs/ffmpeg'):   # máy đồng bộ nhanh chưa có ffmpeg → lấy bản dựng sẵn 1 lần
+        os.makedirs('/tmp/ffs', exist_ok=True); subprocess.run('curl -fsSL --retry 3 -o /tmp/ffs/f.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz && tar -xJf /tmp/ffs/f.tar.xz -C /tmp/ffs --strip-components=2 --wildcards "*/bin/ffmpeg"', shell=True, timeout=300)
+    return '/tmp/ffs/ffmpeg' if os.path.exists('/tmp/ffs/ffmpeg') else None
+def sale_cache(budget=200):   # chủ dặn 19/11: video hậu kỳ mới của kênh SALE → bản nhẹ cho nền đăng nhập MICC Studio ngay (không chờ lịch)
+    t0 = time.time()
+    try: vs = (api('saleVideos') or {}).get('videos') or []
+    except Exception as e: log('  video nhẹ SALE: máy chủ chưa sẵn sàng –', str(e)[:120]); return
+    if not vs: log('  video nhẹ SALE: máy chủ trả về 0 video'); return
+    ks = ['p/%s.mp4' % v['id'][:12] for v in vs]; has = set()
+    try:
+        for k in range(0, len(ks), 50): has |= set(cf_skv('has=' + ','.join(ks[k:k + 50])).get('has') or [])
+    except Exception as e: log('  video nhẹ SALE: không hỏi được kho –', str(e)[:120]); return
+    todo = [v for v in vs if 'p/%s.mp4' % v['id'][:12] not in has]
+    if not todo: return
+    log('  video nhẹ SALE: %d video, %d chưa có bản nhẹ' % (len(vs), len(todo)))
+    ff = ffbin()
+    if not ff: log('  video nhẹ SALE: chưa có ffmpeg'); return
+    n = 0
+    for v in todo:
+        if time.time() - t0 > budget: break
+        i, dur = v['id'][:12], (v.get('dur') or 0) / 1000; ss = 2 if dur > 14 else 0; ln = min(8, max(1, (dur or 10) - ss)); vert = (v.get('h') or 1) >= (v.get('w') or 0)
+        sc = 'scale=-2:min(1280\\,ih)' if vert else 'scale=min(1280\\,iw):-2'; d = '/tmp/sale_' + i; os.makedirs(d, exist_ok=True)
+        try:
+            run([ff, '-y', '-v', 'error'] + fin(v['id'], ss=ss, t=ln) + ['-an', '-vf', 'scale=-2:300:flags=lanczos,fps=24,format=yuv420p', '-c:v', 'libx264', '-preset', 'slow', '-crf', '30', '-profile:v', 'main', '-movflags', '+faststart', d + '/p.mp4'], timeout=600)
+            run([ff, '-y', '-v', 'error'] + fin(v['id'], ss=ss + 1) + ['-frames:v', '1', '-vf', 'scale=-2:300', '-q:v', '4', d + '/t.jpg'], timeout=300)
+            run([ff, '-y', '-v', 'error'] + fin(v['id'], t=16.5) + ['-vf', sc + ':flags=lanczos,format=yuv420p', '-c:v', 'libx264', '-preset', 'medium', '-crf', '27', '-maxrate', '2.2M', '-bufsize', '4.4M', '-c:a', 'aac', '-b:a', '112k', '-af', 'afade=t=out:st=15:d=1.5', '-movflags', '+faststart', d + '/f.mp4'], timeout=900)
+            for k in ('t', 'f', 'p'):   # p cuối cùng = dấu đã xong
+                cf_skv('key=%s/%s.%s' % (k, i, 'jpg' if k == 't' else 'mp4'), open('%s/%s.%s' % (d, k, 'jpg' if k == 't' else 'mp4'), 'rb').read())
+            n += 1
+        except Exception as e: log('  video nhẹ SALE lỗi', v.get('name'), str(e)[:160])
+        finally: shutil.rmtree(d, ignore_errors=True)
+    if n: log('🎞 Video nhẹ kênh SALE cho MICC Studio: xong %d · còn chờ %d' % (n, len(todo) - n))
 def tcache(budget=240):
     t0 = time.time()
     try: r = api('tcNeed', limit=400)
     except Exception as e: log('  ảnh nhỏ: máy chủ chưa sẵn sàng –', str(e)[:160]); return
     ok = []
     for fid, tid in (r.get('gone') or []):  # file gốc đã xóa → xóa ảnh nhỏ theo
-        try: drive('files/' + tid, None, 'DELETE'); ok.append(fid)
+        try:
+            if tid == 'cf': cf_tc('del=' + fid)
+            else: drive('files/' + tid, None, 'DELETE')
+            ok.append(fid)
         except Exception as e:
             if '404' in str(e): ok.append(fid)
             else: log('  không xóa được ảnh nhỏ', tid, str(e)[:120])
@@ -924,9 +991,9 @@ def tcache(budget=240):
     need, done, n = r.get('need') or [], [], 0
     def one(it):
         if time.time() - t0 > budget: return None
-        fid, name, mime, size, old = it
-        b = tc_img(fid, mime)
-        return [fid, tc_put(b, fid, r['folder'], old), str(size)] if b else None
+        fid, name, mime, size, old = it[:5]
+        b = (tc_old(old) if old and old != 'cf' and it[5:6] == ['mv'] else None) or tc_img(fid, mime)
+        return [fid, tc_put(b, fid, r['folder'], old, str(size)), str(size)] if b else None
     with ThreadPoolExecutor(8) as ex:
         for f in as_completed([ex.submit(one, it) for it in need]):
             try: x = f.result()
@@ -950,6 +1017,8 @@ def main():
             try: left = tcache(budget=min(240, 10 * 60 - (time.time() - t1)))
             except Exception as e: log('ảnh nhỏ lỗi:', e); break
             if not left: break
+        try: sale_cache()
+        except Exception as e: log('video nhẹ SALE lỗi:', e)
         return
     repair_lost()
     fix_old()
