@@ -396,7 +396,7 @@ def upload(path, name, parent, extra=None):
 CFG = {}
 def cfg():
     if CFG: return CFG
-    enc = urllib.request.urlopen(SITE + '/cg.bin?t=%d' % time.time(), timeout=120).read()
+    enc = urllib.request.urlopen(urllib.request.Request(SITE + '/cg.bin?t=%d' % time.time(), headers={'User-Agent': 'micc-github/1.0'}), timeout=120).read()
     k = hashlib.sha256(('micc-cg|' + SEC).encode()).digest(); out = bytearray(len(enc))
     for b in range((len(enc) + 31) // 32):
         ks = hashlib.sha256(k + b.to_bytes(4, 'big')).digest()
@@ -836,7 +836,7 @@ def server_ver():
     except Exception as e: log('  không hỏi được bản máy chủ:', str(e)[:100]); return ''
 def server_sync():
     try:
-        meta = json.loads(urllib.request.urlopen(SITE + '/cg.txt?t=%d' % time.time(), timeout=60).read())
+        meta = json.loads(urllib.request.urlopen(urllib.request.Request(SITE + '/cg.txt?t=%d' % time.time(), headers={'User-Agent': 'micc-github/1.0'}), timeout=60).read())   # Cloudflare chặn tên mặc định Python-urllib
         cur = server_ver()
         if '--sync' in sys.argv: log('Máy chủ:', cur or '?', '· web:', meta.get('ver'))
         if not cur or verno(meta.get('ver')) <= verno(cur): return
