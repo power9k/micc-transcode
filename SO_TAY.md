@@ -36,6 +36,12 @@ Mọi phiên Claude làm việc với hệ thống này dùng chung sổ này. C
 - 17/11 (phiên chính): quy tắc đánh số phiên bản web (mục trên). Web đang ở 263.55; yêu cầu mới tiếp theo → 264.1.
 - 17/11 (phiên chính): bật lại máy dựng (`PAUSE = False`) để dựng source mới The Fullton (SOURCE/Kịch bản 7, 8). Academy + Sự kiện vẫn bỏ qua.
 - 17/11 (phiên chính): thư mục có file kịch bản đính kèm → dựng KHÔNG giới hạn thời lượng, đủ mọi ý theo kịch bản.
+- 17/11 (phiên Academy, Remotion): chủ chốt quy trình video Academy mới:
+  - Mỗi video 1:30–2:00, lời diễn giải chi tiết, có ví dụ cụ thể; vẫn lên nhiều kịch bản nhất có thể (đã có 54 kịch bản từ 5 file buổi 13/10).
+  - Cắt kỹ khoảng nghỉ, hơi thở, ậm ừ; câu nói lặp hay nói hỏng thì cắt còn một lần cho mượt.
+  - Không làm nét: dùng thẳng file MP4 gốc chất lượng tốt nhất trên Drive (không dùng .LRF/720p/480p). Âm thanh chỉ lọc tạp âm.
+  - Motion graphic phải vui mắt, nhiều hiệu ứng, tràn ngập vùng an toàn. Ví dụ nào được nhắc tới (kênh, người, dự án) phải có hình thật: avatar + tên kênh, ảnh chụp TikTok, video đang chạy, chỉ số like…, không chỉ có chữ.
+  - Dựng bằng Remotion. Mốc thời gian từng chữ lấy bằng Whisper chạy trên máy GitHub (workflow riêng `asr-words.yml` trên nhánh claude/…, không đụng main).
 - 18/11 (phiên chính): chủ dặn mỗi project phải KHÁC BIỆT (motion graphic, bảng màu, nhạc, bộ + trình tự âm thanh hiệu ứng không lặp project cũ) → 'sổ sáng tạo' sang_tao.json trong kho phân tích, cur_pick/sf trong dung.py; hook 3 giây đầu phải hấp dẫn hơn. Dựng lại The Fullton (one-shot dungRF1).
 - 18/11 (phiên chính): chủ gửi PDF 'Bộ hướng dẫn dựng video dọc' → huong_dan_dung.md (máy dựng đọc khi lên kịch bản, chọn motion, kiểm duyệt). Vùng an toàn THẬT: x 60–920, y 270–1640 (khung 1080×1920).
 - 18/11 (phiên chính): chủ dặn KHÔNG dùng HyperFrames nữa → mọi motion graphic + video hoàn chỉnh dựng bằng REMOTION (eng/mg.py rm_*, eng/rmvid.py). Mỗi project: dựng trước video Remotion hoàn chỉnh từ đúng kế hoạch dựng, lưu trong thư mục project với ĐÚNG TÊN project (<tên project>.mp4), đặt track TRÊN CÙNG CapCut (tắt tiếng; các track dưới cùng kế hoạch nên khớp từng giây).
