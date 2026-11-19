@@ -936,6 +936,43 @@ def tc_old(old):   # tải lại ảnh nhỏ cũ trên Drive (nhanh hơn tạo l
         with urllib.request.urlopen(req, timeout=60) as r: b = r.read()
         return b if len(b) > 800 else None
     except Exception: return None
+def cf_skv(qs, body=None):   # bản 311.1: kho KV của MICC Studio (qua web miccmedia, khóa PX)
+    req = urllib.request.Request(CFW + '/__skv?' + qs, data=body if body is not None else b'', method='POST', headers={'x-px': SEC, 'User-Agent': 'micc-github/1.0', 'Content-Type': 'application/octet-stream'})
+    with urllib.request.urlopen(req, timeout=120) as r: return json.loads(r.read() or b'{}')
+def ffbin():
+    f = shutil.which('ffmpeg')
+    if f: return f
+    if not os.path.exists('/tmp/ffs/ffmpeg'):   # máy đồng bộ nhanh chưa có ffmpeg → lấy bản dựng sẵn 1 lần
+        os.makedirs('/tmp/ffs', exist_ok=True); subprocess.run('curl -fsSL --retry 3 -o /tmp/ffs/f.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz && tar -xJf /tmp/ffs/f.tar.xz -C /tmp/ffs --strip-components=2 --wildcards "*/bin/ffmpeg"', shell=True, timeout=300)
+    return '/tmp/ffs/ffmpeg' if os.path.exists('/tmp/ffs/ffmpeg') else None
+def sale_cache(budget=200):   # chủ dặn 19/11: video hậu kỳ mới của kênh SALE → bản nhẹ cho nền đăng nhập MICC Studio ngay (không chờ lịch)
+    t0 = time.time()
+    try: vs = (api('saleVideos') or {}).get('videos') or []
+    except Exception as e: log('  video nhẹ SALE: máy chủ chưa sẵn sàng –', str(e)[:120]); return
+    if not vs: return
+    ks = ['p/%s.mp4' % v['id'][:12] for v in vs]; has = set()
+    try:
+        for k in range(0, len(ks), 50): has |= set(cf_skv('has=' + ','.join(ks[k:k + 50])).get('has') or [])
+    except Exception as e: log('  video nhẹ SALE: không hỏi được kho –', str(e)[:120]); return
+    todo = [v for v in vs if 'p/%s.mp4' % v['id'][:12] not in has]
+    if not todo: return
+    ff = ffbin()
+    if not ff: log('  video nhẹ SALE: chưa có ffmpeg'); return
+    n = 0
+    for v in todo:
+        if time.time() - t0 > budget: break
+        i, dur = v['id'][:12], (v.get('dur') or 0) / 1000; ss = 2 if dur > 14 else 0; ln = min(8, max(1, (dur or 10) - ss)); vert = (v.get('h') or 1) >= (v.get('w') or 0)
+        sc = 'scale=-2:min(1280\\,ih)' if vert else 'scale=min(1280\\,iw):-2'; d = '/tmp/sale_' + i; os.makedirs(d, exist_ok=True)
+        try:
+            run([ff, '-y', '-v', 'error'] + fin(v['id'], ss=ss, t=ln) + ['-an', '-vf', 'scale=-2:300:flags=lanczos,fps=24,format=yuv420p', '-c:v', 'libx264', '-preset', 'slow', '-crf', '30', '-profile:v', 'main', '-movflags', '+faststart', d + '/p.mp4'], timeout=600)
+            run([ff, '-y', '-v', 'error'] + fin(v['id'], ss=ss + 1) + ['-frames:v', '1', '-vf', 'scale=-2:300', '-q:v', '4', d + '/t.jpg'], timeout=300)
+            run([ff, '-y', '-v', 'error'] + fin(v['id'], t=16.5) + ['-vf', sc + ':flags=lanczos,format=yuv420p', '-c:v', 'libx264', '-preset', 'medium', '-crf', '27', '-maxrate', '2.2M', '-bufsize', '4.4M', '-c:a', 'aac', '-b:a', '112k', '-af', 'afade=t=out:st=15:d=1.5', '-movflags', '+faststart', d + '/f.mp4'], timeout=900)
+            for k in ('t', 'f', 'p'):   # p cuối cùng = dấu đã xong
+                cf_skv('key=%s/%s.%s' % (k, i, 'jpg' if k == 't' else 'mp4'), open('%s/%s.%s' % (d, k, 'jpg' if k == 't' else 'mp4'), 'rb').read())
+            n += 1
+        except Exception as e: log('  video nhẹ SALE lỗi', v.get('name'), str(e)[:160])
+        finally: shutil.rmtree(d, ignore_errors=True)
+    if n: log('🎞 Video nhẹ kênh SALE cho MICC Studio: xong %d · còn chờ %d' % (n, len(todo) - n))
 def tcache(budget=240):
     t0 = time.time()
     try: r = api('tcNeed', limit=400)
@@ -979,6 +1016,8 @@ def main():
             try: left = tcache(budget=min(240, 10 * 60 - (time.time() - t1)))
             except Exception as e: log('ảnh nhỏ lỗi:', e); break
             if not left: break
+        try: sale_cache()
+        except Exception as e: log('video nhẹ SALE lỗi:', e)
         return
     repair_lost()
     fix_old()
