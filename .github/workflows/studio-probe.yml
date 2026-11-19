@@ -1,0 +1,25 @@
+# Chỉ chạy trên nhánh claude/** khi đổi studio-runner/probe/** – thử khả năng của máy ảo cho MICC Studio (không đụng gì tới các luồng chính).
+name: Studio - thử máy dựng
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['studio-runner/probe/**']
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        n: [1, 2]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Thử
+        run: node studio-runner/probe/probe.mjs
