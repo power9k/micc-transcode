@@ -949,13 +949,14 @@ def sale_cache(budget=200):   # chủ dặn 19/11: video hậu kỳ mới của 
     t0 = time.time()
     try: vs = (api('saleVideos') or {}).get('videos') or []
     except Exception as e: log('  video nhẹ SALE: máy chủ chưa sẵn sàng –', str(e)[:120]); return
-    if not vs: return
+    if not vs: log('  video nhẹ SALE: máy chủ trả về 0 video'); return
     ks = ['p/%s.mp4' % v['id'][:12] for v in vs]; has = set()
     try:
         for k in range(0, len(ks), 50): has |= set(cf_skv('has=' + ','.join(ks[k:k + 50])).get('has') or [])
     except Exception as e: log('  video nhẹ SALE: không hỏi được kho –', str(e)[:120]); return
     todo = [v for v in vs if 'p/%s.mp4' % v['id'][:12] not in has]
     if not todo: return
+    log('  video nhẹ SALE: %d video, %d chưa có bản nhẹ' % (len(vs), len(todo)))
     ff = ffbin()
     if not ff: log('  video nhẹ SALE: chưa có ffmpeg'); return
     n = 0
