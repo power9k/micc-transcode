@@ -241,7 +241,7 @@ function Resolve-Loose($base, $rel) {
 }
 # 3) moi project: tao LOI TAT thu muc (junction) vao CapCut - khong chep video gi vao may.
 #    Loi tat hong -> tu tao lai. KHONG BAO GIO chep project vao may (chu dan: moi chinh sua phai luu thang ve Drive).
-$made = @()
+$made = @(); $srcs = @()
 foreach ($line in (Get-Content -LiteralPath $list -Encoding UTF8)) {
   $rel = $line.Trim(); if (-not $rel -or $rel.StartsWith('#')) { continue }
   $src = Resolve-Loose $root $rel
@@ -264,7 +264,7 @@ foreach ($line in (Get-Content -LiteralPath $list -Encoding UTF8)) {
       Log "Drive bi ket o project $(Split-Path $rel -Leaf) -> da khoi dong lai Google Drive"
     }
     continue }
-  $name = Split-Path $rel -Leaf
+  $srcs += $src; $name = Split-Path $rel -Leaf
   Fix-Paths $src
   Fix-Media $src
   if (-not $fontsDone) { Install-TeamFonts (Join-Path $src 'AI tải về'); $fontsDone = $true }
@@ -303,6 +303,29 @@ foreach ($d in (Get-ChildItem -LiteralPath $drafts -Directory -Force -ErrorActio
   if ($tg -notlike '*PHÒNG TRUYỀN THÔNG MICC*' -or $want -contains $d.Name) { continue }
   cmd /c rmdir "$($d.FullName)" | Out-Null; $gone += $d.Name; Log "go loi tat cu: $($d.Name)"
 }
+
+# 3b) LUT mau MICC (chu dan 20/11): project goi bo xu ly LUT cua CapCut tren may nay -> sua duong dan cho dung ban CapCut dang cai
+$adj = $null
+foreach ($ap in @((Join-Path $env:LOCALAPPDATA 'CapCut\Apps'), (Join-Path ${env:ProgramFiles} 'CapCut\Apps'))) {
+  if (-not (Test-Path -LiteralPath $ap)) { continue }
+  $hit = Get-ChildItem -LiteralPath $ap -Directory -ErrorAction SilentlyContinue | Sort-Object { try { [version]($_.Name -replace '[^0-9.]', '') } catch { [version]'0.0' } } -Descending |
+         ForEach-Object { Join-Path $_.FullName 'Resources\DefaultAdjustBundle\merge_all_adjust_color' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+  if ($hit) { $adj = $hit -replace '\\', '/'; break }
+}
+if ($adj -and $srcs.Count -gt 0) {
+  foreach ($s in $srcs) {
+    foreach ($fn in @('draft_content.json', 'draft_info.json')) {
+      $f = Join-Path $s $fn; if (-not (Test-Path -LiteralPath $f)) { continue }
+      try {
+        $t = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
+        if ($t.Contains('merge_all_adjust_color') -and -not $t.Contains($adj)) {
+          $n = [regex]::Replace($t, ';[^";]*?merge_all_adjust_color', ';' + $adj)
+          if ($n -ne $t) { [IO.File]::WriteAllText($f, $n, (New-Object Text.UTF8Encoding($false))); Log "LUT: sua duong dan bo mau CapCut trong $fn ($(Split-Path $s -Leaf))" }
+        }
+      } catch { Log ("LUT loi: " + $_.Exception.Message) }
+    }
+  }
+} elseif (-not $adj) { Log 'LUT: chua thay thu muc DefaultAdjustBundle cua CapCut tren may nay' }
 
 # 4) Ghi project vao danh sach cua CapCut (root_meta_info.json) - CapCut chi hien project co trong danh sach nay.
 #    Chi ghi khi CapCut dang tat (CapCut ghi de file nay luc thoat).

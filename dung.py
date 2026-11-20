@@ -1315,7 +1315,7 @@ def engine():
     if os.path.exists(os.path.join(ENG, 'build.py')): return
     z = lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), ENG_NAME))[0]['id']
     os.makedirs(ENG, exist_ok=True); p = os.path.join(L.TMP, 'eng.zip'); open(p, 'wb').write(raw(z)); zipfile.ZipFile(p).extractall(ENG)
-    for fn in ('build.py', 'mg.py', 'hfvid.py', 'rmvid.py', 'gsap.min.js'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
+    for fn in ('build.py', 'mg.py', 'hfvid.py', 'rmvid.py', 'gsap.min.js', 'luts.py', 'lut_tpl.json'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'eng', fn)
         if os.path.exists(src): open(os.path.join(ENG, fn), 'wb').write(open(src, 'rb').read())
     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'fonttools'], capture_output=True)
@@ -2082,6 +2082,8 @@ def _publish(jb, sc, n, host, proj, rel, adir):
             pl['top'] = 'RMV'; pl['rmv_local'] = rmv_
     except ClaudeWait: raise
     except Exception as e: mlog('Remotion video hoàn chỉnh hỏng:', repr(e)[:300])
+    lut_ = lut_pick(jb)
+    if lut_: pl['lut'] = lut_; log('  LUT màu:', lut_['name'], '–', lut_['desc'])
     pp = os.path.join(L.TMP, 'plan_%d.json' % n); json.dump(pl, open(pp, 'w'), ensure_ascii=False)
     r = subprocess.run([sys.executable, os.path.join(ENG, 'build.py'), pp], capture_output=True, text=True, timeout=600)
     od = os.path.join(pl['out_dir'], proj)
@@ -2310,8 +2312,26 @@ def sf(role, t, vol):   # 1 tiếng hiệu ứng theo bộ đã chọn cho proje
     x = dict(file=f, t=round(max(0, t), 3), vol=vol, dur=d)
     if si: x['src_in'] = si
     return x
+def lut_dir():   # chủ dặn 20/11: LUT màu MICC (.cube) nằm trên Drive: Hệ thống/AI dựng CapCut/LUT – máy nào cũng mở được qua ổ M:
+    cd = cache_dir(); f = lq("'%s' in parents and name='LUT' and mimeType='%s'" % (cd, L.FOLDER), 'id'); fid = f[0]['id'] if f else mkdir('LUT', cd)
+    try:
+        if ENG not in sys.path: sys.path.insert(0, ENG)
+        import luts; have = {x['name'] for x in kids(fid)}
+        for nm in luts.LOOKS:
+            if nm + '.cube' not in have: put(nm + '.cube', fid, luts.cube(nm), 'application/octet-stream'); log('  tạo LUT', nm)
+    except Exception as e: log('  chưa tạo được LUT:', e)
+    return fid
+def lut_pick(jb):   # chọn LUT theo phong cách bộ dựng, khác 2 project gần nhất
+    try:
+        if ENG not in sys.path: sys.path.insert(0, ENG)
+        import luts; lut_dir(); p = (path_of(jb['id']) + ' ' + jb.get('name', '')).lower()
+        style = 'tvc' if PRO.get('punch_soft') else 'academy' if ('academy' in p or 'đào tạo' in p) else 'night' if re.search(r'đêm|night|tối', p) else 'bds'
+        rec = [e.get('lut') for e in (CUR.get('hist') or []) if e.get('lut')]
+        nm = luts.pick(style, rec, random.Random('%s|%s' % (CUR.get('proj'), time.time()))); CUR['lut'] = nm
+        return dict(name=nm, value=luts.LOOKS[nm][1], path=DRV + '/' + SYS_NAME + '/' + CACHE_NAME + '/LUT/' + nm + '.cube', desc=luts.LOOKS[nm][0])
+    except Exception as e: log('  không chọn được LUT:', e); return None
 def cur_save(pl):
-    try: st_add(dict(t=int(time.time()), proj=CUR.get('proj'), sfx={r: [x[0] for x in v] for r, v in (CUR.get('sfx') or {}).items()}, popk=CUR.get('popk'), whgap=CUR.get('whgap'), pal=CUR.get('pal'),
+    try: st_add(dict(t=int(time.time()), proj=CUR.get('proj'), sfx={r: [x[0] for x in v] for r, v in (CUR.get('sfx') or {}).items()}, popk=CUR.get('popk'), whgap=CUR.get('whgap'), pal=CUR.get('pal'), lut=CUR.get('lut'),
                      mg=CUR.get('mg') or [], music=CUR.get('music') or [], hook=CUR.get('hook') or ''))
     except Exception: pass
 def st_name(jb, n): return '%s_kb%d_L%s.json' % (jb['id'], n, LV)   # trạng thái từng kịch bản theo kiểu dựng (đổi kiểu → dựng lại, bản cũ được thay)

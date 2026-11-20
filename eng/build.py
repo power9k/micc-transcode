@@ -347,12 +347,26 @@ for k, lane in enumerate(nonover(BSEGS)): tr.append(track('video', lane, flag=2,
 for lane in nonover(PIPS): tr.append(track('video', lane, flag=2, name='Khung nổi người nói'))
 for lane in nonover(MATS): tr.append(track('video', lane, flag=2, name='Người nói tách nền (motion graphic)'))
 for lane in nonover(ADJ): tr.append(track('adjust', lane, name='Màu từng cảnh'))
+# LUT màu chọn sẵn (chủ dặn 20/11): 1 lớp Điều chỉnh phủ cả video, gắn LUT .cube của MICC (file nằm trên Drive → ổ M: ở mọi máy)
+LUTSEG = None
+if PL.get('lut') and PL['lut'].get('path'):
+    try:
+        lm = json.load(open(ENG + '/lut_tpl.json', encoding='utf-8')); lm['id'] = U(); lm['name'] = PL['lut'].get('name') or 'MICC LUT'
+        lm['path'] = PL['lut']['path'] + ';' + (PL['lut'].get('bundle') or 'C:/MICC_ADJ/DefaultAdjustBundle/merge_all_adjust_color'); lm['value'] = float(PL['lut'].get('value') or .5); lm['request_id'] = ''
+        OM.setdefault('effects', []).append(lm)
+        ph = {'id': U(), 'name': 'LUT ' + lm['name'], 'type': 'adjust', 'material_resource_id': ''}; OM.setdefault('placeholders', []).append(ph)
+        sg = copy.deepcopy(next(s_ for t_ in TPL['tracks'] if t_['type'] == 'adjust' for s_ in t_['segments'])); sg['id'] = U(); sg['material_id'] = ph['id']; sg['extra_material_refs'] = [lm['id']]
+        sg['target_timerange'] = {'start': 0, 'duration': us(TOTAL)}; sg['source_timerange'] = None; sg['common_keyframes'] = []; sg['keyframe_refs'] = []; sg['group_id'] = ''; sg['raw_segment_id'] = ''; sg['enable_lut'] = True
+        LUTSEG = sg
+        if not PL.get('top'): tr.append(track('adjust', [sg], name='LUT màu ' + lm['name']))
+    except Exception as e: E.append('LUT: %r' % e)
 for lane in nonover(BEH_SEGS): tr.append(track('text', lane, name='Chữ SAU người dẫn'))
 tr.append(track('video', MATTE_SEGS, flag=2, name='Người dẫn bản sao - Xóa nền'))
 for k, lane in enumerate(nonover(TXs)): tr.append(track('text', lane, name='Chữ %d' % (k + 1)))
 tr.append(track('effect', FXs, name='Hiệu ứng video'))
 if PL.get('top') and PL['top'] in MEDIA:   # chủ dặn 18/11: video Remotion hoàn chỉnh nằm track TRÊN CÙNG (tắt tiếng – tiếng ở các track dưới, khớp từng giây)
     _sg = vseg(PL['top'], 0.0, 0.0, TOTAL, 0.0, [(0.0, 1.0, 0.0, 0.0)]); tr.append(track('video', [_sg], flag=2, name='VIDEO HOÀN CHỈNH (Remotion)'))
+if PL.get('top') and LUTSEG: tr.append(track('adjust', [LUTSEG], name='LUT màu (phủ cả video hoàn chỉnh)'))
 for lane in nonover(SPEECH): tr.append(track('audio', lane, name='Giọng (người dẫn + VO duyệt)'))
 for lane in nonover(MUs): tr.append(track('audio', lane, name='Nhạc nền'))
 for lane in nonover(SFs): tr.append(track('audio', lane, name='SFX'))
