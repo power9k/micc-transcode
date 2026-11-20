@@ -26,3 +26,32 @@ for name, url in (L.get("urls") or {}).items():   # tệp riêng của chủ d�
     if os.path.exists(dst): continue
     try: get(url, dst); print("file", name)
     except Exception as e: print("miss file", name, type(e).__name__)
+
+# Ô ảnh vệ tinh cho cảnh bản đồ 3D: {"tiles": {"name": "kp-sat", "url": "...{z}/{y}/{x}", "boxes": [[z, lat0, lon0, lat1, lon1], ...]}} -> out/<name>.tar
+import math, tarfile, io, time
+T = L.get("tiles")
+if T and not os.path.exists(os.path.join(OUT, T["name"] + ".tar")):
+    def tx(lon, z): return int((lon + 180) / 360 * 2 ** z)
+    def ty(lat, z): r = math.radians(lat); return int((1 - math.log(math.tan(r) + 1 / math.cos(r)) / math.pi) / 2 * 2 ** z)
+    want = set()
+    for z, a0, o0, a1, o1 in T["boxes"]:
+        for x in range(tx(o0, z), tx(o1, z) + 1):
+            for y in range(ty(a1, z), ty(a0, z) + 1): want.add((z, x, y))
+    print("tiles", len(want))
+    with tarfile.open(os.path.join(OUT, T["name"] + ".tar"), "w") as tf:
+        for (z, x, y) in sorted(want):
+            for k in range(3):
+                try:
+                    req = urllib.request.Request(T["url"].format(z=z, x=x, y=y), headers={"User-Agent": UA["User-Agent"]})
+                    with urllib.request.urlopen(req, timeout=60) as r: b = r.read()
+                    ti = tarfile.TarInfo(f"{z}/{x}/{y}.jpg"); ti.size = len(b); tf.addfile(ti, io.BytesIO(b)); break
+                except Exception as e: print("miss", z, x, y, type(e).__name__); time.sleep(1)
+# Dữ liệu OpenStreetMap (sông, địa danh) cho cảnh bản đồ: {"overpass": {"name": "kp-osm", "q": "..."}} -> out/<name>.json
+O = L.get("overpass")
+if O and not os.path.exists(os.path.join(OUT, O["name"] + ".json")):
+    import urllib.parse
+    data = urllib.parse.urlencode({"data": O["q"]}).encode()
+    try:
+        with urllib.request.urlopen(urllib.request.Request("https://overpass-api.de/api/interpreter", data=data, headers={"User-Agent": "micc-studio-fetch"}), timeout=180) as r:
+            open(os.path.join(OUT, O["name"] + ".json"), "wb").write(r.read()); print("osm ok")
+    except Exception as e: print("osm miss", e)
