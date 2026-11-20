@@ -21,3 +21,8 @@ for mid in L.get("music", []):
     if os.path.exists(dst): continue
     try: get(f"https://assets.mixkit.co/music/{mid}/{mid}.mp3", dst); print("music", mid)
     except Exception as e: print("miss music", mid, e)
+for name, url in (L.get("urls") or {}).items():   # tệp riêng của chủ dự án (link có hạn ngắn) – tải nguyên bản
+    dst = os.path.join(OUT, name)
+    if os.path.exists(dst): continue
+    try: get(url, dst); print("file", name)
+    except Exception as e: print("miss file", name, type(e).__name__)
