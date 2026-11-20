@@ -1,0 +1,56 @@
+name: studio-runner
+# Máy dựng MICC Studio. Bật: đổi tệp studio-runner/start trên một nhánh claude/** rồi push.
+# 200 lượt nối tiếp (max-parallel 1), mỗi lượt ~5,5 giờ → máy bật sẵn nhiều ngày. Không chứa gì riêng tư:
+# mã thật (pack) tải từ Studio sau khi đổi mã OIDC của GitHub lấy phiên máy dựng.
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['studio-runner/start', 'studio-runner/boot.mjs', '.github/workflows/studio-runner.yml']   # chỉ các tệp này – tệp khác trong studio-runner/ (tải tư liệu) không làm khởi động lại máy
+permissions:
+  id-token: write
+  contents: read
+concurrency:
+  group: studio-runner
+  cancel-in-progress: true
+jobs:
+  runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        n: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200]
+    env:
+      STUDIO_URL: https://miccstudio.pages.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: studio-runner
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: system packages
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg fonts-noto-core fonts-noto-color-emoji >/dev/null
+      # Bước 1: xin OIDC → tải pack → kiểm sha256 → ghi khóa bộ đệm (băm package-lock + requirements của pack).
+      - name: fetch pack
+        id: pack
+        run: node studio-runner/boot.mjs prepare
+      # Bộ đệm: node_modules của kit (kèm trình duyệt Remotion), mô hình Whisper, pip, trình duyệt Playwright.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /srv/studio/kit_modules
+            /srv/studio/cache/whisper
+            /srv/studio/cache/pip
+            /srv/studio/cache/ms-playwright
+          key: studio-${{ steps.pack.outputs.key }}
+          restore-keys: studio-
+      # Bước 2: cài phụ thuộc, tạo người dùng studio, chạy máy dựng tới phút ~330 rồi thoát 0.
+      - name: serve
+        run: node studio-runner/boot.mjs serve
