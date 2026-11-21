@@ -113,8 +113,8 @@ def render(scenes, total, style, work, out_fg, out_bg, fontdir, log=print):
         r = subprocess.run(['npx', 'remotion', 'render', 'src/index.jsx', 'mgl', os.path.abspath(out), '--props=' + os.path.abspath(props), '--public-dir=' + os.path.join(work, 'public'), '--log=error', '--concurrency=50%'] + extra +
                            (['--browser-executable=' + os.environ['MG_BROWSER']] if os.environ.get('MG_BROWSER') else []), cwd=MG.RM_DIR, capture_output=True, text=True, timeout=3600)
         if not os.path.exists(out) or os.path.getsize(out) < 10000: raise RuntimeError('motion graphic dài (%s) lỗi: %s' % (nm, (r.stderr or r.stdout)[-400:]))
-        if alpha:   # ProRes 4444 rất nặng → đổi sang MOV mã PNG (giữ kênh trong suốt, nhẹ ~6 lần)
-            tmp = out + '.png.mov'; r2 = subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', out, '-an', '-c:v', 'png', '-pix_fmt', 'rgba', tmp], capture_output=True, text=True, timeout=1800)
+        if alpha:   # nén lại ProRes 4444 (alpha 8 bit, qscale 9) cho nhẹ hơn bản Remotion
+            tmp = out + '.p.mov'; r2 = subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', out, '-an', '-c:v', 'prores_ks', '-profile:v', '4444', '-pix_fmt', 'yuva444p10le', '-alpha_bits', '8', '-qscale:v', '9', '-vendor', 'apl0', tmp], capture_output=True, text=True, timeout=1800)   # theo phiên Studio: ProRes 4444 là dạng CapCut đọc kênh trong suốt ổn định nhất
             if os.path.exists(tmp) and os.path.getsize(tmp) > 10000: os.replace(tmp, out)
         res[nm] = out
     return res

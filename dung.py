@@ -617,6 +617,15 @@ def kat(keys, t):   # khung máy [t, zoom, u, v, xoay] tại thời điểm t (n
         if a_[0] <= t <= b_[0]:
             f = (t - a_[0]) / max(1e-6, b_[0] - a_[0]); return [t] + [x + (y - x) * f for x, y in zip(a_[1:], b_[1:])]
     return list(keys[-1])
+ACAD_ZOOM = True   # chủ dặn 21/11: zoom tự nhiên như video Academy (phiên Studio) – không giật
+SZ = [0]
+def szoom(keys, T, cap=9.0, d=.9):   # zoom mượt 0,6–1,2 s ease sine, vào / ra xen kẽ (1,0 ↔ 1,1 ↔ 1,24 theo mức hiện tại), rồi giữ yên; vẫn bám mặt
+    kv = kat(keys, T); z = kv[1]; SZ[0] += 1; up = SZ[0] % 2 == 1
+    z1 = round(min(cap, z * (1.1 if up else 1 / 1.1)), 4)
+    if abs(z1 - z) < .03 or z1 < 1.0: return keys
+    if keys[-1][0] - T < d + 1.0: return keys   # không đủ chỗ giữ yên ≥ 1 s
+    pts = [[round(T + d * i / 6, 3), round(z + (z1 - z) * (1 - math.cos(math.pi * i / 6)) / 2, 4)] + kat(keys, T + d * i / 6)[2:] for i in range(7)]
+    return [k for k in keys if k[0] < T - .002] + pts + [[k[0], round(min(cap, k[1] * z1 / z), 4)] + list(k[2:]) for k in keys if k[0] > T + d]
 def punch2(keys, T, cap=9.0):   # giật zoom KỊCH TÍNH (giật 2 nhịp) cho cú nhấn mạnh / số liệu
     kv = kat(keys, T); z = kv[1]; c = lambda v: round(min(v, cap), 4)
     if c(z * 1.16) - z < .06: return keys
@@ -940,7 +949,9 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
             for sh in shots:   # giật zoom đúng lúc nói từ khóa (cảnh người nói)
                 if sh['line'] == 'A' and sh.get('face') and sh['t0'] + .2 < T < sh['t1'] - .35:
                     T = N.snap(T, beats, .12) if beats else T   # giật zoom trùng phách nếu phách ở rất gần từ khóa
-                    if not sh.get('nz') and PRO.get('punch', True): sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
+                    if not sh.get('nz') and ACAD_ZOOM:
+                        if T - sh.get('_lz', -9) >= 2.0: sh['keys'] = szoom(sh['keys'], T, cap=min(1.3, sh.get('zc', 1.0) * 1.24)); sh['_lz'] = T   # mỗi lần zoom rồi đứng yên ≥ 1 s
+                    elif not sh.get('nz') and PRO.get('punch', True): sh['keys'] = (punch2 if num else punch)(sh['keys'], T, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
                     elif not sh.get('nz') and PRO.get('punch_soft'): sh['keys'] = punch(sh['keys'], T, 1.04, 1.05, cap=min(1.15, sh.get('zc', 1.0) * 1.06))   # TVC: zoom nhẹ, bay bổng
                     lastp = T; break
     # (bỏ phần tự thêm chữ từ lời nói: chủ phản ánh ra cụm vô nghĩa như "NINH VÀ", "TRƯỜNG SỐNG" – chữ chỉ lấy từ AI, có kiểm tra trọn nghĩa)
@@ -1006,7 +1017,7 @@ def build_plan(jb, sc, proj, adir, music=None, mmap=None):
     for dp in (mmap.get('drops') or [])[:2]:
         if 2 < dp < total - 2:
             sh = next((x for x in shots if x['t0'] + .2 < dp < x['t1'] - .3 and x['line'] == 'A'), None)
-            if sh and sh.get('face') and not sh.get('nz') and PRO.get('punch', True): sh['keys'] = punch(sh['keys'], dp, 1.15, 1.16, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
+            if sh and sh.get('face') and not sh.get('nz') and PRO.get('punch', True) and not ACAD_ZOOM: sh['keys'] = punch(sh['keys'], dp, 1.15, 1.16, cap=min(1.3, sh.get('zc', 1.0) * 1.12))
     for i in range(len(titles) - 1): titles[i]['t1'] = min(titles[i]['t1'], round(titles[i + 1]['t0'] - .08, 3))
     sfx.insert(0, sf('open', 0.0, .2))
     # ---- nhạc nền: mỗi project 1 bài riêng (chọn ở publish), lặp nếu ngắn
