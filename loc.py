@@ -949,16 +949,24 @@ def ffbin():
     if not os.path.exists('/tmp/ffs/ffmpeg'):   # máy đồng bộ nhanh chưa có ffmpeg → lấy bản dựng sẵn 1 lần
         os.makedirs('/tmp/ffs', exist_ok=True); subprocess.run('curl -fsSL --retry 3 -o /tmp/ffs/f.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz && tar -xJf /tmp/ffs/f.tar.xz -C /tmp/ffs --strip-components=2 --wildcards "*/bin/ffmpeg"', shell=True, timeout=300)
     return '/tmp/ffs/ffmpeg' if os.path.exists('/tmp/ffs/ffmpeg') else None
+def sale_dir():   # thư mục Drive chứa bản nhẹ SALE cho nền đăng nhập MICC Studio (trong thư mục Hệ thống – gốc kho đã công khai)
+    sy = listq("'%s' in parents and name='MICC media · Hệ thống (không xóa)' and mimeType='%s' and trashed=false" % (ROOT, FOLDER), 'id')
+    if not sy: raise RuntimeError('chưa có thư mục Hệ thống')
+    f = listq("'%s' in parents and name='Video nhẹ SALE (MICC Studio)' and mimeType='%s' and trashed=false" % (sy[0]['id'], FOLDER), 'id')
+    return f[0]['id'] if f else drive('files', {'name': 'Video nhẹ SALE (MICC Studio)', 'mimeType': FOLDER, 'parents': [sy[0]['id']]}, 'POST')['id']
+def small_up(data, name, parent, mime):
+    b = '----miccsl%d' % int(time.time() * 1000)
+    body = ('--%s\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n%s\r\n--%s\r\nContent-Type: %s\r\n\r\n' % (b, json.dumps({'name': name, 'parents': [parent]}), b, mime)).encode() + data + ('\r\n--%s--' % b).encode()
+    return http(G + '/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id', body, {'Authorization': 'Bearer ' + tok(), 'Content-Type': 'multipart/related; boundary=' + b})
 def sale_cache(budget=200):   # chủ dặn 19/11: video hậu kỳ mới của kênh SALE → bản nhẹ cho nền đăng nhập MICC Studio ngay (không chờ lịch)
     t0 = time.time()
     try: vs = (api('saleVideos') or {}).get('videos') or []
     except Exception as e: log('  video nhẹ SALE: máy chủ chưa sẵn sàng –', str(e)[:120]); return
     if not vs: log('  video nhẹ SALE: máy chủ trả về 0 video'); return
-    ks = ['p/%s.mp4' % v['id'][:12] for v in vs]; has = set()
-    try:
-        for k in range(0, len(ks), 50): has |= set(cf_skv('has=' + ','.join(ks[k:k + 50])).get('has') or [])
-    except Exception as e: log('  video nhẹ SALE: không hỏi được kho –', str(e)[:120]); return
-    todo = [v for v in vs if 'p/%s.mp4' % v['id'][:12] not in has]
+    # bản 336.1 (chủ dặn 21/11): Cloudflare chỉ giữ file cố định của web + thumbnail → bản nhẹ SALE (tăng dần theo thời gian) lưu trên Drive: Hệ thống/Video nhẹ SALE (MICC Studio)
+    try: sd = sale_dir(); has = {f['name'] for f in listq("'%s' in parents and trashed=false" % sd, 'name')}
+    except Exception as e: log('  video nhẹ SALE: không mở được thư mục Drive –', str(e)[:120]); return
+    todo = [v for v in vs if '%s_p.mp4' % v['id'][:12] not in has]
     if not todo: return
     log('  video nhẹ SALE: %d video, %d chưa có bản nhẹ' % (len(vs), len(todo)))
     ff = ffbin()
@@ -973,7 +981,9 @@ def sale_cache(budget=200):   # chủ dặn 19/11: video hậu kỳ mới của 
             run([ff, '-y', '-v', 'error'] + fin(v['id'], ss=ss + 1) + ['-frames:v', '1', '-vf', 'scale=-2:300', '-q:v', '4', d + '/t.jpg'], timeout=300)
             run([ff, '-y', '-v', 'error'] + fin(v['id'], t=16.5) + ['-vf', sc + ':flags=lanczos,format=yuv420p', '-c:v', 'libx264', '-preset', 'medium', '-crf', '27', '-maxrate', '2.2M', '-bufsize', '4.4M', '-c:a', 'aac', '-b:a', '112k', '-af', 'afade=t=out:st=15:d=1.5', '-movflags', '+faststart', d + '/f.mp4'], timeout=900)
             for k in ('t', 'f', 'p'):   # p cuối cùng = dấu đã xong
-                cf_skv('key=%s/%s.%s' % (k, i, 'jpg' if k == 't' else 'mp4'), open('%s/%s.%s' % (d, k, 'jpg' if k == 't' else 'mp4'), 'rb').read())
+                fn = '%s/%s.%s' % (d, k, 'jpg' if k == 't' else 'mp4'); nm = '%s_%s.%s' % (i, k, 'jpg' if k == 't' else 'mp4')
+                if k == 't': small_up(open(fn, 'rb').read(), nm, sd, 'image/jpeg')
+                else: upload(fn, nm, sd)
             n += 1
         except Exception as e: log('  video nhẹ SALE lỗi', v.get('name'), str(e)[:160])
         finally: shutil.rmtree(d, ignore_errors=True)
