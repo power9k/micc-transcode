@@ -1315,7 +1315,7 @@ def engine():
     if os.path.exists(os.path.join(ENG, 'build.py')): return
     z = lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), ENG_NAME))[0]['id']
     os.makedirs(ENG, exist_ok=True); p = os.path.join(L.TMP, 'eng.zip'); open(p, 'wb').write(raw(z)); zipfile.ZipFile(p).extractall(ENG)
-    for fn in ('build.py', 'mg.py', 'hfvid.py', 'rmvid.py', 'gsap.min.js', 'luts.py', 'lut_tpl.json'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
+    for fn in ('build.py', 'mg.py', 'hfvid.py', 'rmvid.py', 'gsap.min.js', 'luts.py', 'lut_tpl.json', 'map3d.py'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'eng', fn)
         if os.path.exists(src): open(os.path.join(ENG, fn), 'wb').write(open(src, 'rb').read())
     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'fonttools'], capture_output=True)
@@ -1838,6 +1838,32 @@ def design_titles(jb, pl):   # chủ dặn 12/11: chọn MÀU + VỊ TRÍ chữ 
     except ClaudeWait: raise
     except Exception as e: log('  không thiết kế được chữ (giữ cách đo tự động):', str(e)[:150])
     return pl
+def add_maps(jb, sc, pl, proj, host):   # chủ dặn 21/11: track BẢN ĐỒ 3D chân thực – Claude chọn chỗ kịch bản nhắc địa điểm / vị trí / khoảng cách → cảnh bay 3D vào đúng nơi
+    try:
+        if ENG not in sys.path: sys.path.insert(0, ENG)
+        import map3d
+        q = ('Lời thoại video theo giây:\n' + timeline(jb, sc, pl)[:7000] + '\n\nTìm 1–3 ĐOẠN nói về ĐỊA ĐIỂM / VỊ TRÍ / KẾT NỐI (tên dự án, phường xã, quận huyện, tỉnh thành, cầu, sân bay, trục đường, khoảng cách tới trung tâm…) '
+             'nên minh hoạ bằng bản đồ 3D bay vào. Mỗi đoạn 3–7 giây, không trùng nhau. Với mỗi đoạn: "s","e" (giây), "ten" (tên hiển thị ngắn, tiếng Việt có dấu, ≤ 28 ký tự), "phu" (dòng phụ ≤ 36 ký tự, vd "Cách Hồ Gươm 15 phút"), '
+             '"q" (chuỗi tìm trên OpenStreetMap, vd "Vinhomes Royal Island, Thủy Nguyên, Hải Phòng"), "lat","lon" (toạ độ ước lượng của bạn để dự phòng). Không có địa điểm nào rõ ràng thì trả danh sách rỗng.\n'
+             'Trả JSON {"maps":[...]}')
+        j = N.ask_json(q, model='sonnet', key='maps', log=log) or {}
+        out, last = [], -9.0; wd = os.path.join(L.TMP, 'maps'); shutil.rmtree(wd, ignore_errors=True); os.makedirs(wd)
+        for k, m in enumerate(sorted([m for m in j.get('maps') or [] if isinstance(m, dict)], key=lambda m: float(m.get('s') or 0))[:3]):
+            s_, e_ = float(m.get('s') or 0), float(m.get('e') or 0); e_ = min(e_, s_ + 7.0, pl['total'] - .2)
+            if e_ - s_ < 3.0: e_ = min(pl['total'] - .2, s_ + 3.0)
+            if e_ - s_ < 2.5 or s_ < last + .5: continue
+            ll = map3d.geocode(m.get('q') or m.get('ten') or '', log) or ((float(m['lat']), float(m['lon'])) if m.get('lat') and m.get('lon') else None)
+            if not ll: continue
+            f_ = os.path.join(wd, 'Bản đồ %d - %s.mp4' % (len(out) + 1, safe(str(m.get('ten') or 'địa điểm'), 40)))
+            try: map3d.render(ll[0], ll[1], e_ - s_, f_, str(m.get('ten') or ''), str(m.get('phu') or ''), *(pl.get('canvas') or (1080, 1920)), seed=k + len(proj), log=log)
+            except Exception as e: mlog('bản đồ 3D lỗi:', repr(e)[:300]); continue
+            mk = 'MAP%d' % (len(out) + 1); W_, H_ = pl.get('canvas') or (1080, 1920)
+            pl['media'][mk] = dict(path=DRV + '/' + path_of(host) + '/' + proj + '/Bản đồ 3D/' + os.path.basename(f_), dur=round(e_ - s_, 3), w=W_, h=H_, kind='video', has_audio=False, name=os.path.basename(f_), S0=1.0, grade=None)
+            out.append(dict(media=mk, t0=round(s_, 3), t1=round(e_, 3), src=0.0, local=f_)); last = e_
+        pl['maps'] = out
+        if out: log('  bản đồ 3D: %d cảnh (%s)' % (len(out), ', '.join(str(m.get('ten')) for m in j.get('maps') or [])[:120]))
+    except Exception as e: mlog('chưa dựng được bản đồ 3D:', repr(e)[:300])
+    return pl
 def sfx_mix(pl, proj, host):   # chủ dặn 21/11: âm thanh hiệu ứng = 1 track DÀI bằng cả video (gộp sẵn mọi SFX đúng thời điểm)
     try:
         sx = [x for x in pl.get('sfx') or [] if x.get('file')]
@@ -2087,6 +2113,12 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
 RMVN = 'Remotion - video hoàn chỉnh.mp4'
 def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
     try:
+        mp_ = [m for m in pl.get('maps') or [] if m.get('local') and os.path.exists(m['local'])]
+        if mp_:
+            md_ = mkdir('Bản đồ 3D', pf)
+            for m in mp_: put(os.path.basename(m['local']), md_, open(m['local'], 'rb').read(), 'video/mp4')
+    except Exception as e: mlog('không lưu được bản đồ 3D:', repr(e))
+    try:
         if pl.get('sfx_mix_local') and os.path.exists(pl['sfx_mix_local']): put('Âm thanh hiệu ứng.wav', pf, open(pl['sfx_mix_local'], 'rb').read(), 'audio/wav')   # chủ dặn 21/11: 1 track SFX dài cả video
     except Exception as e: mlog('không lưu được SFX gộp:', repr(e))
     try:
@@ -2127,6 +2159,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     try: pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
     except Exception as e: mlog('add_mg hỏng:', repr(e)[:400])
     pl = bfill(jb, pl)   # sau motion graphic: B-roll phủ kín phần còn trống (ẩn sẵn)
+    pl = add_maps(jb, sc, pl, proj, host)
     if PRO.get('design'): pl = design_titles(jb, pl)   # chủ dặn 13/11: Academy giữ hiệu ứng chữ NHƯ CŨ – chỉ bộ có phong cách riêng (TVC) mới cho Claude tự chọn màu / vị trí chữ
     try:
         cf, ch_ = pick_cover(jb, pl, adir)
@@ -2811,6 +2844,14 @@ def run(key, models, until):
     if PAUSE: heal_list(); setup_bat(); L.rtok(); log('AI dựng: đang tạm dừng (chờ Google mở lại hạn mức tải của tài khoản)'); return
     os.makedirs(L.TMP, exist_ok=True)   # đọc lại từ bộ nhớ đệm thì chưa ai tạo thư mục tạm
     mark_root(); fix_public(); retract_all(); share_sys(); free_stale(); dedupe_proj(); heal_list(); setup_bat()
+    if os.environ.get('WORKER') in (None, '', '1'):   # thử bản đồ 3D 1 lần (21/11): kết quả ở Hệ thống/AI dựng CapCut/Thử bản đồ 3D.mp4
+        try:
+            cd_ = cache_dir()
+            if not lq("'%s' in parents and name='Thử bản đồ 3D.mp4'" % cd_, 'id'):
+                engine(); sys.path.insert(0, ENG); import map3d; f_ = os.path.join(L.TMP, 'thu_bando.mp4')
+                ll = map3d.geocode('Vinhomes Royal Island, Thủy Nguyên, Hải Phòng', log) or (20.88, 106.62)
+                map3d.render(ll[0], ll[1], 5.0, f_, 'Vinhomes Royal Island', 'Vũ Yên · Hải Phòng', seed=3, log=log); put('Thử bản đồ 3D.mp4', cd_, open(f_, 'rb').read(), 'video/mp4')
+        except Exception as e: log('  thử bản đồ 3D lỗi:', repr(e)[:300]); put('Thử bản đồ 3D – lỗi.txt', cache_dir(), repr(e).encode('utf-8'), 'text/plain') if not lq("'%s' in parents and name='Thử bản đồ 3D – lỗi.txt'" % cache_dir(), 'id') else None
     if os.environ.get('WORKER') == '18': hf_academy('academy')
     if os.environ.get('WORKER') == '17': hf_academy('vuyen')   # chủ dặn 12/11: thử 1 video Academy dựng hoàn toàn bằng HyperFrames
     idle, done_n, T, tT = 0, 0, [], 0
