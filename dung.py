@@ -1315,7 +1315,7 @@ def engine():
     if os.path.exists(os.path.join(ENG, 'build.py')): return
     z = lq("'%s' in parents and name='%s' and trashed=false" % (cache_dir(), ENG_NAME))[0]['id']
     os.makedirs(ENG, exist_ok=True); p = os.path.join(L.TMP, 'eng.zip'); open(p, 'wb').write(raw(z)); zipfile.ZipFile(p).extractall(ENG)
-    for fn in ('build.py', 'mg.py', 'hfvid.py', 'rmvid.py', 'gsap.min.js', 'luts.py', 'lut_tpl.json', 'map3d.py'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
+    for fn in ('build.py', 'mg.py', 'hfvid.py', 'rmvid.py', 'gsap.min.js', 'luts.py', 'lut_tpl.json', 'map3d.py', 'mglong.py'):   # mã bộ dựng + motion graphic mới nhất nằm trong kho GitHub (font, mẫu vẫn lấy từ Bộ dựng AI.zip)
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'eng', fn)
         if os.path.exists(src): open(os.path.join(ENG, fn), 'wb').write(open(src, 'rb').read())
     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'fonttools'], capture_output=True)
@@ -1838,6 +1838,37 @@ def design_titles(jb, pl):   # chủ dặn 12/11: chọn MÀU + VỊ TRÍ chữ 
     except ClaudeWait: raise
     except Exception as e: log('  không thiết kế được chữ (giữ cách đo tự động):', str(e)[:150])
     return pl
+def mg_long(jb, sc, pl, proj, host):   # chủ dặn 21/11: motion graphic DÀI cả video – lớp đối tượng (tách nền) + lớp nền riêng, đối tượng trong khung 4:3, phối hợp A-roll / B-roll
+    try:
+        if ENG not in sys.path: sys.path.insert(0, ENG)
+        import mglong
+        rec = [e.get('mgstyle') for e in (CUR.get('hist') or []) if e.get('mgstyle')]
+        st = mglong.pick_style(rec, random.Random('%s|%s' % (proj, time.time()))); CUR['mgstyle'] = st[0]
+        bs = sorted(pl.get('bshots') or [], key=lambda b: b['t0'])
+        cov = ', '.join('%.1f–%.1fs' % (b['t0'], b['t1']) for b in bs)[:1500] or 'không có'
+        q = ('Lời thoại video theo giây (tổng %.1f s):\n' % pl['total'] + timeline(jb, sc, pl)[:7000] +
+             '\n\nĐoạn đang hiện CẢNH PHỤ (B-roll, không thấy người nói): ' + cov + '\nCác đoạn còn lại là người nói (A-roll), mặt người nói ở khoảng giữa – trên khung dọc.\n\n'
+             'Thiết kế lớp MOTION GRAPHIC minh hoạ LIÊN TỤC cả video (phong cách "%s": sang trọng, ngầu, hiện đại): các cảnh nối tiếp nhau phủ gần hết 0 → %.1f s (mỗi cảnh 2,5–6 s, cách nhau ≤ 1 s), '
+             'mỗi cảnh minh hoạ đúng ý đang nói. kind ∈ so (con số nổi bật), the (tiêu đề + 2–4 ý ngắn), moc (2–4 mốc thời gian / bước), sosanh (2 vế so sánh), vitri (vị trí + 2–4 kết nối, khoảng cách), trich (trích 1 câu đắt). '
+             'pos ∈ top / mid / bottom: khi người nói đang hiện → KHÔNG che mặt (thường bottom, đôi khi top); khi cảnh phụ → mid hoặc tuỳ bố cục; đổi vị trí xen kẽ cho sinh động. '
+             'Chữ tiếng Việt có dấu, NGẮN gọn (tiêu đề ≤ 22 ký tự, mỗi ý ≤ 26 ký tự). data theo kind: so {tieu_de, so, don_vi, nhan}; the {tieu_de, y:[...]}; moc {tieu_de, moc:[{nhan, mo_ta}]}; '
+             'sosanh {tieu_de, trai:{nhan, gia_tri}, phai:{nhan, gia_tri}}; vitri {tieu_de, ket_noi:[{noi, xa}]}; trich {cau, nguon}. Chỉ dùng số liệu CÓ trong lời thoại.\n'
+             'Trả JSON {"canh":[{"s":giây,"e":giây,"kind":"...","pos":"...","data":{...}}]}') % (st[0], pl['total'])
+        j = N.ask_json(q, model='opus', key='canh', log=log) or {}
+        scs, last = [], 0.0
+        for c in sorted([c for c in j.get('canh') or [] if isinstance(c, dict)], key=lambda c: float(c.get('s') or 0)):
+            s_, e_ = max(float(c.get('s') or 0), last), min(float(c.get('e') or 0), pl['total'])
+            if e_ - s_ >= 1.5: c['s'], c['e'] = round(s_, 3), round(e_, 3); scs.append(c); last = e_
+        if not scs: return pl
+        wd = os.path.join(L.TMP, 'mgl'); fgf, bgf = os.path.join(L.TMP, 'Motion graphic - đối tượng (tách nền).mov'), os.path.join(L.TMP, 'Motion graphic - nền.mp4')
+        mglong.render(scs, pl['total'], st, wd, fgf, bgf, os.path.join(ENG, 'fonts'), log)
+        W_, H_ = pl.get('canvas') or (1080, 1920); base = DRV + '/' + path_of(host) + '/' + proj + '/Motion graphic/'
+        for mk, f_ in (('MGFG', fgf), ('MGBG', bgf)):
+            pl['media'][mk] = dict(path=base + os.path.basename(f_), dur=round(pl['total'], 3), w=W_, h=H_, kind='video', has_audio=False, name=os.path.basename(f_), S0=1.0, grade=None)
+        pl['mg_fg'], pl['mg_bg'], pl['mgl_local'] = 'MGFG', 'MGBG', [fgf, bgf]
+        log('  motion graphic dài cả video: %d cảnh, phong cách %s' % (len(scs), st[0]))
+    except Exception as e: mlog('chưa dựng được motion graphic dài:', repr(e)[:300])
+    return pl
 def add_maps(jb, sc, pl, proj, host):   # chủ dặn 21/11: track BẢN ĐỒ 3D chân thực – Claude chọn chỗ kịch bản nhắc địa điểm / vị trí / khoảng cách → cảnh bay 3D vào đúng nơi
     try:
         if ENG not in sys.path: sys.path.insert(0, ENG)
@@ -2113,6 +2144,10 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
 RMVN = 'Remotion - video hoàn chỉnh.mp4'
 def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
     try:
+        ml_ = [f for f in pl.get('mgl_local') or [] if os.path.exists(f)]
+        if ml_:
+            mgd_ = mkdir('Motion graphic', pf)
+            for f in ml_: L.upload(f, os.path.basename(f), mgd_)   # file lớn → tải lên kiểu resumable
         mp_ = [m for m in pl.get('maps') or [] if m.get('local') and os.path.exists(m['local'])]
         if mp_:
             md_ = mkdir('Bản đồ 3D', pf)
@@ -2159,7 +2194,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     try: pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
     except Exception as e: mlog('add_mg hỏng:', repr(e)[:400])
     pl = bfill(jb, pl)   # sau motion graphic: B-roll phủ kín phần còn trống (ẩn sẵn)
-    pl = add_maps(jb, sc, pl, proj, host)
+    pl = add_maps(jb, sc, pl, proj, host); pl = mg_long(jb, sc, pl, proj, host)
     if PRO.get('design'): pl = design_titles(jb, pl)   # chủ dặn 13/11: Academy giữ hiệu ứng chữ NHƯ CŨ – chỉ bộ có phong cách riêng (TVC) mới cho Claude tự chọn màu / vị trí chữ
     try:
         cf, ch_ = pick_cover(jb, pl, adir)
@@ -2440,7 +2475,7 @@ def lut_pick(jb):   # chọn LUT theo phong cách bộ dựng, khác 2 project g
                     desc=luts.LOOKS[nm][0] + (' · source %s → chuyển từ %s' % (', '.join(cams[:3]) or 'máy quay', luts.CONV[conv]) if conv else (' · source ' + ', '.join(cams[:3]) if cams else '')))
     except Exception as e: log('  không chọn được LUT:', e); return None
 def cur_save(pl):
-    try: st_add(dict(t=int(time.time()), proj=CUR.get('proj'), sfx={r: [x[0] for x in v] for r, v in (CUR.get('sfx') or {}).items()}, popk=CUR.get('popk'), whgap=CUR.get('whgap'), pal=CUR.get('pal'), lut=CUR.get('lut'),
+    try: st_add(dict(t=int(time.time()), proj=CUR.get('proj'), sfx={r: [x[0] for x in v] for r, v in (CUR.get('sfx') or {}).items()}, popk=CUR.get('popk'), whgap=CUR.get('whgap'), pal=CUR.get('pal'), lut=CUR.get('lut'), mgstyle=CUR.get('mgstyle'),
                      mg=CUR.get('mg') or [], music=CUR.get('music') or [], hook=CUR.get('hook') or ''))
     except Exception: pass
 def st_name(jb, n): return '%s_kb%d_L%s.json' % (jb['id'], n, LV)   # trạng thái từng kịch bản theo kiểu dựng (đổi kiểu → dựng lại, bản cũ được thay)

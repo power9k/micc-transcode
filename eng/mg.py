@@ -379,9 +379,13 @@ RM_ROOT = """import React from 'react';
 import {registerRoot, Composition} from 'remotion';
 import {Mg} from './Mg';
 import {Full} from './Full';
+import {MgL} from './MgL';
 const Root = () => <>
   <Composition id="mg" component={Mg} width={1080} height={1920} fps={30} durationInFrames={120}
     defaultProps={{css: '', body: '', js: '', dur: 4, img: false}}
+    calculateMetadata={({props}) => ({durationInFrames: Math.max(2, Math.round(Number(props.dur) * 30))})} />
+  <Composition id="mgl" component={MgL} width={1080} height={1920} fps={30} durationInFrames={300}
+    defaultProps={{css: '', body: '', js: '', dur: 10, alpha: false}}
     calculateMetadata={({props}) => ({durationInFrames: Math.max(2, Math.round(Number(props.dur) * 30))})} />
   <Composition id="full" component={Full} width={1080} height={1920} fps={30} durationInFrames={300}
     defaultProps={{css: '', overlay: '', js: '', dur: 10, w: 1080, h: 1920, clips: []}}
@@ -413,6 +417,22 @@ export const Full = ({css, overlay, js, dur, w, h, clips}) => {
     </div></AbsoluteFill>;
 };
 """
+RM_MGL = r"""import React, {useLayoutEffect, useRef, useState} from 'react';
+import {useCurrentFrame, useVideoConfig, AbsoluteFill, delayRender, continueRender, staticFile} from 'remotion';
+import gsap from 'gsap';
+export const MgL = ({css, body, js, dur, alpha}) => {
+  const ref = useRef(null), tl = useRef(null), frame = useCurrentFrame(), {fps} = useVideoConfig();
+  const [h] = useState(() => delayRender('motion graphic dài'));
+  const css2 = css.split('url(F/').join('url(' + staticFile('F/').replace(/\/$/, '') + '/');
+  useLayoutEffect(() => {
+    const R = ref.current; R.innerHTML = body;
+    const t = gsap.timeline({paused: true}); new Function('gsap', 'tl', 'D', 'R', js)(gsap, t, Number(dur), R); tl.current = t;
+    (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => { t.seek(frame / fps, false); continueRender(h); });
+  }, []);
+  useLayoutEffect(() => { if (tl.current) tl.current.seek(frame / fps, false); }, [frame]);
+  return <AbsoluteFill style={{background: alpha ? 'transparent' : '#000'}}><style>{css2}</style><div id="root" ref={ref} style={{position: 'relative', width: 1080, height: 1920, overflow: 'hidden'}} /></AbsoluteFill>;
+};
+"""
 RM_MG = """import React, {useLayoutEffect, useRef, useState} from 'react';
 import {useCurrentFrame, useVideoConfig, AbsoluteFill, delayRender, continueRender, staticFile} from 'remotion';
 import gsap from 'gsap';
@@ -433,7 +453,7 @@ def rm_setup(log=print):
     pk = os.path.join(RM_DIR, 'package.json')
     want = json.dumps({'name': 'micc-mg', 'private': True, 'dependencies': RMV}, indent=1)
     os.makedirs(os.path.join(RM_DIR, 'src'), exist_ok=True)
-    open(os.path.join(RM_DIR, 'src', 'index.jsx'), 'w').write(RM_ROOT); open(os.path.join(RM_DIR, 'src', 'Mg.jsx'), 'w').write(RM_MG); open(os.path.join(RM_DIR, 'src', 'Full.jsx'), 'w').write(RM_FULL)
+    open(os.path.join(RM_DIR, 'src', 'index.jsx'), 'w').write(RM_ROOT); open(os.path.join(RM_DIR, 'src', 'Mg.jsx'), 'w').write(RM_MG); open(os.path.join(RM_DIR, 'src', 'Full.jsx'), 'w').write(RM_FULL); open(os.path.join(RM_DIR, 'src', 'MgL.jsx'), 'w').write(RM_MGL)
     if os.path.exists(pk) and open(pk).read() == want and os.path.isdir(os.path.join(RM_DIR, 'node_modules', '@remotion', 'cli')): return
     open(pk, 'w').write(want)
     r = subprocess.run(['npm', 'install', '--no-audit', '--no-fund', '--loglevel=error'], cwd=RM_DIR, capture_output=True, text=True, timeout=900)
