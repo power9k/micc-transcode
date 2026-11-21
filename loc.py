@@ -152,7 +152,11 @@ def analyze(i, v):
     for k in pick:
         im = Image.open(ims[k]).convert('RGB'); im.thumbnail((288, 288)); bio = __import__('io').BytesIO(); im.save(bio, 'JPEG', quality=60)
         thumbs.append([round(kt[k], 1), base64.b64encode(bio.getvalue()).decode()])
-    return dict(i=i, name=v['name'], sub=v.get('dir', ''), id=v['id'], size=v.get('size') or 0, dur=dur, w=vs.get('width'), h=vs.get('height'), codec=vs.get('codec_name'),
+    tg = {k.lower(): str(x) for k, x in list((pr.get('format') or {}).get('tags', {}).items()) + list((vs.get('tags') or {}).items())}   # chủ dặn 21/11: biết máy quay → chọn LUT chuyển màu phù hợp
+    pix = str(vs.get('pix_fmt') or ''); sd = sorted(float(x.std()) for x in g); sdm = sd[len(sd) // 2] if sd else 99
+    cam = dict(make=tg.get('com.apple.quicktime.make') or tg.get('make') or '', model=tg.get('com.apple.quicktime.model') or tg.get('model') or '', enc=tg.get('encoder') or tg.get('handler_name') or tg.get('major_brand') or '',
+               trc=vs.get('color_transfer') or '', prim=vs.get('color_primaries') or '', pix=pix, std=round(sdm, 1), log=int(('10' in pix or '422' in pix) and sdm < 40 and 70 < (sum(bright) / max(1, len(bright))) < 160))
+    return dict(i=i, name=v['name'], sub=v.get('dir', ''), id=v['id'], size=v.get('size') or 0, dur=dur, w=vs.get('width'), h=vs.get('height'), codec=vs.get('codec_name'), cam=cam,
                 wav=os.path.join(d, 'a.wav') if has_a and os.path.exists(os.path.join(d, 'a.wav')) else None, kt=kt, sharp=sharp, bright=bright, mot=mot, thumbs=thumbs, dir=d)
 
 ASR = {}

@@ -1838,6 +1838,68 @@ def design_titles(jb, pl):   # chủ dặn 12/11: chọn MÀU + VỊ TRÍ chữ 
     except ClaudeWait: raise
     except Exception as e: log('  không thiết kế được chữ (giữ cách đo tự động):', str(e)[:150])
     return pl
+def sfx_mix(pl, proj, host):   # chủ dặn 21/11: âm thanh hiệu ứng = 1 track DÀI bằng cả video (gộp sẵn mọi SFX đúng thời điểm)
+    try:
+        sx = [x for x in pl.get('sfx') or [] if x.get('file')]
+        if not sx: return pl
+        wd = os.path.join(L.TMP, 'sfxmix'); shutil.rmtree(wd, ignore_errors=True); os.makedirs(wd); k_ = kho(); loc_ = {}
+        for nm_ in {os.path.basename(x['file']) for x in sx}:
+            c_ = lq("'%s' in parents and name='%s' and trashed=false" % (k_['sfx'], nm_.replace("'", "\\'")), 'id') or lq("'%s' in parents and name='%s' and trashed=false" % (SFXLIB2, nm_.replace("'", "\\'")), 'id')
+            if c_: f_ = os.path.join(wd, 'i%d%s' % (len(loc_), os.path.splitext(nm_)[1] or '.wav')); open(f_, 'wb').write(raw(c_[0]['id'])); loc_[nm_] = f_
+        ins, fl = [], []
+        for x in sx:
+            f_ = loc_.get(os.path.basename(x['file']))
+            if not f_: continue
+            si = float(x.get('src_in') or 0); d = max(.05, min(float(x.get('dur') or 1), pl['total'] - float(x['t']))); v = float(x.get('vol') or 1.0); j = len(ins); ins += ['-i', f_]
+            fl.append('[%d:a]atrim=%.3f:%.3f,asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=%.3f,adelay=%d|%d[s%d]' % (j, si, si + d, v, int(float(x['t']) * 1000), int(float(x['t']) * 1000), j))
+        if not fl: return pl
+        n = len(fl); out = os.path.join(wd, 'sfx.wav')
+        fc = ';'.join(fl) + ';' + ''.join('[s%d]' % i for i in range(n)) + 'amix=inputs=%d:normalize=0:dropout_transition=0,apad,atrim=0:%.3f[o]' % (n, pl['total'])
+        r = subprocess.run(['ffmpeg', '-y', '-v', 'error'] + ins + ['-filter_complex', fc, '-map', '[o]', '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s16le', out], capture_output=True, text=True, timeout=600)
+        if not os.path.exists(out): log('  chưa gộp được SFX:', r.stderr[-200:]); return pl
+        pl['sfx_mix'] = dict(file=DRV + '/' + path_of(host) + '/' + proj + '/Âm thanh hiệu ứng.wav', dur=round(pl['total'], 3)); pl['sfx_mix_local'] = out
+        log('  gộp %d âm thanh hiệu ứng thành 1 track dài cả video' % n)
+    except Exception as e: log('  chưa gộp được SFX:', repr(e)[:200])
+    return pl
+def bfill(jb, pl):   # chủ dặn 21/11: track B-roll TRẢI DÀI cả video – chỗ trống lấp bằng cảnh phụ đẹp của source (ẩn sẵn, người dựng muốn thì bật)
+    try:
+        bs_ = list(pl.get('bshots') or []); pl['bhide'] = [h for h in (pl.get('bhide') or []) if not any(min(h['t1'], b['t1']) - max(h['t0'], b['t0']) > .02 for b in bs_)]
+        tot = pl['total']; vis = sorted(list(pl.get('bshots') or []) + list(pl.get('bhide') or []), key=lambda b: b['t0'])
+        pool = []
+        for a in jb['A']:
+            if not (a['vid'].get('broll') or not a.get('segs')): continue
+            for x in sorted(((a.get('vlog') or {}).get('doan') or []), key=lambda x: -float(x.get('diem') or 0)):
+                s_, e_ = float(x.get('s') or 0), float(x.get('e') or 0)
+                if float(x.get('diem') or 0) >= 6 and e_ - s_ >= 1.6 and seg_ok(a, s_, e_): pool.append((a, s_, e_))
+            if not any(p[0] is a for p in pool):
+                b_ = best_seg(a, 0.0)
+                if b_ is not None: pool.append((a, b_, min(a['dur'], b_ + 3.0)))
+        if not pool: return pl
+        used = {(b['media'], round(b['src'])) for b in vis}; pool.sort(key=lambda p: ((('V%d' % p[0]['i'], round(p[1])) in used), -(p[2] - p[1])))
+        gaps, t = [], 0.0
+        for b in vis:
+            if b['t0'] - t >= .4: gaps.append((t, b['t0']))
+            t = max(t, b['t1'])
+        if tot - t >= .4: gaps.append((t, tot))
+        k, out, mv = 0, [], 0
+        for g0, g1 in gaps:
+            t = g0
+            while g1 - t >= .4:
+                a, s_, e_ = pool[k % len(pool)]; k += 1; d = min(e_ - s_, g1 - t, 4.0)
+                if g1 - (t + d) < .4: d = g1 - t
+                if s_ + d > a['dur']: d = a['dur'] - s_
+                if d < .3: break
+                mk = 'V%d' % a['i']
+                if mk not in pl['media']:
+                    pl['media'][mk] = dict(path=DRV + '/' + path_of(a['vid']['dir']) + '/' + nf(a['name']), dur=a['dur'], w=a.get('w') or 1080, h=a.get('h') or 1920,
+                                          kind='video', has_audio=bool(a.get('wav')), name=nf(a['name']), S0=s0(a), grade=grade_of(a))
+                k0, k1 = BMOVES[mv % len(BMOVES)]; mv += 1
+                out.append(dict(media=mk, src=round(s_, 3), t0=round(t, 3), t1=round(t + d, 3), line='B', bi=-1, hide=1, keys=[[round(t, 3)] + list(k0), [round(t + d, 3)] + list(k1)], punch_abs=[]))
+                t += d
+        pl['bhide'] = list(pl.get('bhide') or []) + out
+        if out: log('  B-roll trải dài cả video: thêm %d cảnh phụ ẩn sẵn' % len(out))
+    except Exception as e: log('  chưa lấp được B-roll:', repr(e)[:200])
+    return pl
 def thin_broll(pl, cap=.35):   # chủ dặn 12/11: cảnh phụ CHỈ khi cần – không che hết người nói (tối đa ~35 % thời lượng, không phủ liền > 4 s trừ khi bắt buộc)
     bs = list(pl.get('bshots') or [])
     if not bs: return pl
@@ -1851,6 +1913,7 @@ def thin_broll(pl, cap=.35):   # chủ dặn 12/11: cảnh phụ CHỈ khi cần
         if cov <= cap * tot: break
         drop.add(id(b)); cov -= b['t1'] - b['t0']
     pl['bshots'] = [b for b in bs if id(b) not in drop]
+    pl['bhide'] = [dict(b, hide=1) for b in bs if id(b) in drop]   # chủ dặn 21/11: cảnh phụ bị bớt vẫn nằm sẵn trên track B-roll (ẩn) để người dựng bật lại
     pl['pips'] = [p_ for p_ in pl.get('pips') or [] if any(min(p_['t1'], b['t1']) - max(p_['t0'], b['t0']) > .3 for b in pl['bshots'])]
     if drop: log('  bớt %d cảnh phụ (chỉ dùng khi cần, không che người nói)' % len(drop))
     return pl
@@ -2024,6 +2087,9 @@ def pick_cover(jb, pl, adir, me=None):   # ảnh cover: khung người nói rõ 
 RMVN = 'Remotion - video hoàn chỉnh.mp4'
 def put_extra(pf, jb, pl, proj):   # Motion graphic + Word kịch bản + cover vào CHÍNH thư mục project
     try:
+        if pl.get('sfx_mix_local') and os.path.exists(pl['sfx_mix_local']): put('Âm thanh hiệu ứng.wav', pf, open(pl['sfx_mix_local'], 'rb').read(), 'audio/wav')   # chủ dặn 21/11: 1 track SFX dài cả video
+    except Exception as e: mlog('không lưu được SFX gộp:', repr(e))
+    try:
         if pl.get('rmv_local') and os.path.exists(pl['rmv_local']): put(proj + '.mp4', pf, open(pl['rmv_local'], 'rb').read(), 'video/mp4')   # chủ dặn 18/11: video Remotion hoàn chỉnh nằm trong thư mục project CapCut
     except Exception as e: mlog('không lưu được video Remotion:', repr(e))
     try:
@@ -2055,11 +2121,12 @@ def _publish(jb, sc, n, host, proj, rel, adir):
     if not pl: log('  bỏ kịch bản quá ngắn:', proj); return None
     pl = review(jb, sc, pl, proj, adir, mu)   # Claude Opus tự kiểm tra (xem ảnh xem trước + dòng thời gian), sửa tối đa 2 vòng
     if not pl: return None
-    pl = thin_broll(pl, PRO.get('broll_cap', .35))
+    pl = thin_broll(pl, PRO.get('broll_cap', .35)); pl['lay'] = 21   # bố cục track mới (chủ dặn 21/11)
     pl['ai_music'] = [p_['ai'] for p_ in (mu or []) if p_.get('ai')]
     del MGLOG[:]
     try: pl = add_mg(jb, sc, pl, proj, host, adir)   # motion graphic ở đoạn có số liệu / vị trí (chữ vẫn của CapCut)
     except Exception as e: mlog('add_mg hỏng:', repr(e)[:400])
+    pl = bfill(jb, pl)   # sau motion graphic: B-roll phủ kín phần còn trống (ẩn sẵn)
     if PRO.get('design'): pl = design_titles(jb, pl)   # chủ dặn 13/11: Academy giữ hiệu ứng chữ NHƯ CŨ – chỉ bộ có phong cách riêng (TVC) mới cho Claude tự chọn màu / vị trí chữ
     try:
         cf, ch_ = pick_cover(jb, pl, adir)
@@ -2082,7 +2149,7 @@ def _publish(jb, sc, n, host, proj, rel, adir):
             pl['top'] = 'RMV'; pl['rmv_local'] = rmv_
     except ClaudeWait: raise
     except Exception as e: mlog('Remotion video hoàn chỉnh hỏng:', repr(e)[:300])
-    lut_ = lut_pick(jb)
+    lut_ = lut_pick(jb); pl = sfx_mix(pl, proj, host)
     if lut_: pl['lut'] = lut_; log('  LUT màu:', lut_['name'], '–', lut_['desc'])
     pp = os.path.join(L.TMP, 'plan_%d.json' % n); json.dump(pl, open(pp, 'w'), ensure_ascii=False)
     r = subprocess.run([sys.executable, os.path.join(ENG, 'build.py'), pp], capture_output=True, text=True, timeout=600)
@@ -2328,7 +2395,16 @@ def lut_pick(jb):   # chọn LUT theo phong cách bộ dựng, khác 2 project g
         style = 'tvc' if PRO.get('punch_soft') else 'academy' if ('academy' in p or 'đào tạo' in p) else 'night' if re.search(r'đêm|night|tối', p) else 'bds'
         rec = [e.get('lut') for e in (CUR.get('hist') or []) if e.get('lut')]
         nm = luts.pick(style, rec, random.Random('%s|%s' % (CUR.get('proj'), time.time()))); CUR['lut'] = nm
-        return dict(name=nm, value=luts.LOOKS[nm][1], path=DRV + '/' + SYS_NAME + '/' + CACHE_NAME + '/LUT/' + nm + '.cube', desc=luts.LOOKS[nm][0])
+        cv = {}   # chủ dặn 21/11: xem source quay bằng máy gì (log / HLG / thường) → LUT chuyển màu đúng máy + look
+        for a in jb.get('A') or []:
+            c_ = luts.cam_conv(a.get('cam')); w_ = float(a.get('dur') or 1) * (2 if not a['vid'].get('broll') else 1); cv[c_] = cv.get(c_, 0) + w_
+        conv = max(cv, key=cv.get) if cv else ''; fn = nm + ('__' + conv if conv else '')
+        if conv:
+            fid = lut_dir()
+            if not lq("'%s' in parents and name='%s'" % (fid, fn + '.cube'), 'id'): put(fn + '.cube', fid, luts.cube(nm, conv), 'application/octet-stream'); log('  tạo LUT', fn)
+        cams = sorted({' '.join(x for x in ((a.get('cam') or {}).get('make'), (a.get('cam') or {}).get('model')) if x) for a in jb.get('A') or []} - {''})
+        return dict(name=fn, value=luts.LOOKS[nm][1] if not conv else 1.0, path=DRV + '/' + SYS_NAME + '/' + CACHE_NAME + '/LUT/' + fn + '.cube',
+                    desc=luts.LOOKS[nm][0] + (' · source %s → chuyển từ %s' % (', '.join(cams[:3]) or 'máy quay', luts.CONV[conv]) if conv else (' · source ' + ', '.join(cams[:3]) if cams else '')))
     except Exception as e: log('  không chọn được LUT:', e); return None
 def cur_save(pl):
     try: st_add(dict(t=int(time.time()), proj=CUR.get('proj'), sfx={r: [x[0] for x in v] for r, v in (CUR.get('sfx') or {}).items()}, popk=CUR.get('popk'), whgap=CUR.get('whgap'), pal=CUR.get('pal'), lut=CUR.get('lut'),

@@ -370,6 +370,48 @@ if PL.get('top') and LUTSEG: tr.append(track('adjust', [LUTSEG], name='LUT màu 
 for lane in nonover(SPEECH): tr.append(track('audio', lane, name='Giọng (người dẫn + VO duyệt)'))
 for lane in nonover(MUs): tr.append(track('audio', lane, name='Nhạc nền'))
 for lane in nonover(SFs): tr.append(track('audio', lane, name='SFX'))
+# ------------------------------------------------------------------ bố cục track mới (chủ dặn 21/11) – từ trên xuống:
+# VIDEO: video hoàn chỉnh (Remotion) · motion graphic (đối tượng, tách nền) · nền motion graphic · màu sắc + LUT · bản đồ 3D · B-roll trải dài (đoạn không nên hiện = ẩn sẵn) · A-roll đã cắt gọn (dưới cùng)
+# AUDIO: nhạc 1 · nhạc 2 · âm thanh hiệu ứng (1 track dài cả video)
+if PL.get('lay') == 21 and LAYER:
+    def lutref():
+        if not (PL.get('lut') and PL['lut'].get('path')): return []
+        lm = json.load(open(ENG + '/lut_tpl.json', encoding='utf-8')); lm['id'] = U(); lm['name'] = PL['lut'].get('name') or 'MICC LUT'; lm['request_id'] = ''
+        lm['path'] = PL['lut']['path'] + ';' + (PL['lut'].get('bundle') or 'C:/MICC_ADJ/DefaultAdjustBundle/merge_all_adjust_color'); lm['value'] = float(PL['lut'].get('value') or .5)
+        OM.setdefault('effects', []).append(lm); return [lm['id']]
+    ADJ_T2 = next(s_ for t_ in TPL['tracks'] if t_['type'] == 'adjust' for s_ in t_['segments'])
+    COL = []
+    for k, sh in enumerate(sorted(PL['shots'], key=lambda x: x['t0'])):   # 1 đoạn màu / cảnh: cân màu cảnh đó + LUT chung
+        refs = grade_mats(MEDIA[sh['media']]) + lutref()
+        if not refs: continue
+        ph = {'id': U(), 'name': 'Màu cảnh %d' % (k + 1), 'type': 'adjust', 'material_resource_id': ''}; OM.setdefault('placeholders', []).append(ph)
+        sg = copy.deepcopy(ADJ_T2); sg['id'] = U(); sg['material_id'] = ph['id']; sg['extra_material_refs'] = refs; sg['enable_lut'] = True
+        sg['target_timerange'] = {'start': us(sh['t0']), 'duration': us(sh['t1'] - sh['t0'])}; sg['source_timerange'] = None
+        sg['common_keyframes'] = []; sg['keyframe_refs'] = []; sg['group_id'] = ''; sg['raw_segment_id'] = ''; COL.append(sg)
+    BH = []
+    for sh in PL.get('bhide') or []:   # cảnh phụ ẩn sẵn: nằm trên track B-roll nhưng tắt hiển thị
+        try: sg, cl = shot_seg(sh, 0.0, grade=False); sg['visible'] = False; BH.append(sg); SHOTREC.append(dict(sh, clip=cl, hidden=1))
+        except Exception as e: E.append('bhide %r' % e)
+    def full(key, name):   # video dài cả timeline (Remotion / motion graphic / nền)
+        return track('video', [vseg(PL[key], 0.0, 0.0, TOTAL, 0.0, [(0.0, 1.0, 0.0, 0.0)])], flag=2, name=name) if PL.get(key) in MEDIA else None
+    tr = [track('video', V1, name='A-ROLL – người nói đã cắt gọn (tiếng gốc)')]
+    for k, lane in enumerate(nonover(BSEGS + BH)): tr.append(track('video', lane, flag=2, name='B-ROLL trải dài cả video (bật/tắt từng đoạn)' + (' %d' % (k + 1) if k else '')))
+    MAPS = []
+    for mp in PL.get('maps') or []:
+        if mp.get('media') in MEDIA: MAPS.append(vseg(mp['media'], mp.get('src', 0.0), mp['t0'], mp['t1'], 0.0, [(mp['t0'], 1.0, 0.0, 0.0)]))
+    for lane in nonover(MAPS): tr.append(track('video', lane, flag=2, name='BẢN ĐỒ 3D'))
+    if COL: tr.append(track('adjust', COL, name='MÀU SẮC + LUT ' + ((PL.get('lut') or {}).get('name') or '')))
+    for key, nm in (('mg_bg', 'NỀN MOTION GRAPHIC'), ('mg_fg', 'MOTION GRAPHIC (đối tượng, tách nền)'), ('top', 'VIDEO HOÀN CHỈNH 9:16 (Remotion)')):
+        t_ = full(key, nm)
+        if t_: tr.append(t_)
+    for k in (0, 1):
+        lane = MUs[k::2]
+        if lane: tr.append(track('audio', lane, name='NHẠC %d' % (k + 1)))
+    if PL.get('sfx_mix'):
+        _mid = amat(PL['sfx_mix']['file'], PL['sfx_mix']['dur'], os.path.basename(PL['sfx_mix']['file'])); tr.append(track('audio', [aseg(_mid, 0.0, 0.0, min(TOTAL, PL['sfx_mix']['dur']), 1.0)], name='ÂM THANH HIỆU ỨNG (cả video)'))
+    else:
+        for lane in nonover(SFs): tr.append(track('audio', lane, name='ÂM THANH HIỆU ỨNG'))
+    REP.append('bố cục 21/11: %d B-roll hiện, %d B-roll ẩn, %d đoạn màu, %d bản đồ, mg=%s, top=%s, sfx gộp=%s' % (len(BSEGS), len(BH), len(COL), len(MAPS), bool(PL.get('mg_fg')), bool(PL.get('top')), bool(PL.get('sfx_mix'))))
 OUT['tracks'] = tr
 for i, t in enumerate(OUT['tracks']):
     for s in t['segments']:
